@@ -1,35 +1,31 @@
-# Build stage
-FROM node:20-alpine as build
+# Usa una imagen oficial de Node.js
+FROM node:18
 
+# Define el directorio de trabajo en el contenedor
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copia package.json y package-lock.json e instala TODAS las dependencias
+COPY package.json package-lock.json ./
+RUN npm install --frozen-lockfile
 
-# Install dependencies
-RUN npm ci
-
-# Copy source files
+# Copia el resto del código fuente
 COPY . .
 
-# Build the application
-RUN npm run build
+# Definir las variables de entorno en el build
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
-# Production stage
-FROM node:20-alpine
+# Construir la aplicación Vite con las variables de entorno
+RUN VITE_SUPABASE_URL=$VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY npm run build
 
-WORKDIR /app
 
-# Copy built assets and server files
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/public ./public
-COPY --from=build /app/package*.json ./
+# Instalar `serve` para servir la aplicación en producción
+RUN npm install -g serve
 
-# Install production dependencies only
-RUN npm ci --production
+# Exponer el puerto 4173 para que EasyPanel lo use
+EXPOSE 1975
 
-# Expose port
-EXPOSE 3000
-
-# Start the server
-CMD ["node", "dist/server.js"]
+# Servir la aplicación con `serve`
+CMD ["sh", "-c", "exec serve -s dist -l 1975"]
