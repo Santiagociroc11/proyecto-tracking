@@ -364,7 +364,6 @@
     }
   };
 
-  // Versión mejorada: sin sendBeacon, usando fetch con keepalive
   lt.__send_to_backend = function (data) {
     lt.__log('Backend', 'Enviando datos al backend');
     try {
@@ -383,6 +382,11 @@
       })
         .then(response => {
           lt.__log('Backend', 'Respuesta fetch', response);
+          // Para ver el contenido de la respuesta:
+          return response.json();
+        })
+        .then(data => {
+          lt.__log('Backend', 'Contenido de la respuesta', data);
         })
         .catch(error => {
           lt.__log('Backend', 'Error en fetch', error);
@@ -391,6 +395,7 @@
       lt.__log('Backend', 'Error enviando datos', e);
     }
   };
+  
 
   lt.__get_TLD = function () {
     lt.__log('Domain', 'Obteniendo dominio principal');
