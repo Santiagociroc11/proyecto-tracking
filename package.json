@@ -1,13 +1,11 @@
 {
-  "name": "tracking-platform",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "name": "tu-proyecto",
+  "version": "1.0.0",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
+    "build:frontend": "vite build",
+    "build:server": "tsc --project tsconfig.node.json",
+    "build": "npm run build:frontend && npm run build:server",
+    "start": "node dist/server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
