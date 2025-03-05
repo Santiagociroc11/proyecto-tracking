@@ -29,10 +29,10 @@ const limiter = rateLimit({
   legacyHeaders: false,
   // Configuración personalizada para obtener IP
   keyGenerator: (req) => {
-    const ip = req.ip || 
+    const forwardedFor = req.headers['x-forwarded-for'];
+    const ip = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : 
+               req.ip || 
                req.connection.remoteAddress || 
-               req.socket.remoteAddress || 
-               req.headers['x-forwarded-for']?.split(',')[0] || 
                'unknown';
     return `${ip}:${req.method}:${req.path}`;
   }
@@ -115,7 +115,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ success: false, error: 'Error interno del servidor' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.listen(PORT, '0.0.0.0', () => {
   log('Server', `Servidor escuchando en puerto ${PORT}`);
