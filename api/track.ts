@@ -121,14 +121,16 @@ async function sendFacebookConversion(
       client_user_agent: trackingEvent.user_agent || trackingEvent.event_data?.browser_info?.userAgent || null,
       fbc: commonEventData.fbc,
       fbp: commonEventData.fbp
-    },
-    // Si existe el test event code, lo agregamos para pruebas.
-    ...(product.fb_test_event_code ? { test_event_code: product.fb_test_event_code } : {})
+    }
   };
 
-  const fbPayload = {
-    data: [eventPayload]
+  // Armar el payload final, colocando test_event_code a nivel superior.
+  const fbPayload: any = {
+    data: [ eventPayload ]
   };
+  if (product.fb_test_event_code) {
+    fbPayload.test_event_code = product.fb_test_event_code;
+  }
 
   const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
   log('Facebook', 'Disparando API de conversiones', { url: fbUrl, payload: fbPayload });
@@ -149,6 +151,7 @@ async function sendFacebookConversion(
     log('Facebook', 'Error llamando API de Facebook', error);
   }
 }
+
 
 
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
