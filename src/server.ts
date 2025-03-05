@@ -38,13 +38,12 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API Routes - IMPORTANT: Define API routes BEFORE static file handling
+// API Routes - DEFINIR LAS RUTAS DE API ANTES DE SERVIR ARCHIVOS ESTÁTICOS
 const apiRouter = express.Router();
 
 // Endpoint para recibir eventos de tracking
 apiRouter.post('/track', async (req, res) => {
   log('Track', 'Recibiendo evento', req.body);
-  
   try {
     const result = await handleTrackingEvent(req.body);
     log('Track', 'Evento procesado', result);
@@ -58,14 +57,12 @@ apiRouter.post('/track', async (req, res) => {
 // Endpoint para recibir webhooks de Hotmart
 apiRouter.post('/hotmart/webhook', async (req, res) => {
   log('Hotmart', 'Recibiendo webhook', { headers: req.headers, body: req.body });
-  
   try {
     const hottok = req.headers['x-hotmart-hottok'];
     if (!hottok) {
       log('Hotmart', 'Webhook sin token');
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
-
     const result = await handleHotmartWebhook(req.body);
     log('Hotmart', 'Webhook procesado', result);
     res.json(result);
@@ -75,10 +72,10 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
   }
 });
 
-// Mount API routes
+// Montar rutas API
 app.use('/api', apiRouter);
 
-// Servir archivos estáticos
+// Servir archivos estáticos (por ejemplo, el script de tracking)
 app.use('/track.js', express.static(path.join(__dirname, '../public/track.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
@@ -88,12 +85,11 @@ app.use('/track.js', express.static(path.join(__dirname, '../public/track.js'), 
   }
 }));
 
-// Servir la aplicación React
+// Servir la aplicación React (los archivos compilados del frontend)
 app.use(express.static(path.join(__dirname, '../dist')));
 
 // Todas las demás rutas sirven index.html para el enrutamiento del lado del cliente
 app.get('*', (req, res) => {
-  // No servir index.html para rutas de API
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
@@ -107,7 +103,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 const PORT = process.env.PORT || 1975;
-
 app.listen(PORT, '0.0.0.0', () => {
   log('Server', `Servidor escuchando en puerto ${PORT}`);
 });

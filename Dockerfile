@@ -4,7 +4,7 @@ FROM node:18
 # Define el directorio de trabajo en el contenedor
 WORKDIR /app
 
-# Copia package.json y package-lock.json e instala TODAS las dependencias
+# Copia package.json y package-lock.json e instala todas las dependencias
 COPY package.json package-lock.json ./
 RUN npm install --frozen-lockfile
 
