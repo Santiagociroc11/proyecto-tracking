@@ -38,9 +38,6 @@ interface Product {
 
 const DEBUG_MODE = true;
 
-/**
- * Obtiene el producto usando el tracking_id y acumula logs.
- */
 async function getProduct(
   tracking_id: string,
   log: (context: string, message: string, data?: any) => void
@@ -72,16 +69,11 @@ async function getProduct(
   }
 }
 
-/**
- * Mapea el tipo de evento recibido al valor permitido por el ENUM en la base de datos.
- */
 function mapEventType(type: string): string {
-  // Lista de tipos permitidos según el ENUM tracking_event_type
-  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'custom'];
+  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'pago inciado'];
   
-  // Mapeo de tipos de eventos a los valores del ENUM
   const eventTypeMapping: { [key: string]: string } = {
-    'hotmart_click': 'custom',
+    'hotmart_click': 'pago iniciado',
     'pageview': 'pageview',
     'interaction': 'interaction',
     'input_change': 'input_change'
@@ -94,13 +86,9 @@ function mapEventType(type: string): string {
   return mappedType;
 }
 
-/**
- * Maneja el evento de tracking y envía todo el debug a n8n.
- */
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
   const debugLogs: any[] = [];
 
-  // Función de log que acumula y muestra mensajes.
   const log = (context: string, message: string, logData?: any) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
@@ -115,7 +103,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
 
   log('Event', 'Iniciando handleTrackingEvent', { raw_event: data });
 
-  // Validación de datos obligatorios.
   if (!data.tracking_id || !data.type || !data.visitor_id) {
     const errorMsg = 'Datos del evento incompletos';
     log('Event', errorMsg, { data });
@@ -141,7 +128,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Producto validado correctamente', { product });
 
-    // Mapea el tipo de evento antes de la inserción.
     let mappedType: string;
     try {
       mappedType = mapEventType(type);
@@ -151,7 +137,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       return { success: false, debugLogs, error: mapError instanceof Error ? mapError.message : 'Error en el mapeo del tipo de evento' };
     }
 
-    // Preparar los datos comunes para todos los eventos
     const commonEventData = {
       browser_info: data.event_data?.browser_info || {},
       fbc: data.event_data?.fbc || null,
@@ -161,7 +146,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       ...data.event_data
     };
 
-    // Insertar el evento en la base de datos.
     log('Event', 'Insertando tracking event en la base de datos', {
       product_id: product.id,
       event_type: mappedType,
@@ -198,7 +182,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Evento insertado correctamente');
 
-    // Si es un click de Hotmart, también lo registramos en la tabla específica
     if (type === 'hotmart_click') {
       log('Hotmart', 'Procesando evento hotmart_click', { event_data: commonEventData });
       const hotmartData = {
