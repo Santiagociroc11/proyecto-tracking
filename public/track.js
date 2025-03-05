@@ -2,14 +2,21 @@
   var lt = window.lt || {};
   lt.d = document;
   lt.w = window;
+  lt.retryAttempts = 3;
+  lt.retryDelay = 1000;
 
-  // Sistema de logging
+  // Sistema de logging mejorado
   lt.__log = function(context, message, data) {
+    if (!lt.__config__.debug) return;
+    
+    const timestamp = new Date().toISOString();
+    const logPrefix = `[HotAPI Tracking] [${timestamp}] [${context}]`;
+    
     if (data && data instanceof Error) {
-      console.error(`[HotAPI Tracking] Error en ${context}:`, data);
+      console.error(`${logPrefix} Error:`, data);
       console.trace();
     } else {
-      console.log(`[HotAPI Tracking] ${context}: ${message}`, data || '');
+      console.log(`${logPrefix} ${message}`, data || '');
     }
   };
 
@@ -20,46 +27,72 @@
 
   lt._v = '1.0';
   lt.__config__ = {
+    debug: false,
     campaign_fields: [
       'utm_source', 'utm_medium', 'utm_campaign', 
       'utm_term', 'utm_content'
     ],
-    iframe: window !== window.top
+    iframe: window !== window.top,
+    retryAttempts: 3,
+    retryDelay: 1000,
+    endpoints: {
+      track: '/api/track'
+    }
   };
 
   lt.accs = [];
 
-  // Storage fallback
+  // Storage con fallback mejorado
   lt.__storage = {
     data: {},
     isAvailable: false,
     init: function() {
       try {
-        // Test cookie access
-        document.cookie = "test=1";
-        var cookieEnabled = document.cookie.indexOf("test=") !== -1;
-        document.cookie = "test=1; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        
-        this.isAvailable = cookieEnabled;
-        lt.__log('Storage', 'Estado de almacenamiento', { 
-          cookies: cookieEnabled 
-        });
+        localStorage.setItem('test', '1');
+        localStorage.removeItem('test');
+        this.isAvailable = true;
+        lt.__log('Storage', 'LocalStorage disponible');
       } catch (e) {
         this.isAvailable = false;
-        lt.__log('Storage', 'Error verificando almacenamiento', e);
+        lt.__log('Storage', 'Usando fallback en memoria', e);
       }
     },
     get: function(key) {
-      if (this.isAvailable) {
-        return lt.__get_cookie(key);
+      try {
+        if (this.isAvailable) {
+          return localStorage.getItem(key);
+        }
+        return this.data[key] || null;
+      } catch (e) {
+        lt.__log('Storage', 'Error obteniendo valor', e);
+        return null;
       }
-      return this.data[key] || null;
     },
     set: function(key, value, ttl) {
-      if (this.isAvailable) {
-        lt.__set_cookie(key, value, ttl);
-      } else {
-        this.data[key] = value;
+      try {
+        if (this.isAvailable) {
+          localStorage.setItem(key, value);
+          if (ttl) {
+            const expires = Date.now() + (ttl * 60 * 1000);
+            localStorage.setItem(`${key}_expires`, expires.toString());
+          }
+        } else {
+          this.data[key] = value;
+        }
+      } catch (e) {
+        lt.__log('Storage', 'Error guardando valor', e);
+      }
+    },
+    remove: function(key) {
+      try {
+        if (this.isAvailable) {
+          localStorage.removeItem(key);
+          localStorage.removeItem(`${key}_expires`);
+        } else {
+          delete this.data[key];
+        }
+      } catch (e) {
+        lt.__log('Storage', 'Error eliminando valor', e);
       }
     }
   };
@@ -162,205 +195,8 @@
     }
   };
 
-  lt.__proc_cmd = function(k, v) {
-    lt.__log('Command', 'Procesando comando', { comando: k, valor: v });
-    try {
-      if(k === 'init') {
-        var trackingId = v;
-        if(this.accs.indexOf(trackingId) >= 0) {
-          lt.__log('Command', 'Tracking ID ya inicializado', trackingId);
-          return;
-        }
-        this.accs.push(trackingId);
-        lt.__log('Command', 'Nuevo tracking ID agregado', trackingId);
-
-        if(this.visitorId) {
-          this.__register_pv(trackingId);
-          this.__track_user_interaction(trackingId);
-        }
-      }
-      else if(k === 'event'){
-        this.__register_event(v);
-      }
-    } catch (e) {
-      lt.__log('Command', 'Error procesando comando', e);
-    }
-  };
-
-  lt.__check_session_changed = function() {
-    lt.__log('Session', 'Verificando cambios en sesión');
-    try {
-      let cookie = this.__storage.get('_ltsession');
-      lt.__log('Session', 'Cookie de sesión actual', cookie);
-
-      var current_campaign = this.__get_current_campaign();
-      var session_campaign = current_campaign;
-      var current_time = new Date().getTime();
-      var session_time = current_time;
-      this.session_id = 'sess_' + Math.random().toString(36).substr(2, 9);
-
-      if(cookie){
-        var parts = cookie.split("_");
-        if(parts.length === 3) {
-          session_time = parseInt(parts[0]);
-          session_campaign = parts[1];
-          this.session_id = parts[2];
-          lt.__log('Session', 'Sesión existente encontrada', {
-            session_time,
-            session_campaign,
-            session_id: this.session_id
-          });
-        }
-      }
-
-      var diff_seconds = (current_time - session_time) / 1000.0;
-      if(diff_seconds > (30 * 60) || (current_campaign && current_campaign !== session_campaign)){
-        this.session_id = 'sess_' + Math.random().toString(36).substr(2, 9);
-        lt.__log('Session', 'Nueva sesión creada', this.session_id);
-      }
-      
-      cookie = current_time + '_' + current_campaign + '_' + this.session_id;
-      this.__storage.set('_ltsession', cookie);
-      lt.__log('Session', 'Cookie de sesión actualizada', cookie);
-    } catch (e) {
-      lt.__log('Session', 'Error en verificación de sesión', e);
-    }
-  };
-
-  lt.__get_current_campaign = function() {
-    lt.__log('Campaign', 'Obteniendo datos de campaña');
-    try {
-      var campaign = {};
-      this.__config__.campaign_fields.forEach(field => {
-        var value = this.__url_params__[field];
-        if(value) campaign[field] = decodeURIComponent(value);
-      });
-      lt.__log('Campaign', 'Datos encontrados', campaign);
-      return Object.keys(campaign).length ? btoa(JSON.stringify(campaign)) : '';
-    } catch (e) {
-      lt.__log('Campaign', 'Error obteniendo campaña', e);
-      return '';
-    }
-  };
-
-  lt.__register_pv = function(trackingId) {
-    lt.__log('PageView', 'Registrando vista de página');
-    try {
-      var eventData = {
-        type: 'pageview',
-        tracking_id: trackingId,
-        visitor_id: this.visitorId,
-        session_id: this.session_id,
-        page_view_id: this.pvid,
-        timestamp: new Date().toISOString(),
-        url: this.__config__.iframe ? document.referrer : document.URL,
-        referrer: document.referrer || '',
-        campaign_data: this.__get_current_campaign(),
-        user_agent: navigator.userAgent,
-        screen_resolution: window.screen.width + 'x' + window.screen.height,
-        viewport_size: window.innerWidth + 'x' + window.innerHeight,
-        encoding: document.characterSet || document.charset,
-        title: document.title,
-        in_iframe: this.__config__.iframe
-      };
-
-      lt.__log('PageView', 'Datos del evento', eventData);
-      this.__send_to_backend(eventData);
-    } catch (e) {
-      lt.__log('PageView', 'Error registrando vista de página', e);
-    }
-  };
-
-  lt.__register_event = function(event) {
-    lt.__log('Event', 'Registrando evento personalizado');
-    try {
-      var eventData = typeof event === "object" ? event : { name: event };
-      lt.__log('Event', 'Datos del evento', eventData);
-      
-      this.accs.forEach(trackingId => {
-        var data = {
-          type: eventData.type || 'custom',
-          tracking_id: trackingId,
-          visitor_id: this.visitorId,
-          session_id: this.session_id,
-          page_view_id: this.pvid,
-          timestamp: new Date().toISOString(),
-          url: window.location.href,
-          event_data: eventData,
-          in_iframe: this.__config__.iframe
-        };
-
-        this.__send_to_backend(data);
-      });
-    } catch (e) {
-      lt.__log('Event', 'Error registrando evento', e);
-    }
-  };
-
-  lt.__track_user_interaction = function(trackingId) {
-    lt.__log('Interaction', 'Iniciando tracking de interacciones');
-    try {
-      document.addEventListener('click', (event) => {
-        const target = event.target.closest('a');
-        if (target && target.href && target.href.includes('hotmart')) {
-          event.preventDefault();
-          lt.__log('Interaction', 'Click en enlace Hotmart', target.href);
-          
-          const { fbc, fbp } = this.__getFbcFbp();
-          const browserInfo = {
-            userAgent: navigator.userAgent,
-            platform: navigator.platform,
-            language: navigator.language,
-            cookiesEnabled: navigator.cookieEnabled
-          };
-
-          const hotmartData = {
-            type: 'hotmart_click',
-            visitor_id: this.visitorId,
-            session_id: this.session_id,
-            page_view_id: this.pvid,
-            url: target.href,
-            fbc: fbc,
-            fbp: fbp,
-            browser_info: browserInfo,
-            utm_data: this.__get_utm_data(),
-            in_iframe: this.__config__.iframe
-          };
-
-          lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
-          this.__register_event(hotmartData);
-
-          const urlWithId = new URL(target.href);
-          urlWithId.searchParams.append('xcod', this.visitorId);
-          lt.__log('Interaction', 'Redirigiendo a', urlWithId.toString());
-          window.location.assign(urlWithId.toString());
-        }
-      });
-    } catch (e) {
-      lt.__log('Interaction', 'Error en tracking de interacciones', e);
-    }
-  };
-
-  lt.__get_utm_data = function() {
-    lt.__log('UTM', 'Obteniendo datos UTM');
-    try {
-      const utmParams = {};
-      const searchParams = new URLSearchParams(window.location.search);
-      
-      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(param => {
-        utmParams[param] = searchParams.get(param) || '-';
-      });
-      
-      lt.__log('UTM', 'Parámetros encontrados', utmParams);
-      return utmParams;
-    } catch (e) {
-      lt.__log('UTM', 'Error obteniendo datos UTM', e);
-      return {};
-    }
-  };
-
-  lt.__send_to_backend = function(data) {
-    lt.__log('Backend', 'Enviando datos al backend');
+  lt.__send_to_backend = async function(data, retryCount = 0) {
+    lt.__log('Backend', 'Enviando datos al backend', { data, retryCount });
     try {
       const currentScript = document.currentScript || 
         document.querySelector('script[data-tracking-id]');
@@ -373,34 +209,58 @@
       const baseUrl = scriptUrl.substring(0, scriptUrl.lastIndexOf('/track.js'));
       lt.__log('Backend', 'URL base detectada', baseUrl);
       
-      const sendBeacon = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
+      const headers = {
+        'Content-Type': 'application/json',
+        'X-Tracking-ID': data.tracking_id,
+        'X-Visitor-ID': data.visitor_id
+      };
+
+      const payload = JSON.stringify(data);
       
-      if (sendBeacon) {
-        lt.__log('Backend', 'Usando sendBeacon');
-        const blob = new Blob([JSON.stringify(data)], {
-          type: 'application/json'
-        });
-        const success = sendBeacon(`${baseUrl}/api/track`, blob);
-        lt.__log('Backend', 'Resultado sendBeacon', success);
-      } else {
-        lt.__log('Backend', 'Usando fetch');
-        fetch(`${baseUrl}/api/track`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data),
-          keepalive: true
-        }).then(response => {
-          lt.__log('Backend', 'Respuesta fetch', response.status);
-        }).catch(error => {
-          lt.__log('Backend', 'Error en fetch', error);
-        });
+      try {
+        if (navigator.sendBeacon) {
+          lt.__log('Backend', 'Usando sendBeacon');
+          const blob = new Blob([payload], { type: 'application/json' });
+          const success = navigator.sendBeacon(`${baseUrl}/api/track`, blob);
+          
+          if (success) {
+            lt.__log('Backend', 'SendBeacon exitoso');
+            return;
+          }
+          throw new Error('SendBeacon falló');
+        }
+      } catch (e) {
+        lt.__log('Backend', 'Error con sendBeacon, usando fetch', e);
       }
-    } catch (e) {
-      lt.__log('Backend', 'Error enviando datos', e);
+
+      const response = await fetch(`${baseUrl}/api/track`, {
+        method: 'POST',
+        headers,
+        body: payload,
+        keepalive: true
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      lt.__log('Backend', 'Respuesta del servidor', result);
+
+    } catch (error) {
+      lt.__log('Backend', 'Error enviando datos', error);
+
+      if (retryCount < lt.retryAttempts) {
+        lt.__log('Backend', `Reintentando en ${lt.retryDelay}ms`, { attempt: retryCount + 1 });
+        setTimeout(() => {
+          lt.__send_to_backend(data, retryCount + 1);
+        }, lt.retryDelay * Math.pow(2, retryCount));
+      } else {
+        lt.__log('Backend', 'Máximo de reintentos alcanzado');
+      }
     }
   };
+
 
   lt.__get_TLD = function() {
     lt.__log('Domain', 'Obteniendo dominio principal');
