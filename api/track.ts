@@ -70,10 +70,10 @@ async function getProduct(
 }
 
 function mapEventType(type: string): string {
-  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'pago inciado'];
+  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'pago_iniciado'];
   
   const eventTypeMapping: { [key: string]: string } = {
-    'hotmart_click': 'pago iniciado',
+    'hotmart_click': 'pago_iniciado',
     'pageview': 'pageview',
     'interaction': 'interaction',
     'input_change': 'input_change'
