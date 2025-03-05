@@ -1,4 +1,4 @@
-import { supabase } from '../src/lib/supabase';
+import { supabase } from '../lib/supabase-server.js';
 
 interface TrackingEvent {
   tracking_id: string;
@@ -171,22 +171,6 @@ export async function handleTrackingEvent(data: TrackingEvent) {
       }
 
       log('Hotmart', 'Click guardado exitosamente', hotmartData);
-
-      // Enviar evento a Facebook
-      try {
-        await sendToFacebookConversionsAPI(product.id, {
-          event_name: 'InitiateCheckout',
-          event_data: data.event_data,
-          ip: data.event_data?.browser_info?.ip,
-          user_agent: data.event_data?.browser_info?.userAgent,
-          fbc: data.event_data?.fbc,
-          fbp: data.event_data?.fbp
-        });
-        log('Facebook', 'Evento enviado exitosamente');
-      } catch (fbError) {
-        log('Facebook', 'Error enviando evento', fbError);
-        // No lanzamos el error para no interrumpir el flujo principal
-      }
     }
 
     log('Event', 'Evento procesado exitosamente');

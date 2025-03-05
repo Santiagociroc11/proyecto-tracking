@@ -1,4 +1,4 @@
-import { supabase } from '../src/lib/supabase';
+import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto';
 
 interface HotmartEvent {

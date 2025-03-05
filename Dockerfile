@@ -1,30 +1,36 @@
-# Usa una imagen oficial de Node.js
-FROM node:18
+# Build stage
+FROM node:18-alpine as builder
 
-# Define el directorio de trabajo en el contenedor
 WORKDIR /app
 
-# Copia package.json y package-lock.json e instala todas las dependencias
-COPY package.json package-lock.json ./
-RUN npm install --frozen-lockfile
+# Copy package files
+COPY package*.json ./
 
-# Copia el resto del código fuente
+# Install dependencies
+RUN npm ci
+
+# Copy source files
 COPY . .
 
-# Define las variables de entorno para el build
-ARG VITE_SUPABASE_URL
-ARG VITE_SUPABASE_ANON_KEY
-ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
-ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
-
-# Define el puerto para el servidor Express
-ENV PORT=1975
-
-# Construye el frontend y el backend
+# Build frontend and server
 RUN npm run build
 
-# Exponer el puerto 1975
-EXPOSE 1975
+# Production stage
+FROM node:18-alpine
 
-# Arranca el servidor Express compilado
+WORKDIR /app
+
+# Copy package files and install production dependencies
+COPY package*.json ./
+RUN npm ci --production
+
+# Copy built files from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
+COPY .env .env
+
+# Expose port
+EXPOSE 3000
+
+# Start the server
 CMD ["node", "dist/server.js"]
