@@ -234,32 +234,34 @@
   lt.__register_pv = function (trackingId) {
     lt.__log('PageView', 'Registrando vista de página');
     try {
-      const maxAttempts = 10; // Maximum attempts to check for cookies
+      const maxAttempts = 10; // Intentos máximos
       let attempts = 0;
-
-      const waitForCookies = () => {
+  
+      const waitForData = () => {
         attempts++;
-        lt.__log('Facebook', `Checking cookies, attempt ${attempts} of ${maxAttempts}`);
-
+        lt.__log('PageView', `Verificando cookies e IP, intento ${attempts} de ${maxAttempts}`);
+  
         const { fbc, fbp } = this.__getFbcFbp();
-        lt.__log('Facebook', 'Cookies found in check', { fbc, fbp });
-
-        if ((fbc && fbp) || attempts >= maxAttempts) {
-          lt.__log('Facebook', 'Proceeding with registration after cookie check.');
-          // Proceed with registering pageview NOW, with fbc and fbp obtained (or default values if still not available)
-          const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp(); // Get one last time to ensure latest values.
-
-          // Get UTM data
+        lt.__log('PageView', 'Cookies obtenidas en chequeo', { fbc, fbp });
+  
+        // Verificamos que las cookies estén disponibles y que la IP esté cargada.
+        if (((fbc && fbp) && this.IP) || attempts >= maxAttempts) {
+          if (!this.IP) {
+            lt.__log('PageView', 'IP no obtenida tras varios intentos, usando valor por defecto');
+          } else {
+            lt.__log('PageView', 'Datos requeridos disponibles');
+          }
+  
+          // Volvemos a obtener las últimas cookies
+          const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp();
           const utmData = this.__get_utm_data();
-
-          // Get browser info
           const browserInfo = {
             userAgent: navigator.userAgent,
             platform: navigator.platform,
             language: navigator.language,
             cookiesEnabled: navigator.cookieEnabled
           };
-
+  
           const eventData = {
             type: 'pageview',
             tracking_id: trackingId,
@@ -282,25 +284,24 @@
               fbp: finalFbp,
               in_iframe: this.__config__.iframe,
               campaign_data: this.__get_current_campaign(),
-              ip: this.IP || '-'  // Aquí se añade la IP
+              ip: this.IP || '-'  // Incluye la IP o '-' si sigue sin estar
             }
           };
-
+  
           lt.__log('PageView', 'Datos del evento', eventData);
           this.__send_to_backend(eventData);
-
         } else {
-          lt.__log('Facebook', 'Cookies not yet available, re-checking in 500ms...');
-          setTimeout(waitForCookies, 500); // Re-check after 500ms
+          lt.__log('PageView', 'Datos no disponibles aún, reintentando en 500ms...');
+          setTimeout(waitForData, 500);
         }
       };
-
-      waitForCookies(); // Start the cookie checking process
-
+  
+      waitForData();
     } catch (e) {
       lt.__log('PageView', 'Error registrando vista de página', e);
     }
   };
+  
 
   lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
