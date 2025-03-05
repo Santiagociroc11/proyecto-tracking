@@ -33,42 +33,94 @@ interface TrackingEvent {
 }
 
 interface Product {
-  id: string;
-  user_id: string;
+  id: number | string;
   active: boolean;
-  fb_pixel_id: string | null;
-  fb_access_token: string | null;
-  fb_test_event_code: string | null;
+  fb_pixel_id?: string | null;
+  fb_access_token?: string | null;
+  fb_test_event_code?: string | null;
+  user_id: string;
+}
+
+interface ValidationResult {
+  valid: boolean;
+  error?: string;
+  subscription?: any;
+  monthlyEventsCount?: number;
+  monthlyEventsLimit?: number;
 }
 
 const DEBUG_MODE = true;
 
 type LogFunction = (context: string, message: string, data?: any) => void;
 
+async function validateUserStatus(
+  userId: string,
+  log: LogFunction
+): Promise<ValidationResult> {
+  try {
+    log('UserStatus', 'Validando estado del usuario', { userId });
+
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('active')
+      .eq('id', userId)
+      .single();
+
+    if (userError) {
+      log('UserStatus', 'Error verificando estado del usuario', userError);
+      return { valid: false, error: 'Error validando estado del usuario' };
+    }
+
+    if (!user || !user.active) {
+      log('UserStatus', 'Usuario inactivo o no encontrado', { user });
+      return { valid: false, error: 'Usuario inactivo' };
+    }
+
+    log('UserStatus', 'Usuario activo', { user });
+    return { valid: true };
+  } catch (err) {
+    log('UserStatus', 'Error inesperado validando estado del usuario', err);
+    return { valid: false, error: 'Error interno validando estado del usuario' };
+  }
+}
+
 async function validateTracking(
   userId: string,
   productId: string,
   log: LogFunction
-): Promise<{ valid: boolean; error?: string; type?: string; plan?: string }> {
+): Promise<ValidationResult> {
   try {
-    log('Validation', 'Validating tracking permissions', { userId, productId });
-    
-    const { data, error } = await supabase
-      .rpc('validate_tracking', {
-        p_user_id: userId,
-        p_product_id: productId
-      });
-
-    if (error) {
-      log('Validation', 'Error validating tracking', error);
-      return { valid: false, error: 'Error validating tracking permissions' };
+    // Primero validamos el estado del usuario
+    const userValidation = await validateUserStatus(userId, log);
+    if (!userValidation.valid) {
+      return userValidation;
     }
 
-    log('Validation', 'Validation result', data);
-    return data;
+    // Validar el producto específico
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select('active')
+      .eq('id', productId)
+      .eq('user_id', userId)
+      .single();
+
+    if (productError || !product) {
+      log('Validation', 'Error validando producto', { productId, error: productError });
+      return { valid: false, error: 'Producto no encontrado' };
+    }
+
+    if (!product.active) {
+      log('Validation', 'Producto inactivo', { productId });
+      return { valid: false, error: 'Producto inactivo' };
+    }
+
+    return {
+      ...userValidation,
+      valid: true
+    };
   } catch (err) {
-    log('Validation', 'Unexpected error in validation', err);
-    return { valid: false, error: 'Internal validation error' };
+    log('Validation', 'Error inesperado en validación', err);
+    return { valid: false, error: 'Error interno de validación' };
   }
 }
 
@@ -81,7 +133,7 @@ async function logTrackingAttempt(
   log: LogFunction
 ): Promise<void> {
   try {
-    log('Logging', 'Recording tracking attempt', {
+    log('Logging', 'Registrando intento de tracking', {
       userId,
       productId,
       eventType,
@@ -89,17 +141,41 @@ async function logTrackingAttempt(
       errorMessage
     });
 
-    await supabase.rpc('log_tracking_attempt', {
-      p_user_id: userId,
-      p_product_id: productId,
-      p_event_type: eventType,
-      p_status: status,
-      p_error_message: errorMessage
+    const { error } = await supabase
+      .from('tracking_logs')
+      .insert([{
+        user_id: userId,
+        product_id: productId,
+        event_type: eventType,
+        status,
+        error_message: errorMessage,
+        created_at: new Date().toISOString()
+      }]);
+
+    if (error) {
+      log('Logging', 'Error registrando intento', error);
+    } else {
+      log('Logging', 'Intento registrado exitosamente');
+    }
+  } catch (err) {
+    log('Logging', 'Error inesperado registrando intento', err);
+  }
+}
+
+async function updateUserEventCount(
+  userId: string,
+  log: LogFunction
+): Promise<void> {
+  try {
+    const { error } = await supabase.rpc('increment_user_events_count', {
+      p_user_id: userId
     });
 
-    log('Logging', 'Tracking attempt recorded successfully');
+    if (error) {
+      log('EventCount', 'Error actualizando contador de eventos', error);
+    }
   } catch (err) {
-    log('Logging', 'Error recording tracking attempt', err);
+    log('EventCount', 'Error inesperado actualizando contador', err);
   }
 }
 
@@ -110,7 +186,7 @@ async function sendFacebookConversion(
 ): Promise<void> {
   try {
     if (!product.fb_pixel_id || !product.fb_access_token) {
-      log('Facebook', 'Facebook Pixel ID or Access Token not configured');
+      log('Facebook', 'Facebook Pixel ID o Access Token no configurados');
       return;
     }
 
@@ -133,7 +209,7 @@ async function sendFacebookConversion(
     }
 
     const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
-    log('Facebook', 'Sending conversion event', { url: fbUrl, payload: eventPayload });
+    log('Facebook', 'Enviando evento de conversión', { url: fbUrl, payload: eventPayload });
 
     const response = await fetch(fbUrl, {
       method: 'POST',
@@ -143,21 +219,22 @@ async function sendFacebookConversion(
 
     if (!response.ok) {
       const errorData = await response.json();
-      log('Facebook', 'Error from Facebook API', errorData);
-      throw new Error(`Facebook API error: ${response.status}`);
+      log('Facebook', 'Error de API de Facebook', errorData);
+      throw new Error(`Error de API de Facebook: ${response.status}`);
     }
 
     const result = await response.json();
-    log('Facebook', 'Facebook API response', result);
+    log('Facebook', 'Respuesta de API de Facebook', result);
   } catch (error) {
-    log('Facebook', 'Error sending Facebook conversion', error);
+    log('Facebook', 'Error enviando conversión a Facebook', error);
   }
 }
 
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ 
   success: boolean; 
   debugLogs: any[]; 
-  error?: string 
+  error?: string;
+  validation?: ValidationResult;
 }> {
   const debugLogs: any[] = [];
 
@@ -197,20 +274,26 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: 'Producto no encontrado' };
     }
 
-    const validation = await validateTracking(product.user_id, product.id, log);
+    const validation = await validateTracking(product.user_id, product.id.toString(), log);
+
+    // Siempre registramos el intento, incluso si falla la validación
+    await logTrackingAttempt(
+      product.user_id,
+      product.id.toString(),
+      data.type,
+      validation.valid ? 'success' : 'failed',
+      validation.error,
+      log
+    );
 
     if (!validation.valid) {
-      await logTrackingAttempt(
-        product.user_id,
-        product.id,
-        data.type,
-        'failed',
-        validation.error,
-        log
-      );
-      
-      log('Event', 'Tracking validation failed', validation);
-      return { success: false, debugLogs, error: validation.error };
+      log('Event', 'Validación de tracking fallida', validation);
+      return { 
+        success: false, 
+        debugLogs, 
+        error: validation.error,
+        validation 
+      };
     }
 
     const eventData = {
@@ -227,49 +310,44 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       event_data: {
         ...data.event_data,
         tracking_validation: {
-          type: validation.type,
-          plan: validation.plan
+          subscription_plan: validation.subscription?.plan,
+          events_count: validation.monthlyEventsCount,
+          events_limit: validation.monthlyEventsLimit
         }
       }
     };
 
-    log('Event', 'Inserting tracking event', eventData);
+    log('Event', 'Insertando evento de tracking', eventData);
 
     const { error: insertError } = await supabase
       .from('tracking_events')
       .insert([eventData]);
 
     if (insertError) {
-      await logTrackingAttempt(
-        product.user_id,
-        product.id,
-        data.type,
-        'failed',
-        insertError.message,
-        log
-      );
-      
-      log('Event', 'Error inserting event', insertError);
-      return { success: false, debugLogs, error: 'Error registrando evento' };
+      log('Event', 'Error insertando evento', insertError);
+      return { 
+        success: false, 
+        debugLogs, 
+        error: 'Error registrando evento',
+        validation 
+      };
     }
+
+    // Actualizar el contador de eventos del usuario
+    await updateUserEventCount(product.user_id, log);
 
     // Si es un hotmart_click, enviar conversión a Facebook
     if (data.type === 'hotmart_click') {
-      log('Facebook', 'Processing hotmart_click', { event_data: data.event_data });
+      log('Facebook', 'Procesando hotmart_click', { event_data: data.event_data });
       await sendFacebookConversion(product, data, log);
     }
 
-    await logTrackingAttempt(
-      product.user_id,
-      product.id,
-      data.type,
-      'success',
-      undefined,
-      log
-    );
-
     log('Event', 'Evento procesado exitosamente');
-    return { success: true, debugLogs };
+    return { 
+      success: true, 
+      debugLogs,
+      validation 
+    };
   } catch (error) {
     log('Event', 'Error procesando evento', error);
     return { 

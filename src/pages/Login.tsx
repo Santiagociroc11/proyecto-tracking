@@ -18,10 +18,23 @@ export default function Login() {
 
     try {
       await signIn(email, password);
+      
+      // Check if user is active
+      const { data: user, error: userError } = await supabase
+        .from('users')
+        .select('active')
+        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .single();
+
+      if (userError || !user?.active) {
+        await supabase.auth.signOut();
+        throw new Error('Usuario inactivo. Por favor contacta al soporte.');
+      }
+
       navigate('/dashboard');
     } catch (err) {
-      setError('Error al iniciar sesión. Por favor verifica tus credenciales.');
       console.error('Login error:', err);
+      setError(err instanceof Error ? err.message : 'Error al iniciar sesión. Por favor verifica tus credenciales.');
     } finally {
       setLoading(false);
     }

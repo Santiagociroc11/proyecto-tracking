@@ -3,7 +3,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, isActive } = useAuth();
 
   if (loading) {
     return (
@@ -13,7 +13,7 @@ export default function PrivateRoute({ children }: { children: React.ReactNode }
     );
   }
 
-  if (!user) {
+  if (!user || !isActive) {
     return <Navigate to="/login" />;
   }
 
