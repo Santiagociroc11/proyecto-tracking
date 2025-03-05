@@ -10,67 +10,103 @@ interface TrackingEvent {
   event_data: any;
 }
 
-// Sistema de logging
-function log(context: string, message: string, data?: any) {
-  const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [HotAPI Backend] [${context}] ${message}`, data || '');
+interface Product {
+  id: number | string;
+  active: boolean;
 }
 
-// Función para obtener producto
-async function getProduct(tracking_id: string) {
-  log('DB', 'Buscando producto', { tracking_id });
+// Flag de depuración para activar logs extra (¡debug mode activado al 100%!)
+const DEBUG_MODE = true;
+
+/**
+ * Sistema de logging robusto y poético.
+ * Imprime logs detallados, incluyendo stacks de error cuando sea necesario.
+ */
+function log(context: string, message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] [HotAPI Backend] [${context}] ${message}`;
+  if (DEBUG_MODE) {
+    console.debug(logMessage, data ? JSON.stringify(data, null, 2) : '');
+  } else {
+    console.log(logMessage, data || '');
+  }
+}
+
+/**
+ * Obtiene un producto basado en el tracking_id.
+ * Se registra cada paso del proceso y se captura todo el debug posible.
+ */
+async function getProduct(tracking_id: string): Promise<Product | null> {
+  log('DB', 'Iniciando getProduct', { tracking_id });
 
   try {
+    log('DB', 'Ejecutando consulta para obtener producto', { tracking_id });
     const { data: product, error } = await supabase
       .from('products')
       .select('id, active')
       .eq('tracking_id', tracking_id)
       .single();
-
+    
+    log('DB', 'Consulta ejecutada', { product, error });
+    
     if (error) {
       log('DB', 'Error obteniendo producto', error);
       return null;
     }
-
     if (!product) {
       log('DB', 'Producto no encontrado', { tracking_id });
       return null;
     }
 
     log('DB', 'Producto encontrado', { product });
-    return product;
-  } catch (error) {
-    log('DB', 'Error inesperado en getProduct', error);
+    return product as Product;
+  } catch (err) {
+    log('DB', 'Error inesperado en getProduct', err instanceof Error ? err.stack : err);
     return null;
   }
 }
 
-export async function handleTrackingEvent(data: TrackingEvent) {
-  log('Event', 'Recibiendo nuevo evento', {
-    type: data.type,
-    tracking_id: data.tracking_id,
-    visitor_id: data.visitor_id
-  });
+/**
+ * Maneja el evento de tracking con validaciones, inserciones y logs superdetallados.
+ */
+export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean }> {
+  log('Event', 'Iniciando handleTrackingEvent', { raw_event: data });
+
+  // Validación básica del evento: nada de datos a medias
+  if (!data.tracking_id || !data.type || !data.visitor_id) {
+    const errorMsg = 'Datos del evento incompletos';
+    log('Event', errorMsg, { data });
+    throw new Error(errorMsg);
+  }
 
   const { tracking_id, type } = data;
+  log('Event', 'Datos básicos validados', { tracking_id, type, visitor_id: data.visitor_id });
 
   try {
-    // Verificar producto
+    log('Event', 'Verificando producto asociado', { tracking_id });
     const product = await getProduct(tracking_id);
-    
     if (!product) {
-      log('Event', 'Producto no encontrado', { tracking_id });
-      throw new Error('Producto no encontrado');
+      const errMsg = 'Producto no encontrado';
+      log('Event', errMsg, { tracking_id });
+      throw new Error(errMsg);
     }
-
     if (!product.active) {
-      log('Event', 'Producto inactivo', { tracking_id, product });
-      throw new Error('Producto inactivo');
+      const errMsg = 'Producto inactivo';
+      log('Event', errMsg, { tracking_id, product });
+      throw new Error(errMsg);
     }
-
     log('Event', 'Producto validado correctamente', { product });
 
     // Insertar evento en la base de datos
+    log('Event', 'Insertando tracking event en la base de datos', {
+      product_id: product.id,
+      event_type: type,
+      visitor_id: data.visitor_id,
+      session_id: data.session_id,
+      page_view_id: data.page_view_id,
+      url: data.url,
+      event_data: data.event_data
+    });
     const { error: insertError } = await supabase
       .from('tracking_events')
       .insert([{
@@ -87,13 +123,11 @@ export async function handleTrackingEvent(data: TrackingEvent) {
       log('Event', 'Error insertando evento', insertError);
       throw insertError;
     }
-
     log('Event', 'Evento insertado correctamente');
 
-    // Procesar eventos especiales
+    // Procesar eventos especiales: por ejemplo, clicks de Hotmart
     if (type === 'hotmart_click') {
-      log('Hotmart', 'Procesando click de Hotmart', data.event_data);
-
+      log('Hotmart', 'Procesando evento hotmart_click', { event_data: data.event_data });
       const hotmartData = {
         product_id: product.id,
         visitor_id: data.visitor_id,
@@ -104,6 +138,7 @@ export async function handleTrackingEvent(data: TrackingEvent) {
         utm_data: data.event_data?.utm_data
       };
 
+      log('Hotmart', 'Insertando hotmart click en la base de datos', { hotmartData });
       const { error: clickError } = await supabase
         .from('hotmart_clicks')
         .insert([hotmartData]);
@@ -112,14 +147,13 @@ export async function handleTrackingEvent(data: TrackingEvent) {
         log('Hotmart', 'Error guardando click', clickError);
         throw clickError;
       }
-
-      log('Hotmart', 'Click guardado exitosamente', hotmartData);
+      log('Hotmart', 'Click guardado exitosamente', { hotmartData });
     }
 
-    log('Event', 'Evento procesado exitosamente');
+    log('Event', 'Evento procesado exitosamente', { tracking_id, type });
     return { success: true };
-  } catch (error) {
-    log('Event', 'Error procesando evento', error);
-    throw error;
+  } catch (err) {
+    log('Event', 'Error procesando evento', err instanceof Error ? err.stack : err);
+    throw err;
   }
 }
