@@ -7,7 +7,28 @@ interface TrackingEvent {
   session_id: string;
   page_view_id: string;
   url: string;
-  event_data: any;
+  referrer?: string;
+  user_agent?: string;
+  screen_resolution?: string;
+  viewport_size?: string;
+  event_data: {
+    browser_info?: {
+      userAgent?: string;
+      platform?: string;
+      language?: string;
+      cookiesEnabled?: boolean;
+    };
+    fbc?: string;
+    fbp?: string;
+    utm_data?: {
+      utm_source?: string;
+      utm_medium?: string;
+      utm_campaign?: string;
+      utm_content?: string;
+      utm_term?: string;
+    };
+    [key: string]: any;
+  };
 }
 
 interface Product {
@@ -130,6 +151,16 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       return { success: false, debugLogs, error: mapError instanceof Error ? mapError.message : 'Error en el mapeo del tipo de evento' };
     }
 
+    // Preparar los datos comunes para todos los eventos
+    const commonEventData = {
+      browser_info: data.event_data?.browser_info || {},
+      fbc: data.event_data?.fbc || null,
+      fbp: data.event_data?.fbp || null,
+      utm_data: data.event_data?.utm_data || {},
+      original_type: type,
+      ...data.event_data
+    };
+
     // Insertar el evento en la base de datos.
     log('Event', 'Insertando tracking event en la base de datos', {
       product_id: product.id,
@@ -138,8 +169,13 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       session_id: data.session_id,
       page_view_id: data.page_view_id,
       url: data.url,
-      event_data: data.event_data
+      referrer: data.referrer,
+      user_agent: data.user_agent || data.event_data?.browser_info?.userAgent,
+      screen_resolution: data.screen_resolution,
+      viewport_size: data.viewport_size,
+      event_data: commonEventData
     });
+
     const { error: insertError } = await supabase
       .from('tracking_events')
       .insert([{
@@ -149,10 +185,11 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
         session_id: data.session_id,
         page_view_id: data.page_view_id,
         url: data.url,
-        event_data: {
-          ...data.event_data,
-          original_type: type // Guardamos el tipo original en los datos del evento
-        }
+        referrer: data.referrer,
+        user_agent: data.user_agent || data.event_data?.browser_info?.userAgent,
+        screen_resolution: data.screen_resolution,
+        viewport_size: data.viewport_size,
+        event_data: commonEventData
       }]);
 
     if (insertError) {
@@ -161,17 +198,18 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Evento insertado correctamente');
 
-    // Procesar eventos especiales, como el click de Hotmart.
+    // Si es un click de Hotmart, también lo registramos en la tabla específica
     if (type === 'hotmart_click') {
-      log('Hotmart', 'Procesando evento hotmart_click', { event_data: data.event_data });
+      log('Hotmart', 'Procesando evento hotmart_click', { event_data: commonEventData });
       const hotmartData = {
         product_id: product.id,
         visitor_id: data.visitor_id,
         url: data.url,
-        fbc: data.event_data?.fbc,
-        fbp: data.event_data?.fbp,
-        browser_info: data.event_data?.browser_info,
-        utm_data: data.event_data?.utm_data
+        fbc: commonEventData.fbc,
+        fbp: commonEventData.fbp,
+        browser_info: commonEventData.browser_info,
+        utm_data: commonEventData.utm_data,
+        timestamp: new Date()
       };
 
       log('Hotmart', 'Insertando hotmart click en la base de datos', { hotmartData });
