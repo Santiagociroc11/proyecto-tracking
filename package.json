@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "build:frontend": "vite build",
-    "build:server": "tsc --project tsconfig.node.json",
+    "build:server": "tsc --project tsconfig.server.json",
     "build": "npm run build:frontend && npm run build:server",
     "start": "node dist/server.js"
   },
