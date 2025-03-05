@@ -7,10 +7,10 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": ".",
     "types": ["node"],
     "allowJs": true
   },
-  "include": ["src/server.ts", "src/api/**/*.ts"],
+  "include": ["server.ts", "api/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
