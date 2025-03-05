@@ -27,7 +27,6 @@ const limiter = rateLimit({
   max: 100, // límite de 100 solicitudes por minuto
   standardHeaders: true,
   legacyHeaders: false,
-  // Configuración personalizada para obtener IP
   keyGenerator: (req) => {
     const forwardedFor = req.headers['x-forwarded-for'];
     const ip = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : 
@@ -38,15 +37,15 @@ const limiter = rateLimit({
   }
 });
 
-// Configurar CORS específicamente
+// Configurar CORS
 app.use(cors({
-  origin: '*', // En producción, configura los dominios permitidos
+  origin: '*',
   methods: ['GET', 'POST'],
   allowedHeaders: ['Content-Type', 'x-hotmart-hottok']
 }));
 
-app.use(express.json({ limit: '1mb' })); // Limitar tamaño de payload
-app.use(limiter); // Aplicar rate limiting
+app.use(express.json({ limit: '1mb' }));
+app.use(limiter);
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -56,7 +55,6 @@ app.get('/health', (req, res) => {
 // API Routes
 const apiRouter = express.Router();
 
-// Endpoint para recibir eventos de tracking
 apiRouter.post('/track', async (req, res) => {
   log('Track', 'Recibiendo evento', req.body);
   try {
@@ -69,7 +67,6 @@ apiRouter.post('/track', async (req, res) => {
   }
 });
 
-// Endpoint para recibir webhooks de Hotmart
 apiRouter.post('/hotmart/webhook', async (req, res) => {
   log('Hotmart', 'Recibiendo webhook', { headers: req.headers, body: req.body });
   try {
@@ -87,14 +84,13 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
   }
 });
 
-// Mount API routes
 app.use('/api', apiRouter);
 
 // Serve static files
+const staticPath = path.join(__dirname, '..', 'client');
 const publicPath = path.join(__dirname, '..', 'public');
-const distPath = path.join(__dirname, '..', 'dist');
 
-// Serve the tracking script
+// Serve tracking script
 app.use('/track.js', express.static(path.join(publicPath, 'track.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
@@ -104,15 +100,15 @@ app.use('/track.js', express.static(path.join(publicPath, 'track.js'), {
   }
 }));
 
-// Serve static assets from the Vite build
-app.use(express.static(distPath));
+// Serve static assets
+app.use(express.static(staticPath));
 
 // Handle client-side routing
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
-  res.sendFile(path.join(distPath, 'index.html'));
+  res.sendFile(path.join(staticPath, 'index.html'));
 });
 
 // Error handling middleware
