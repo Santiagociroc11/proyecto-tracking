@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { Activity } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -18,15 +19,26 @@ export default function Login() {
 
     try {
       await signIn(email, password);
-      
-      // Check if user is active
-      const { data: user, error: userError } = await supabase
+
+      // Get the current user after sign in
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) {
+        throw new Error('Error obteniendo información del usuario');
+      }
+
+      // Check if user is active in our database
+      const { data: userData, error: dbError } = await supabase
         .from('users')
         .select('active')
-        .eq('id', (await supabase.auth.getUser()).data.user?.id)
+        .eq('id', user.id)
         .single();
 
-      if (userError || !user?.active) {
+      if (dbError) {
+        await supabase.auth.signOut();
+        throw new Error('Error verificando estado del usuario');
+      }
+
+      if (!userData?.active) {
         await supabase.auth.signOut();
         throw new Error('Usuario inactivo. Por favor contacta al soporte.');
       }
@@ -34,7 +46,11 @@ export default function Login() {
       navigate('/dashboard');
     } catch (err) {
       console.error('Login error:', err);
-      setError(err instanceof Error ? err.message : 'Error al iniciar sesión. Por favor verifica tus credenciales.');
+      setError(
+        err instanceof Error 
+          ? err.message 
+          : 'Error al iniciar sesión. Por favor verifica tus credenciales.'
+      );
     } finally {
       setLoading(false);
     }
