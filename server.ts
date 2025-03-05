@@ -29,7 +29,7 @@ const limiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const forwardedFor = req.headers['x-forwarded-for'];
-    const ip = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0] : 
+    const ip = typeof forwardedFor === 'string' ? forwardedFor.split(',')[0].trim() : 
                req.ip || 
                req.connection.remoteAddress || 
                'unknown';
@@ -41,7 +41,7 @@ const limiter = rateLimit({
 app.use(cors({
   origin: '*',
   methods: ['GET', 'POST'],
-  allowedHeaders: ['Content-Type', 'x-hotmart-hottok']
+  allowedHeaders: ['Content-Type', 'x-hotmart-hottok', 'X-Tracking-ID', 'X-Visitor-ID']
 }));
 
 app.use(express.json({ limit: '1mb' }));
@@ -56,7 +56,11 @@ app.get('/health', (req, res) => {
 const apiRouter = express.Router();
 
 apiRouter.post('/track', async (req, res) => {
-  log('Track', 'Recibiendo evento', req.body);
+  log('Track', 'Recibiendo evento', {
+    headers: req.headers,
+    body: req.body
+  });
+  
   try {
     const result = await handleTrackingEvent(req.body);
     log('Track', 'Evento procesado', result);
@@ -88,10 +92,10 @@ app.use('/api', apiRouter);
 
 // Serve static files
 const staticPath = path.join(__dirname, '..', 'client');
-const publicPath = path.join(__dirname, '..', 'public');
+app.use(express.static(staticPath));
 
 // Serve tracking script
-app.use('/track.js', express.static(path.join(publicPath, 'track.js'), {
+app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -99,9 +103,6 @@ app.use('/track.js', express.static(path.join(publicPath, 'track.js'), {
     res.setHeader('X-Content-Type-Options', 'nosniff');
   }
 }));
-
-// Serve static assets
-app.use(express.static(staticPath));
 
 // Handle client-side routing
 app.get('*', (req, res) => {
