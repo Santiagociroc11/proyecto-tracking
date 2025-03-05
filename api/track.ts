@@ -55,15 +55,18 @@ async function getProduct(
  * Mapea el tipo de evento recibido al valor permitido por el ENUM en la base de datos.
  */
 function mapEventType(type: string): string {
-  // Lista de tipos permitidos (ajusta estos valores a los definidos en tu DB)
-  const allowedEventTypes = ['click', 'view', 'purchase', 'HOTMART_CLICK'];
+  // Lista de tipos permitidos según el ENUM tracking_event_type
+  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'custom'];
   
-  // Mapeo: si recibes "hotmart_click", lo transformas a "HOTMART_CLICK"
+  // Mapeo de tipos de eventos a los valores del ENUM
   const eventTypeMapping: { [key: string]: string } = {
-    'hotmart_click': 'HOTMART_CLICK'
+    'hotmart_click': 'custom',
+    'pageview': 'pageview',
+    'interaction': 'interaction',
+    'input_change': 'input_change'
   };
   
-  const mappedType = eventTypeMapping[type] || type;
+  const mappedType = eventTypeMapping[type] || 'custom';
   if (!allowedEventTypes.includes(mappedType)) {
     throw new Error(`Tipo de evento no permitido: ${type}`);
   }
@@ -146,7 +149,10 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
         session_id: data.session_id,
         page_view_id: data.page_view_id,
         url: data.url,
-        event_data: data.event_data
+        event_data: {
+          ...data.event_data,
+          original_type: type // Guardamos el tipo original en los datos del evento
+        }
       }]);
 
     if (insertError) {
