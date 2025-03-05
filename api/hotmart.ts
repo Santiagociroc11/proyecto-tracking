@@ -41,7 +41,12 @@ interface Product {
   fb_test_event_code?: string | null;
 }
 
-const DEBUG_MODE = true;
+interface TrackingEventWithProduct {
+  product_id: string;
+  visitor_id: string;
+  event_data: any;
+  products: Product;
+}
 
 async function hashData(value: string): Promise<string> {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -111,7 +116,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     // Buscar el tracking_event más reciente que coincida con el xcod
     const { data: trackingEvent, error: trackingError } = await supabase
       .from('tracking_events')
-      .select(`
+      .select<string, TrackingEventWithProduct>(`
         product_id,
         visitor_id,
         event_data,
@@ -128,21 +133,15 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       .limit(1)
       .single();
 
-    if (trackingError) {
+    if (trackingError || !trackingEvent) {
       console.error('Error buscando tracking event:', trackingError);
       return { success: false, error: 'Tracking event no encontrado' };
     }
 
-    if (!trackingEvent?.products) {
-      console.error('Producto no encontrado');
-      return { success: false, error: 'Producto no encontrado' };
-    }
-
-    const product = trackingEvent.products as Product;
-
-    if (!product.active) {
-      console.error('Producto inactivo');
-      return { success: false, error: 'Producto inactivo' };
+    const product = trackingEvent.products;
+    if (!product || !product.active) {
+      console.error('Producto no encontrado o inactivo');
+      return { success: false, error: 'Producto no encontrado o inactivo' };
     }
 
     // Registrar el evento en la base de datos
