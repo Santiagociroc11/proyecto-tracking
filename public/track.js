@@ -25,6 +25,24 @@
   };
 
   lt.accs = [];
+  lt.IP = null; // Variable para almacenar la IP
+
+  // Función para obtener la IP desde un servicio externo
+  lt.__fetchIP = function () {
+    lt.__log('IP', 'Obteniendo IP del cliente');
+    fetch("https://api.ipify.org?format=json")
+      .then(response => response.json())
+      .then(data => {
+        lt.IP = data.ip;
+        lt.__log('IP', 'IP obtenida', lt.IP);
+      })
+      .catch(err => {
+        lt.__log('IP', 'Error obteniendo IP', err);
+      });
+  };
+
+  // Inicia la obtención de la IP
+  lt.__fetchIP();
 
   // Storage fallback: cookies vs. objeto local
   lt.__storage = {
@@ -260,16 +278,16 @@
               referrer: document.referrer || '',
               utm_data: utmData,
               browser_info: browserInfo,
-              fbc: finalFbc, // Use finalFbc and finalFbp here
-              fbp: finalFbp, // Use finalFbp here
+              fbc: finalFbc,
+              fbp: finalFbp,
               in_iframe: this.__config__.iframe,
-              campaign_data: this.__get_current_campaign()
+              campaign_data: this.__get_current_campaign(),
+              ip: this.IP || '-'  // Aquí se añade la IP
             }
           };
 
           lt.__log('PageView', 'Datos del evento', eventData);
           this.__send_to_backend(eventData);
-
 
         } else {
           lt.__log('Facebook', 'Cookies not yet available, re-checking in 500ms...');
@@ -290,6 +308,8 @@
       const eventData = typeof event === "object" ? event : { name: event };
       lt.__log('Event', 'Datos del evento', eventData);
       this.accs.forEach(trackingId => {
+        // Agregamos IP a event_data si existe
+        eventData.ip = this.IP || '-';
         const data = {
           type: eventData.type || 'custom',
           tracking_id: trackingId,
@@ -333,7 +353,8 @@
             fbp: fbp,
             browser_info: browserInfo,
             utm_data: this.__get_utm_data(),
-            in_iframe: this.__config__.iframe
+            in_iframe: this.__config__.iframe,
+            ip: this.IP || '-' // Incluimos IP en el click
           };
           lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
           this.__register_event(hotmartData);
@@ -395,7 +416,6 @@
       lt.__log('Backend', 'Error enviando datos', e);
     }
   };
-  
 
   lt.__get_TLD = function () {
     lt.__log('Domain', 'Obteniendo dominio principal');

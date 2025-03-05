@@ -12,6 +12,7 @@ interface TrackingEvent {
   screen_resolution?: string;
   viewport_size?: string;
   event_data: {
+    ip?: string;
     browser_info?: {
       userAgent?: string;
       platform?: string;
@@ -34,13 +35,13 @@ interface TrackingEvent {
 interface Product {
   id: number | string;
   active: boolean;
+  fb_pixel_id?: string | null;
+  fb_access_token?: string | null;
+  fb_test_event_code?: string | null;
 }
 
 const DEBUG_MODE = true;
 
-/**
- * Obtiene el producto usando el tracking_id y acumula logs.
- */
 async function getProduct(
   tracking_id: string,
   log: (context: string, message: string, data?: any) => void
@@ -50,7 +51,7 @@ async function getProduct(
     log('DB', 'Ejecutando consulta para obtener producto', { tracking_id });
     const { data: product, error } = await supabase
       .from('products')
-      .select('id, active')
+      .select('id, active, fb_pixel_id, fb_access_token, fb_test_event_code')
       .eq('tracking_id', tracking_id)
       .single();
       
@@ -72,11 +73,8 @@ async function getProduct(
   }
 }
 
-/**
- * Mapea el tipo de evento recibido al valor permitido por el ENUM en la base de datos.
- */
 function mapEventType(type: string): string {
-  // Lista de tipos permitidos según el ENUM tracking_event_type
+  // Lista de tipos permitidos según el ENUM tracking_event_type en la DB
   const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'hotmart_click'];
   
   // Mapeo de tipos de eventos a los valores del ENUM
@@ -95,12 +93,59 @@ function mapEventType(type: string): string {
 }
 
 /**
- * Maneja el evento de tracking y envía todo el debug a n8n.
+ * Dispara la API de conversiones de Facebook replicando la data de tu flujo n8n.
  */
+async function sendFacebookConversion(
+  product: Product,
+  trackingEvent: TrackingEvent,
+  commonEventData: any,
+  log: (context: string, message: string, data?: any) => void
+): Promise<void> {
+  // Asegúrate de tener los datos necesarios para disparar la conversión
+  if (!product.fb_pixel_id || !product.fb_access_token) {
+    log('Facebook', 'Datos de Facebook incompletos en producto', { product });
+    return;
+  }
+  // Construye el payload para la API de Facebook
+  const fbPayload = {
+    data: [
+      {
+        event_name: "InitiateCheckout",
+        event_time: Math.floor(Date.now() / 1000),
+        action_source: "website",
+        original_event_data: {
+          event_name: "InitiateCheckout",
+          event_time: Math.floor(Date.now() / 1000)
+        },
+        user_data: {
+          client_ip_address: trackingEvent.event_data?.ip || null,
+          client_user_agent: trackingEvent.user_agent || trackingEvent.event_data?.browser_info?.userAgent || null,
+          fbc: commonEventData.fbc,
+          fbp: commonEventData.fbp
+        }
+      }
+    ]
+  };
+
+  const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
+  log('Facebook', 'Disparando API de conversiones', { url: fbUrl, payload: fbPayload });
+
+  try {
+    const fbResponse = await fetch(fbUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(fbPayload)
+    });
+    const fbResult = await fbResponse.json();
+    log('Facebook', 'Respuesta de Facebook', { fbResult });
+  } catch (error) {
+    log('Facebook', 'Error llamando API de Facebook', error);
+  }
+}
+
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
   const debugLogs: any[] = [];
 
-  // Función de log que acumula y muestra mensajes.
   const log = (context: string, message: string, logData?: any) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
@@ -115,7 +160,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
 
   log('Event', 'Iniciando handleTrackingEvent', { raw_event: data });
 
-  // Validación de datos obligatorios.
   if (!data.tracking_id || !data.type || !data.visitor_id) {
     const errorMsg = 'Datos del evento incompletos';
     log('Event', errorMsg, { data });
@@ -141,7 +185,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Producto validado correctamente', { product });
 
-    // Mapea el tipo de evento antes de la inserción.
     let mappedType: string;
     try {
       mappedType = mapEventType(type);
@@ -151,7 +194,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       return { success: false, debugLogs, error: mapError instanceof Error ? mapError.message : 'Error en el mapeo del tipo de evento' };
     }
 
-    // Preparar los datos comunes para todos los eventos
     const commonEventData = {
       browser_info: data.event_data?.browser_info || {},
       fbc: data.event_data?.fbc || null,
@@ -161,7 +203,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       ...data.event_data
     };
 
-    // Insertar el evento en la base de datos.
     log('Event', 'Insertando tracking event en la base de datos', {
       product_id: product.id,
       event_type: mappedType,
@@ -198,9 +239,12 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Evento insertado correctamente');
 
-    // Si es un click de Hotmart, también lo registramos en la tabla específica
+    // Si es un hotmart_click, además de registrar el evento, dispara la conversión en Facebook.
     if (type === 'hotmart_click') {
-      log('Hotmart', 'Procesando evento hotmart_click', { event_data: commonEventData });
+      log('Hotmart', 'Procesando hotmart_click y disparando conversión de Facebook', { event_data: commonEventData });
+      await sendFacebookConversion(product, data, commonEventData, log);
+
+      // Registro opcional en tabla específica de clicks
       const hotmartData = {
         product_id: product.id,
         visitor_id: data.visitor_id,
