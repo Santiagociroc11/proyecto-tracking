@@ -26,9 +26,6 @@ interface HotmartEvent {
       address: {
         country: string;
         country_iso: string;
-        city?: string;
-        state?: string;
-        zip_code?: string;
       };
     };
   };
@@ -36,110 +33,72 @@ interface HotmartEvent {
   creation_date: number;
 }
 
-interface UserData {
-  em: string[];
-  ph?: string[];
-  country: string[];
-  ct?: string[];
-  st?: string[];
-  zp?: string[];
-  client_ip_address: string;
-  client_user_agent: string | undefined;
-  fbc: string | null;
-  fbp: string | null;
-  [key: string]: string | string[] | undefined | null;
-}
-
 interface Product {
-  id: string;
+  id: number | string;
   active: boolean;
-  fb_pixel_id: string | null;
-  fb_access_token: string | null;
-  fb_test_event_code: string | null;
+  fb_pixel_id?: string | null;
+  fb_access_token?: string | null;
+  fb_test_event_code?: string | null;
 }
 
-interface FacebookEventPayload {
-  data: {
-    event_name: string;
-    event_time: number;
-    action_source: string;
-    user_data: UserData;
-    custom_data: {
-      currency: string;
-      value: number;
-    };
-  }[];
-  test_event_code?: string;
-}
+const DEBUG_MODE = true;
 
 async function hashData(value: string): Promise<string> {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+/**
+ * Dispara la API de conversiones de Facebook replicando la data de tu flujo n8n.
+ */
 async function sendFacebookConversion(
   product: Product,
   event: HotmartEvent,
   trackingEvent: any
 ): Promise<void> {
-  try {
-    if (!product.fb_pixel_id || !product.fb_access_token) {
-      console.log('Facebook Pixel ID or Access Token not configured');
-      return;
-    }
+  // Verificar que existan los datos necesarios.
+  if (!product.fb_pixel_id || !product.fb_access_token) {
+    console.log('Facebook Pixel ID or Access Token not configured');
+    return;
+  }
 
-    const userData: UserData = {
-      em: [await hashData(event.data.buyer.email)],
-      ph: event.data.buyer.checkout_phone ? [await hashData(event.data.buyer.checkout_phone)] : undefined,
-      country: [await hashData(event.data.buyer.address.country_iso)],
-      ct: event.data.buyer.address.city ? [await hashData(event.data.buyer.address.city)] : undefined,
-      st: event.data.buyer.address.state ? [await hashData(event.data.buyer.address.state)] : undefined,
-      zp: event.data.buyer.address.zip_code ? [await hashData(event.data.buyer.address.zip_code)] : undefined,
+  // Construir el evento con la data de tu flujo n8n.
+  const eventPayload = {
+    event_name: "Purchase",
+    event_time: Math.floor(Date.now() / 1000),
+    action_source: "website",
+    user_data: {
       client_ip_address: event.data.purchase.buyer_ip,
-      client_user_agent: trackingEvent?.event_data?.browser_info?.userAgent,
+      client_user_agent: trackingEvent?.event_data?.browser_info?.userAgent || null,
       fbc: trackingEvent?.event_data?.fbc || null,
       fbp: trackingEvent?.event_data?.fbp || null
-    };
-
-    // Limpiar undefined y null del objeto
-    Object.keys(userData).forEach(key => {
-      if (userData[key] === undefined || userData[key] === null) {
-        delete userData[key];
-      }
-    });
-
-    const eventPayload: FacebookEventPayload = {
-      data: [{
-        event_name: "Purchase",
-        event_time: Math.floor(Date.now() / 1000),
-        action_source: "website",
-        user_data: userData,
-        custom_data: {
-          currency: event.data.purchase.price.currency_value || "USD",
-          value: event.data.purchase.price.value
-        }
-      }]
-    };
-
-    if (product.fb_test_event_code) {
-      eventPayload.test_event_code = product.fb_test_event_code;
     }
+  };
 
-    const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
+  // Armar el payload final, colocando test_event_code a nivel superior.
+  const fbPayload: any = {
+    data: [ eventPayload ]
+  };
+  if (product.fb_test_event_code) {
+    fbPayload.test_event_code = product.fb_test_event_code;
+  }
 
-    const response = await fetch(fbUrl, {
+  const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
+
+  try {
+    const fbResponse = await fetch(fbUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(eventPayload)
+      body: JSON.stringify(fbPayload)
     });
-
-    if (!response.ok) {
-      const errorData = await response.json();
+    
+    if (!fbResponse.ok) {
+      const errorData = await fbResponse.json();
       console.error('Error en Facebook Conversions API:', errorData);
-      throw new Error(`Error en Facebook Conversions API: ${response.status}`);
+      throw new Error(`Error en Facebook Conversions API: ${fbResponse.status}`);
     }
 
-    const result = await response.json();
-    console.log('Facebook Conversions API response:', result);
+    const fbResult = await fbResponse.json();
+    console.log('Facebook Conversions API response:', fbResult);
   } catch (error) {
     console.error('Error enviando conversión a Facebook:', error);
   }
@@ -149,6 +108,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
   try {
     const xcod = event.data.purchase.origin.xcod;
     
+    // Buscar el tracking_event más reciente que coincida con el xcod
     const { data: trackingEvent, error: trackingError } = await supabase
       .from('tracking_events')
       .select(`
@@ -178,19 +138,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       return { success: false, error: 'Producto no encontrado' };
     }
 
-    const product: Product = {
-      id: trackingEvent.products.id,
-      active: trackingEvent.products.active,
-      fb_pixel_id: trackingEvent.products.fb_pixel_id,
-      fb_access_token: trackingEvent.products.fb_access_token,
-      fb_test_event_code: trackingEvent.products.fb_test_event_code
-    };
+    const product = trackingEvent.products as Product;
 
     if (!product.active) {
       console.error('Producto inactivo');
       return { success: false, error: 'Producto inactivo' };
     }
 
+    // Registrar el evento en la base de datos
     await supabase
       .from('tracking_events')
       .insert([{
