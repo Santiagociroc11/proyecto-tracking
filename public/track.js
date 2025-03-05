@@ -1,10 +1,10 @@
 (function() {
-  var lt = window.lt || {};
+  const lt = window.lt || {};
   lt.d = document;
   lt.w = window;
 
-  // Sistema de logging
-  lt.__log = function(context, message, data) {
+  // Sistema de logging con humor y claridad
+  lt.__log = (context, message, data) => {
     if (data && data instanceof Error) {
       console.error(`[HotAPI Tracking] Error en ${context}:`, data);
       console.trace();
@@ -13,49 +13,40 @@
     }
   };
 
-  if(lt._v) {
+  if (lt._v) {
     lt.__log('Init', 'Script ya inicializado');
     return;
   }
 
   lt._v = '1.0';
   lt.__config__ = {
-    campaign_fields: [
-      'utm_source', 'utm_medium', 'utm_campaign', 
-      'utm_term', 'utm_content'
-    ],
+    campaign_fields: ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content'],
     iframe: window !== window.top
   };
 
   lt.accs = [];
 
-  // Storage fallback
+  // Storage fallback: cookies vs. objeto local
   lt.__storage = {
     data: {},
     isAvailable: false,
-    init: function() {
+    init() {
       try {
-        // Test cookie access
         document.cookie = "test=1";
-        var cookieEnabled = document.cookie.indexOf("test=") !== -1;
+        const cookieEnabled = document.cookie.indexOf("test=") !== -1;
+        // Borramos la cookie test
         document.cookie = "test=1; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        
         this.isAvailable = cookieEnabled;
-        lt.__log('Storage', 'Estado de almacenamiento', { 
-          cookies: cookieEnabled 
-        });
+        lt.__log('Storage', 'Estado de almacenamiento', { cookies: cookieEnabled });
       } catch (e) {
         this.isAvailable = false;
         lt.__log('Storage', 'Error verificando almacenamiento', e);
       }
     },
-    get: function(key) {
-      if (this.isAvailable) {
-        return lt.__get_cookie(key);
-      }
-      return this.data[key] || null;
+    get(key) {
+      return this.isAvailable ? lt.__get_cookie(key) : this.data[key] || null;
     },
-    set: function(key, value, ttl) {
+    set(key, value, ttl) {
       if (this.isAvailable) {
         lt.__set_cookie(key, value, ttl);
       } else {
@@ -81,7 +72,6 @@
     try {
       let uniqueId = this.__storage.get('_vid');
       lt.__log('VisitorID', 'ID actual', uniqueId);
-      
       if (!uniqueId) {
         uniqueId = this.__generateUUID();
         lt.__log('VisitorID', 'Nuevo ID generado', uniqueId);
@@ -99,9 +89,7 @@
     try {
       const fbp = this.__storage.get("_fbp") || "-";
       let fbc = this.__storage.get("_fbc");
-      
       lt.__log('Facebook', 'Cookies encontradas', { fbp, fbc });
-
       if (!fbc) {
         const fbclid = new URLSearchParams(window.location.search).get("fbclid");
         if (fbclid) {
@@ -113,7 +101,6 @@
           fbc = "-";
         }
       }
-
       return { fbc, fbp };
     } catch (e) {
       lt.__log('Facebook', 'Error obteniendo FBC/FBP', e);
@@ -124,63 +111,50 @@
   lt.__init__ = function() {
     lt.__log('Init', 'Iniciando script de tracking');
     try {
-      // Inicializar storage
       this.__storage.init();
-
       this.dom = this.__get_TLD();
       lt.__log('Init', 'Dominio detectado', this.dom);
-
       this.visitorId = this.__getOrCreateUniqueId();
       lt.__log('Init', 'ID de visitante', this.visitorId);
-
-      if(this.pvid) {
+      if (this.pvid) {
         lt.__log('Init', 'PageView ID ya existe');
         return;
       }
-
-      this.pvid = new Date().getTime();
+      this.pvid = Date.now();
       lt.__log('Init', 'Nuevo PageView ID', this.pvid);
-
       this.__url_params__ = this.__get_params();
       lt.__log('Init', 'Parámetros URL', this.__url_params__);
-
       this.__check_session_changed();
-
-      var c = this._c.slice();
-      lt.__log('Init', 'Comandos pendientes', c);
-
-      this._c.push = function(arr) {
+      const pendingCmds = this._c.slice();
+      lt.__log('Init', 'Comandos pendientes', pendingCmds);
+      // Redefinimos push para procesar comandos en tiempo real
+      this._c.push = (arr) => {
         lt.__log('Command', 'Nuevo comando', arr);
         lt.__proc_cmd(arr[0], arr[1]);
       };
-
-      for(var x = 0; x < c.length; x++){
-        lt.__proc_cmd(c[x][0], c[x][1]);
-      }
+      pendingCmds.forEach(cmd => lt.__proc_cmd(cmd[0], cmd[1]));
     } catch (e) {
       lt.__log('Init', 'Error en inicialización', e);
     }
   };
 
-  lt.__proc_cmd = function(k, v) {
-    lt.__log('Command', 'Procesando comando', { comando: k, valor: v });
+  lt.__proc_cmd = function(command, value) {
+    lt.__log('Command', 'Procesando comando', { comando: command, valor: value });
     try {
-      if(k === 'init') {
-        var trackingId = v;
-        if(this.accs.indexOf(trackingId) >= 0) {
+      if (command === 'init') {
+        const trackingId = value;
+        if (this.accs.includes(trackingId)) {
           lt.__log('Command', 'Tracking ID ya inicializado', trackingId);
           return;
         }
         this.accs.push(trackingId);
         lt.__log('Command', 'Nuevo tracking ID agregado', trackingId);
-
-        if(this.visitorId) {
+        if (this.visitorId) {
           this.__register_pv(trackingId);
           this.__track_user_interaction(trackingId);
         }
-      }
-      else if(k === 'event'){
-        this.__register_event(v);
+      } else if (command === 'event') {
+        this.__register_event(value);
       }
     } catch (e) {
       lt.__log('Command', 'Error procesando comando', e);
@@ -192,16 +166,14 @@
     try {
       let cookie = this.__storage.get('_ltsession');
       lt.__log('Session', 'Cookie de sesión actual', cookie);
-
-      var current_campaign = this.__get_current_campaign();
-      var session_campaign = current_campaign;
-      var current_time = new Date().getTime();
-      var session_time = current_time;
+      const current_campaign = this.__get_current_campaign();
+      let session_campaign = current_campaign;
+      const current_time = Date.now();
+      let session_time = current_time;
       this.session_id = 'sess_' + Math.random().toString(36).substr(2, 9);
-
-      if(cookie){
-        var parts = cookie.split("_");
-        if(parts.length === 3) {
+      if (cookie) {
+        const parts = cookie.split("_");
+        if (parts.length === 3) {
           session_time = parseInt(parts[0]);
           session_campaign = parts[1];
           this.session_id = parts[2];
@@ -212,14 +184,12 @@
           });
         }
       }
-
-      var diff_seconds = (current_time - session_time) / 1000.0;
-      if(diff_seconds > (30 * 60) || (current_campaign && current_campaign !== session_campaign)){
+      const diff_seconds = (current_time - session_time) / 1000;
+      if (diff_seconds > (30 * 60) || (current_campaign && current_campaign !== session_campaign)) {
         this.session_id = 'sess_' + Math.random().toString(36).substr(2, 9);
         lt.__log('Session', 'Nueva sesión creada', this.session_id);
       }
-      
-      cookie = current_time + '_' + current_campaign + '_' + this.session_id;
+      cookie = `${current_time}_${current_campaign}_${this.session_id}`;
       this.__storage.set('_ltsession', cookie);
       lt.__log('Session', 'Cookie de sesión actualizada', cookie);
     } catch (e) {
@@ -230,10 +200,10 @@
   lt.__get_current_campaign = function() {
     lt.__log('Campaign', 'Obteniendo datos de campaña');
     try {
-      var campaign = {};
+      const campaign = {};
       this.__config__.campaign_fields.forEach(field => {
-        var value = this.__url_params__[field];
-        if(value) campaign[field] = decodeURIComponent(value);
+        const value = this.__url_params__[field];
+        if (value) campaign[field] = decodeURIComponent(value);
       });
       lt.__log('Campaign', 'Datos encontrados', campaign);
       return Object.keys(campaign).length ? btoa(JSON.stringify(campaign)) : '';
@@ -246,7 +216,7 @@
   lt.__register_pv = function(trackingId) {
     lt.__log('PageView', 'Registrando vista de página');
     try {
-      var eventData = {
+      const eventData = {
         type: 'pageview',
         tracking_id: trackingId,
         visitor_id: this.visitorId,
@@ -257,13 +227,12 @@
         referrer: document.referrer || '',
         campaign_data: this.__get_current_campaign(),
         user_agent: navigator.userAgent,
-        screen_resolution: window.screen.width + 'x' + window.screen.height,
-        viewport_size: window.innerWidth + 'x' + window.innerHeight,
+        screen_resolution: `${window.screen.width}x${window.screen.height}`,
+        viewport_size: `${window.innerWidth}x${window.innerHeight}`,
         encoding: document.characterSet || document.charset,
         title: document.title,
         in_iframe: this.__config__.iframe
       };
-
       lt.__log('PageView', 'Datos del evento', eventData);
       this.__send_to_backend(eventData);
     } catch (e) {
@@ -274,11 +243,10 @@
   lt.__register_event = function(event) {
     lt.__log('Event', 'Registrando evento personalizado');
     try {
-      var eventData = typeof event === "object" ? event : { name: event };
+      const eventData = typeof event === "object" ? event : { name: event };
       lt.__log('Event', 'Datos del evento', eventData);
-      
       this.accs.forEach(trackingId => {
-        var data = {
+        const data = {
           type: eventData.type || 'custom',
           tracking_id: trackingId,
           visitor_id: this.visitorId,
@@ -289,7 +257,6 @@
           event_data: eventData,
           in_iframe: this.__config__.iframe
         };
-
         this.__send_to_backend(data);
       });
     } catch (e) {
@@ -305,7 +272,6 @@
         if (target && target.href && target.href.includes('hotmart')) {
           event.preventDefault();
           lt.__log('Interaction', 'Click en enlace Hotmart', target.href);
-          
           const { fbc, fbp } = this.__getFbcFbp();
           const browserInfo = {
             userAgent: navigator.userAgent,
@@ -313,7 +279,6 @@
             language: navigator.language,
             cookiesEnabled: navigator.cookieEnabled
           };
-
           const hotmartData = {
             type: 'hotmart_click',
             visitor_id: this.visitorId,
@@ -326,10 +291,8 @@
             utm_data: this.__get_utm_data(),
             in_iframe: this.__config__.iframe
           };
-
           lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
           this.__register_event(hotmartData);
-
           const urlWithId = new URL(target.href);
           urlWithId.searchParams.append('xcod', this.visitorId);
           lt.__log('Interaction', 'Redirigiendo a', urlWithId.toString());
@@ -346,11 +309,9 @@
     try {
       const utmParams = {};
       const searchParams = new URLSearchParams(window.location.search);
-      
       ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(param => {
         utmParams[param] = searchParams.get(param) || '-';
       });
-      
       lt.__log('UTM', 'Parámetros encontrados', utmParams);
       return utmParams;
     } catch (e) {
@@ -359,44 +320,29 @@
     }
   };
 
+  // Versión mejorada: sin sendBeacon, usando fetch con keepalive
   lt.__send_to_backend = function(data) {
     lt.__log('Backend', 'Enviando datos al backend');
     try {
-      const currentScript = document.currentScript || 
-        document.querySelector('script[data-tracking-id]');
-      
+      const currentScript = document.currentScript || document.querySelector('script[data-tracking-id]');
       if (!currentScript) {
         throw new Error('No se pudo encontrar el script de tracking');
       }
-
       const scriptUrl = currentScript.src;
       const baseUrl = scriptUrl.substring(0, scriptUrl.lastIndexOf('/track.js'));
       lt.__log('Backend', 'URL base detectada', baseUrl);
-      
-      const sendBeacon = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
-      
-      if (sendBeacon) {
-        lt.__log('Backend', 'Usando sendBeacon');
-        const blob = new Blob([JSON.stringify(data)], {
-          type: 'application/json'
-        });
-        const success = sendBeacon(`${baseUrl}/api/track`, blob);
-        lt.__log('Backend', 'Resultado sendBeacon', success);
-      } else {
-        lt.__log('Backend', 'Usando fetch');
-        fetch(`${baseUrl}/api/track`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(data),
-          keepalive: true
-        }).then(response => {
-          lt.__log('Backend', 'Respuesta fetch', response.status);
-        }).catch(error => {
-          lt.__log('Backend', 'Error en fetch', error);
-        });
-      }
+      fetch(`${baseUrl}/api/track`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+        keepalive: true
+      })
+      .then(response => {
+        lt.__log('Backend', 'Respuesta fetch', response.status);
+      })
+      .catch(error => {
+        lt.__log('Backend', 'Error en fetch', error);
+      });
     } catch (e) {
       lt.__log('Backend', 'Error enviando datos', e);
     }
@@ -405,10 +351,9 @@
   lt.__get_TLD = function() {
     lt.__log('Domain', 'Obteniendo dominio principal');
     try {
-      var hostname = window.location.hostname;
-      var parts = hostname.split('.');
-      if(parts.length <= 2) return '.' + hostname;
-      return '.' + parts.slice(-2).join('.');
+      const hostname = window.location.hostname;
+      const parts = hostname.split('.');
+      return parts.length <= 2 ? '.' + hostname : '.' + parts.slice(-2).join('.');
     } catch (e) {
       lt.__log('Domain', 'Error obteniendo dominio', e);
       return '';
@@ -418,11 +363,12 @@
   lt.__set_cookie = function(name, value, ttl) {
     lt.__log('Cookie', `Estableciendo cookie: ${name}`);
     try {
-      var d = new Date();
-      if (!ttl || ttl !== ttl) ttl = 365 * 24 * 60;
+      const d = new Date();
+      // TTL en minutos, por defecto 1 año
+      if (!ttl || isNaN(ttl)) ttl = 365 * 24 * 60;
       d.setTime(d.getTime() + (ttl * 60 * 1000));
-      var expires = "expires=" + d.toUTCString();
-      document.cookie = name + "=" + value + ";" + expires + ";path=/;SameSite=Lax";
+      const expires = "expires=" + d.toUTCString();
+      document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax`;
       lt.__log('Cookie', 'Cookie establecida correctamente');
     } catch (e) {
       lt.__log('Cookie', 'Error estableciendo cookie', e);
@@ -432,13 +378,12 @@
   lt.__get_cookie = function(name) {
     lt.__log('Cookie', `Obteniendo cookie: ${name}`);
     try {
-      var nameEQ = name + "=";
-      var ca = document.cookie.split(';');
-      for(var i = 0; i < ca.length; i++) {
-        var c = ca[i];
-        while (c.charAt(0) == ' ') c = c.substring(1, c.length);
-        if (c.indexOf(nameEQ) == 0) {
-          const value = c.substring(nameEQ.length, c.length);
+      const nameEQ = name + "=";
+      const ca = document.cookie.split(';');
+      for (let c of ca) {
+        c = c.trim();
+        if (c.indexOf(nameEQ) === 0) {
+          const value = c.substring(nameEQ.length);
           lt.__log('Cookie', 'Valor encontrado', value);
           return value;
         }
@@ -454,13 +399,12 @@
   lt.__get_params = function() {
     lt.__log('URL', 'Obteniendo parámetros de URL');
     try {
-      var params = {};
-      var search = window.location.search.substring(1);
-      var pairs = search.split('&');
-      for(var i = 0; i < pairs.length; i++) {
-        var pair = pairs[i].split('=');
-        if(pair[0]) params[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1] || '');
-      }
+      const params = {};
+      const search = window.location.search.substring(1);
+      search.split('&').forEach(pairStr => {
+        const [key, value] = pairStr.split('=');
+        if (key) params[decodeURIComponent(key)] = decodeURIComponent(value || '');
+      });
       lt.__log('URL', 'Parámetros encontrados', params);
       return params;
     } catch (e) {
@@ -469,7 +413,7 @@
     }
   };
 
-  if(!window._lt) window._lt = [];
+  if (!window._lt) window._lt = [];
   lt._c = window._lt;
   window._lt = lt;
   lt.__init__();
