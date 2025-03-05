@@ -370,7 +370,7 @@
       }
 
       const scriptUrl = currentScript.src;
-      const baseUrl = scriptUrl.substring(0, scriptUrl.lastIndexOf('/'));
+      const baseUrl = scriptUrl.substring(0, scriptUrl.lastIndexOf('/track.js'));
       lt.__log('Backend', 'URL base detectada', baseUrl);
       
       const sendBeacon = navigator.sendBeacon && navigator.sendBeacon.bind(navigator);
@@ -380,11 +380,11 @@
         const blob = new Blob([JSON.stringify(data)], {
           type: 'application/json'
         });
-        const success = sendBeacon(baseUrl + '/api/track', blob);
+        const success = sendBeacon(`${baseUrl}/api/track`, blob);
         lt.__log('Backend', 'Resultado sendBeacon', success);
       } else {
         lt.__log('Backend', 'Usando fetch');
-        fetch(baseUrl + '/api/track', {
+        fetch(`${baseUrl}/api/track`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

@@ -38,8 +38,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// API Routes - IMPORTANT: Define API routes BEFORE static file handling
+const apiRouter = express.Router();
+
 // Endpoint para recibir eventos de tracking
-app.post('/api/track', async (req, res) => {
+apiRouter.post('/track', async (req, res) => {
   log('Track', 'Recibiendo evento', req.body);
   
   try {
@@ -53,7 +56,7 @@ app.post('/api/track', async (req, res) => {
 });
 
 // Endpoint para recibir webhooks de Hotmart
-app.post('/api/hotmart/webhook', async (req, res) => {
+apiRouter.post('/hotmart/webhook', async (req, res) => {
   log('Hotmart', 'Recibiendo webhook', { headers: req.headers, body: req.body });
   
   try {
@@ -72,19 +75,16 @@ app.post('/api/hotmart/webhook', async (req, res) => {
   }
 });
 
+// Mount API routes
+app.use('/api', apiRouter);
+
 // Servir archivos estáticos
-app.use(express.static(path.join(__dirname, '../public'), {
+app.use('/track.js', express.static(path.join(__dirname, '../public/track.js'), {
   maxAge: '1h',
-  setHeaders: (res, filePath) => {
-    // Configurar headers de seguridad
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'DENY');
-    res.setHeader('X-XSS-Protection', '1; mode=block');
-    
-    if (filePath.endsWith('.js')) {
-      res.setHeader('Cache-Control', 'public, max-age=3600'); // 1 hora
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    }
   }
 }));
 
@@ -93,6 +93,10 @@ app.use(express.static(path.join(__dirname, '../dist')));
 
 // Todas las demás rutas sirven index.html para el enrutamiento del lado del cliente
 app.get('*', (req, res) => {
+  // No servir index.html para rutas de API
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'API endpoint not found' });
+  }
   res.sendFile(path.join(__dirname, '../dist/index.html'));
 });
 
