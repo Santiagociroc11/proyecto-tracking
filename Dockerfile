@@ -32,6 +32,7 @@ RUN npm ci --omit=dev
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/dist/server ./dist/server
 COPY --from=builder /app/public ./public
 
 # Set runtime environment variables
@@ -42,4 +43,4 @@ ENV PORT=3000
 EXPOSE 3000
 
 # Start the server
-CMD ["node", "dist/server.js"]
+CMD ["node", "dist/server/server.js"]

@@ -7,8 +7,8 @@
     "build:server": "tsc --project tsconfig.server.json",
     "build": "npm run build:frontend && npm run build:server",
     "dev": "vite",
-    "dev:server": "tsx server.ts",
-    "start": "node dist/server.js"
+    "dev:server": "tsx watch server.ts",
+    "start": "node dist/server/server.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",

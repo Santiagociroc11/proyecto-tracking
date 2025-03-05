@@ -91,8 +91,11 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
 app.use('/api', apiRouter);
 
 // Serve static files
-app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/track.js', express.static(path.join(__dirname, 'public/track.js'), {
+const publicPath = path.join(__dirname, '..', 'public');
+const distPath = path.join(__dirname, '..', 'dist');
+
+// Serve the tracking script
+app.use('/track.js', express.static(path.join(publicPath, 'track.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -101,12 +104,15 @@ app.use('/track.js', express.static(path.join(__dirname, 'public/track.js'), {
   }
 }));
 
+// Serve static assets from the Vite build
+app.use(express.static(distPath));
+
 // Handle client-side routing
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
-  res.sendFile(path.join(__dirname, 'dist/index.html'));
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // Error handling middleware
