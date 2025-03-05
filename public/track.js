@@ -1,4 +1,4 @@
-(function() {
+(function () {
   const lt = window.lt || {};
   lt.d = document;
   lt.w = window;
@@ -55,7 +55,7 @@
     }
   };
 
-  lt.__generateUUID = function() {
+  lt.__generateUUID = function () {
     lt.__log('UUID', 'Generando nuevo UUID');
     try {
       return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
@@ -67,7 +67,7 @@
     }
   };
 
-  lt.__getOrCreateUniqueId = function() {
+  lt.__getOrCreateUniqueId = function () {
     lt.__log('VisitorID', 'Obteniendo o creando ID de visitante');
     try {
       let uniqueId = this.__storage.get('_vid');
@@ -84,7 +84,7 @@
     }
   };
 
-  lt.__getFbcFbp = function() {
+  lt.__getFbcFbp = function () {
     lt.__log('Facebook', 'Obteniendo parámetros FBC/FBP');
     try {
       const fbp = this.__storage.get("_fbp") || "-";
@@ -108,7 +108,7 @@
     }
   };
 
-  lt.__init__ = function() {
+  lt.__init__ = function () {
     lt.__log('Init', 'Iniciando script de tracking');
     try {
       this.__storage.init();
@@ -138,7 +138,7 @@
     }
   };
 
-  lt.__proc_cmd = function(command, value) {
+  lt.__proc_cmd = function (command, value) {
     lt.__log('Command', 'Procesando comando', { comando: command, valor: value });
     try {
       if (command === 'init') {
@@ -161,7 +161,7 @@
     }
   };
 
-  lt.__check_session_changed = function() {
+  lt.__check_session_changed = function () {
     lt.__log('Session', 'Verificando cambios en sesión');
     try {
       let cookie = this.__storage.get('_ltsession');
@@ -197,7 +197,7 @@
     }
   };
 
-  lt.__get_current_campaign = function() {
+  lt.__get_current_campaign = function () {
     lt.__log('Campaign', 'Obteniendo datos de campaña');
     try {
       const campaign = {};
@@ -213,56 +213,78 @@
     }
   };
 
-  lt.__register_pv = function(trackingId) {
+  lt.__register_pv = function (trackingId) {
     lt.__log('PageView', 'Registrando vista de página');
     try {
-      // Get Facebook parameters
-      const { fbc, fbp } = this.__getFbcFbp();
-      
-      // Get UTM data
-      const utmData = this.__get_utm_data();
+      const maxAttempts = 10; // Maximum attempts to check for cookies
+      let attempts = 0;
 
-      // Get browser info
-      const browserInfo = {
-        userAgent: navigator.userAgent,
-        platform: navigator.platform,
-        language: navigator.language,
-        cookiesEnabled: navigator.cookieEnabled
-      };
+      const waitForCookies = () => {
+        attempts++;
+        lt.__log('Facebook', `Checking cookies, attempt ${attempts} of ${maxAttempts}`);
 
-      const eventData = {
-        type: 'pageview',
-        tracking_id: trackingId,
-        visitor_id: this.visitorId,
-        session_id: this.session_id,
-        page_view_id: this.pvid,
-        timestamp: new Date().toISOString(),
-        url: this.__config__.iframe ? document.referrer : document.URL,
-        referrer: document.referrer || '',
-        user_agent: navigator.userAgent,
-        screen_resolution: window.screen.width + 'x' + window.screen.height,
-        viewport_size: window.innerWidth + 'x' + window.innerHeight,
-        event_data: {
-          title: document.title,
-          encoding: document.characterSet || document.charset,
-          referrer: document.referrer || '',
-          utm_data: utmData,
-          browser_info: browserInfo,
-          fbc: fbc,
-          fbp: fbp,
-          in_iframe: this.__config__.iframe,
-          campaign_data: this.__get_current_campaign()
+        const { fbc, fbp } = this.__getFbcFbp();
+        lt.__log('Facebook', 'Cookies found in check', { fbc, fbp });
+
+        if ((fbc && fbp) || attempts >= maxAttempts) {
+          lt.__log('Facebook', 'Proceeding with registration after cookie check.');
+          // Proceed with registering pageview NOW, with fbc and fbp obtained (or default values if still not available)
+          const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp(); // Get one last time to ensure latest values.
+
+          // Get UTM data
+          const utmData = this.__get_utm_data();
+
+          // Get browser info
+          const browserInfo = {
+            userAgent: navigator.userAgent,
+            platform: navigator.platform,
+            language: navigator.language,
+            cookiesEnabled: navigator.cookieEnabled
+          };
+
+          const eventData = {
+            type: 'pageview',
+            tracking_id: trackingId,
+            visitor_id: this.visitorId,
+            session_id: this.session_id,
+            page_view_id: this.pvid,
+            timestamp: new Date().toISOString(),
+            url: this.__config__.iframe ? document.referrer : document.URL,
+            referrer: document.referrer || '',
+            user_agent: navigator.userAgent,
+            screen_resolution: window.screen.width + 'x' + window.screen.height,
+            viewport_size: window.innerWidth + 'x' + window.innerHeight,
+            event_data: {
+              title: document.title,
+              encoding: document.characterSet || document.charset,
+              referrer: document.referrer || '',
+              utm_data: utmData,
+              browser_info: browserInfo,
+              fbc: finalFbc, // Use finalFbc and finalFbp here
+              fbp: finalFbp, // Use finalFbp here
+              in_iframe: this.__config__.iframe,
+              campaign_data: this.__get_current_campaign()
+            }
+          };
+
+          lt.__log('PageView', 'Datos del evento', eventData);
+          this.__send_to_backend(eventData);
+
+
+        } else {
+          lt.__log('Facebook', 'Cookies not yet available, re-checking in 500ms...');
+          setTimeout(waitForCookies, 500); // Re-check after 500ms
         }
       };
 
-      lt.__log('PageView', 'Datos del evento', eventData);
-      this.__send_to_backend(eventData);
+      waitForCookies(); // Start the cookie checking process
+
     } catch (e) {
       lt.__log('PageView', 'Error registrando vista de página', e);
     }
   };
 
-  lt.__register_event = function(event) {
+  lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
     try {
       const eventData = typeof event === "object" ? event : { name: event };
@@ -286,7 +308,7 @@
     }
   };
 
-  lt.__track_user_interaction = function(trackingId) {
+  lt.__track_user_interaction = function (trackingId) {
     lt.__log('Interaction', 'Iniciando tracking de interacciones');
     try {
       document.addEventListener('click', (event) => {
@@ -326,7 +348,7 @@
     }
   };
 
-  lt.__get_utm_data = function() {
+  lt.__get_utm_data = function () {
     lt.__log('UTM', 'Obteniendo datos UTM');
     try {
       const utmParams = {};
@@ -343,7 +365,7 @@
   };
 
   // Versión mejorada: sin sendBeacon, usando fetch con keepalive
-  lt.__send_to_backend = function(data) {
+  lt.__send_to_backend = function (data) {
     lt.__log('Backend', 'Enviando datos al backend');
     try {
       const currentScript = document.currentScript || document.querySelector('script[data-tracking-id]');
@@ -370,7 +392,7 @@
     }
   };
 
-  lt.__get_TLD = function() {
+  lt.__get_TLD = function () {
     lt.__log('Domain', 'Obteniendo dominio principal');
     try {
       const hostname = window.location.hostname;
@@ -382,7 +404,7 @@
     }
   };
 
-  lt.__set_cookie = function(name, value, ttl) {
+  lt.__set_cookie = function (name, value, ttl) {
     lt.__log('Cookie', `Estableciendo cookie: ${name}`);
     try {
       const d = new Date();
@@ -396,7 +418,7 @@
     }
   };
 
-  lt.__get_cookie = function(name) {
+  lt.__get_cookie = function (name) {
     lt.__log('Cookie', `Obteniendo cookie: ${name}`);
     try {
       const nameEQ = name + "=";
@@ -417,7 +439,7 @@
     }
   };
 
-  lt.__get_params = function() {
+  lt.__get_params = function () {
     lt.__log('URL', 'Obteniendo parámetros de URL');
     try {
       const params = {};
