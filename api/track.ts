@@ -32,12 +32,23 @@ interface TrackingEvent {
   };
 }
 
+interface Product {
+  id: string;
+  user_id: string;
+  active: boolean;
+  fb_pixel_id: string | null;
+  fb_access_token: string | null;
+  fb_test_event_code: string | null;
+}
+
 const DEBUG_MODE = true;
+
+type LogFunction = (context: string, message: string, data?: any) => void;
 
 async function validateTracking(
   userId: string,
   productId: string,
-  log: (context: string, message: string, data?: any) => void
+  log: LogFunction
 ): Promise<{ valid: boolean; error?: string; type?: string; plan?: string }> {
   try {
     log('Validation', 'Validating tracking permissions', { userId, productId });
@@ -66,8 +77,8 @@ async function logTrackingAttempt(
   productId: string,
   eventType: string,
   status: string,
-  errorMessage?: string,
-  log: (context: string, message: string, data?: any) => void
+  errorMessage: string | undefined,
+  log: LogFunction
 ): Promise<void> {
   try {
     log('Logging', 'Recording tracking attempt', {
@@ -92,6 +103,57 @@ async function logTrackingAttempt(
   }
 }
 
+async function sendFacebookConversion(
+  product: Product,
+  data: TrackingEvent,
+  log: LogFunction
+): Promise<void> {
+  try {
+    if (!product.fb_pixel_id || !product.fb_access_token) {
+      log('Facebook', 'Facebook Pixel ID or Access Token not configured');
+      return;
+    }
+
+    const eventPayload: any = {
+      data: [{
+        event_name: "InitiateCheckout",
+        event_time: Math.floor(Date.now() / 1000),
+        action_source: "website",
+        user_data: {
+          client_ip_address: data.event_data?.ip || null,
+          client_user_agent: data.user_agent || data.event_data?.browser_info?.userAgent || null,
+          fbc: data.event_data?.fbc || null,
+          fbp: data.event_data?.fbp || null
+        }
+      }]
+    };
+
+    if (product.fb_test_event_code) {
+      eventPayload.test_event_code = product.fb_test_event_code;
+    }
+
+    const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
+    log('Facebook', 'Sending conversion event', { url: fbUrl, payload: eventPayload });
+
+    const response = await fetch(fbUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(eventPayload)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      log('Facebook', 'Error from Facebook API', errorData);
+      throw new Error(`Facebook API error: ${response.status}`);
+    }
+
+    const result = await response.json();
+    log('Facebook', 'Facebook API response', result);
+  } catch (error) {
+    log('Facebook', 'Error sending Facebook conversion', error);
+  }
+}
+
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ 
   success: boolean; 
   debugLogs: any[]; 
@@ -99,7 +161,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
 }> {
   const debugLogs: any[] = [];
 
-  const log = (context: string, message: string, logData?: any) => {
+  const log: LogFunction = (context, message, logData?) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
     debugLogs.push(logEntry);
@@ -117,10 +179,9 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
   }
 
   try {
-    // Get product and user information
     const { data: product, error: productError } = await supabase
       .from('products')
-      .select(`
+      .select<string, Product>(`
         id,
         user_id,
         active,
@@ -136,7 +197,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: 'Producto no encontrado' };
     }
 
-    // Validate tracking permissions
     const validation = await validateTracking(product.user_id, product.id, log);
 
     if (!validation.valid) {
@@ -153,7 +213,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: validation.error };
     }
 
-    // Process the event
     const eventData = {
       product_id: product.id,
       event_type: data.type,
@@ -194,7 +253,12 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: 'Error registrando evento' };
     }
 
-    // Log successful tracking
+    // Si es un hotmart_click, enviar conversión a Facebook
+    if (data.type === 'hotmart_click') {
+      log('Facebook', 'Processing hotmart_click', { event_data: data.event_data });
+      await sendFacebookConversion(product, data, log);
+    }
+
     await logTrackingAttempt(
       product.user_id,
       product.id,
