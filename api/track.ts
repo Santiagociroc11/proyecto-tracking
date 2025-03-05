@@ -54,9 +54,9 @@ async function getProduct(
       .select('id, active, fb_pixel_id, fb_access_token, fb_test_event_code')
       .eq('tracking_id', tracking_id)
       .single();
-      
+
     log('DB', 'Consulta ejecutada', { product, error });
-    
+
     if (error) {
       log('DB', 'Error obteniendo producto', error);
       return null;
@@ -76,7 +76,7 @@ async function getProduct(
 function mapEventType(type: string): string {
   // Lista de tipos permitidos según el ENUM tracking_event_type en la DB
   const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'hotmart_click'];
-  
+
   // Mapeo de tipos de eventos a los valores del ENUM
   const eventTypeMapping: { [key: string]: string } = {
     'hotmart_click': 'hotmart_click',
@@ -84,7 +84,7 @@ function mapEventType(type: string): string {
     'interaction': 'interaction',
     'input_change': 'input_change'
   };
-  
+
   const mappedType = eventTypeMapping[type] || 'custom';
   if (!allowedEventTypes.includes(mappedType)) {
     throw new Error(`Tipo de evento no permitido: ${type}`);
@@ -106,25 +106,28 @@ async function sendFacebookConversion(
     log('Facebook', 'Datos de Facebook incompletos en producto', { product });
     return;
   }
-  // Construir el payload con los datos de tu flujo n8n.
+
+  // Construir el evento con la data de tu flujo n8n.
+  const eventPayload = {
+    event_name: "InitiateCheckout",
+    event_time: Math.floor(Date.now() / 1000),
+    action_source: "website",
+    original_event_data: {
+      event_name: "InitiateCheckout",
+      event_time: Math.floor(Date.now() / 1000)
+    },
+    user_data: {
+      client_ip_address: trackingEvent.event_data?.ip || null,
+      client_user_agent: trackingEvent.user_agent || trackingEvent.event_data?.browser_info?.userAgent || null,
+      fbc: commonEventData.fbc,
+      fbp: commonEventData.fbp
+    },
+    // Si existe el test event code, lo agregamos para pruebas.
+    ...(product.fb_test_event_code ? { test_event_code: product.fb_test_event_code } : {})
+  };
+
   const fbPayload = {
-    data: [
-      {
-        event_name: "InitiateCheckout",
-        event_time: Math.floor(Date.now() / 1000),
-        action_source: "website",
-        original_event_data: {
-          event_name: "InitiateCheckout",
-          event_time: Math.floor(Date.now() / 1000)
-        },
-        user_data: {
-          client_ip_address: trackingEvent.event_data?.ip || null,
-          client_user_agent: trackingEvent.user_agent || trackingEvent.event_data?.browser_info?.userAgent || null,
-          fbc: commonEventData.fbc,
-          fbp: commonEventData.fbp
-        }
-      }
-    ]
+    data: [eventPayload]
   };
 
   const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
@@ -140,13 +143,13 @@ async function sendFacebookConversion(
       status: fbResponse.status,
       ok: fbResponse.ok
     });
-    // Intentar convertir a JSON y loguear la respuesta.
     const fbResult = await fbResponse.json();
     log('Facebook', 'Respuesta de Facebook (JSON)', { fbResult });
   } catch (error) {
     log('Facebook', 'Error llamando API de Facebook', error);
   }
 }
+
 
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
   const debugLogs: any[] = [];
@@ -177,7 +180,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
   try {
     log('Event', 'Verificando producto asociado', { tracking_id });
     const product = await getProduct(tracking_id, log);
-    
+
     if (!product) {
       const errMsg = 'Producto no encontrado';
       log('Event', errMsg, { tracking_id });
