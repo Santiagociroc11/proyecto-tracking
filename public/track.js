@@ -216,6 +216,20 @@
   lt.__register_pv = function(trackingId) {
     lt.__log('PageView', 'Registrando vista de página');
     try {
+      // Get Facebook parameters
+      const { fbc, fbp } = this.__getFbcFbp();
+      
+      // Get UTM data
+      const utmData = this.__get_utm_data();
+
+      // Get browser info
+      const browserInfo = {
+        userAgent: navigator.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        cookiesEnabled: navigator.cookieEnabled
+      };
+
       const eventData = {
         type: 'pageview',
         tracking_id: trackingId,
@@ -224,15 +238,20 @@
         page_view_id: this.pvid,
         timestamp: new Date().toISOString(),
         url: this.__config__.iframe ? document.referrer : document.URL,
+        referrer: document.referrer || '',
+        user_agent: navigator.userAgent,
+        screen_resolution: window.screen.width + 'x' + window.screen.height,
+        viewport_size: window.innerWidth + 'x' + window.innerHeight,
         event_data: {
-          referrer: document.referrer || '',
-          campaign_data: this.__get_current_campaign(),
-          user_agent: navigator.userAgent,
-          screen_resolution: window.screen.width + 'x' + window.screen.height,
-          viewport_size: window.innerWidth + 'x' + window.innerHeight,
-          encoding: document.characterSet || document.charset,
           title: document.title,
-          in_iframe: this.__config__.iframe
+          encoding: document.characterSet || document.charset,
+          referrer: document.referrer || '',
+          utm_data: utmData,
+          browser_info: browserInfo,
+          fbc: fbc,
+          fbp: fbp,
+          in_iframe: this.__config__.iframe,
+          campaign_data: this.__get_current_campaign()
         }
       };
 
