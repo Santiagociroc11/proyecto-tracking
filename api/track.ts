@@ -32,140 +32,79 @@ interface TrackingEvent {
   };
 }
 
-interface Product {
-  id: number | string;
-  active: boolean;
-  fb_pixel_id?: string | null;
-  fb_access_token?: string | null;
-  fb_test_event_code?: string | null;
-}
-
 const DEBUG_MODE = true;
 
-async function getProduct(
-  tracking_id: string,
+async function validateTracking(
+  userId: string,
+  productId: string,
   log: (context: string, message: string, data?: any) => void
-): Promise<Product | null> {
-  log('DB', 'Iniciando getProduct', { tracking_id });
+): Promise<{ valid: boolean; error?: string; type?: string; plan?: string }> {
   try {
-    log('DB', 'Ejecutando consulta para obtener producto', { tracking_id });
-    const { data: product, error } = await supabase
-      .from('products')
-      .select('id, active, fb_pixel_id, fb_access_token, fb_test_event_code')
-      .eq('tracking_id', tracking_id)
-      .single();
-
-    log('DB', 'Consulta ejecutada', { product, error });
+    log('Validation', 'Validating tracking permissions', { userId, productId });
+    
+    const { data, error } = await supabase
+      .rpc('validate_tracking', {
+        p_user_id: userId,
+        p_product_id: productId
+      });
 
     if (error) {
-      log('DB', 'Error obteniendo producto', error);
-      return null;
+      log('Validation', 'Error validating tracking', error);
+      return { valid: false, error: 'Error validating tracking permissions' };
     }
-    if (!product) {
-      log('DB', 'Producto no encontrado', { tracking_id });
-      return null;
-    }
-    log('DB', 'Producto encontrado', { product });
-    return product as Product;
+
+    log('Validation', 'Validation result', data);
+    return data;
   } catch (err) {
-    log('DB', 'Error inesperado en getProduct', err instanceof Error ? err.stack : err);
-    return null;
+    log('Validation', 'Unexpected error in validation', err);
+    return { valid: false, error: 'Internal validation error' };
   }
 }
 
-function mapEventType(type: string): string {
-  // Lista de tipos permitidos según el ENUM tracking_event_type en la DB
-  const allowedEventTypes = ['pageview', 'interaction', 'input_change', 'hotmart_click'];
-
-  // Mapeo de tipos de eventos a los valores del ENUM
-  const eventTypeMapping: { [key: string]: string } = {
-    'hotmart_click': 'hotmart_click',
-    'pageview': 'pageview',
-    'interaction': 'interaction',
-    'input_change': 'input_change'
-  };
-
-  const mappedType = eventTypeMapping[type] || 'custom';
-  if (!allowedEventTypes.includes(mappedType)) {
-    throw new Error(`Tipo de evento no permitido: ${type}`);
-  }
-  return mappedType;
-}
-
-/**
- * Dispara la API de conversiones de Facebook replicando la data de tu flujo n8n.
- */
-async function sendFacebookConversion(
-  product: Product,
-  trackingEvent: TrackingEvent,
-  commonEventData: any,
+async function logTrackingAttempt(
+  userId: string,
+  productId: string,
+  eventType: string,
+  status: string,
+  errorMessage?: string,
   log: (context: string, message: string, data?: any) => void
 ): Promise<void> {
-  // Verificar que existan los datos necesarios.
-  if (!product.fb_pixel_id || !product.fb_access_token) {
-    log('Facebook', 'Datos de Facebook incompletos en producto', { product });
-    return;
-  }
-
-  // Construir el evento con la data de tu flujo n8n.
-  const eventPayload = {
-    event_name: "InitiateCheckout",
-    event_time: Math.floor(Date.now() / 1000),
-    action_source: "website",
-    original_event_data: {
-      event_name: "InitiateCheckout",
-      event_time: Math.floor(Date.now() / 1000)
-    },
-    user_data: {
-      client_ip_address: trackingEvent.event_data?.ip || null,
-      client_user_agent: trackingEvent.user_agent || trackingEvent.event_data?.browser_info?.userAgent || null,
-      fbc: commonEventData.fbc,
-      fbp: commonEventData.fbp
-    }
-  };
-
-  // Armar el payload final, colocando test_event_code a nivel superior.
-  const fbPayload: any = {
-    data: [ eventPayload ]
-  };
-  if (product.fb_test_event_code) {
-    fbPayload.test_event_code = product.fb_test_event_code;
-  }
-
-  const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
-  log('Facebook', 'Disparando API de conversiones', { url: fbUrl, payload: fbPayload });
-
   try {
-    const fbResponse = await fetch(fbUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(fbPayload)
+    log('Logging', 'Recording tracking attempt', {
+      userId,
+      productId,
+      eventType,
+      status,
+      errorMessage
     });
-    log('Facebook', 'Respuesta HTTP de Facebook', {
-      status: fbResponse.status,
-      ok: fbResponse.ok
+
+    await supabase.rpc('log_tracking_attempt', {
+      p_user_id: userId,
+      p_product_id: productId,
+      p_event_type: eventType,
+      p_status: status,
+      p_error_message: errorMessage
     });
-    const fbResult = await fbResponse.json();
-    log('Facebook', 'Respuesta de Facebook (JSON)', { fbResult });
-  } catch (error) {
-    log('Facebook', 'Error llamando API de Facebook', error);
+
+    log('Logging', 'Tracking attempt recorded successfully');
+  } catch (err) {
+    log('Logging', 'Error recording tracking attempt', err);
   }
 }
 
-
-
-export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
+export async function handleTrackingEvent(data: TrackingEvent): Promise<{ 
+  success: boolean; 
+  debugLogs: any[]; 
+  error?: string 
+}> {
   const debugLogs: any[] = [];
 
   const log = (context: string, message: string, logData?: any) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
     debugLogs.push(logEntry);
-    const logMessage = `[${timestamp}] [HotAPI Backend] [${context}] ${message}`;
     if (DEBUG_MODE) {
-      console.debug(logMessage, logData ? JSON.stringify(logData, null, 2) : '');
-    } else {
-      console.log(logMessage, logData || '');
+      console.debug(`[${timestamp}] [${context}] ${message}`, logData ? JSON.stringify(logData, null, 2) : '');
     }
   };
 
@@ -177,46 +116,47 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     return { success: false, debugLogs, error: errorMsg };
   }
 
-  const { tracking_id, type } = data;
-  log('Event', 'Datos básicos validados', { tracking_id, type, visitor_id: data.visitor_id });
-
   try {
-    log('Event', 'Verificando producto asociado', { tracking_id });
-    const product = await getProduct(tracking_id, log);
+    // Get product and user information
+    const { data: product, error: productError } = await supabase
+      .from('products')
+      .select(`
+        id,
+        user_id,
+        active,
+        fb_pixel_id,
+        fb_access_token,
+        fb_test_event_code
+      `)
+      .eq('tracking_id', data.tracking_id)
+      .single();
 
-    if (!product) {
-      const errMsg = 'Producto no encontrado';
-      log('Event', errMsg, { tracking_id });
-      return { success: false, debugLogs, error: errMsg };
-    }
-    if (!product.active) {
-      const errMsg = 'Producto inactivo';
-      log('Event', errMsg, { tracking_id, product });
-      return { success: false, debugLogs, error: errMsg };
-    }
-    log('Event', 'Producto validado correctamente', { product });
-
-    let mappedType: string;
-    try {
-      mappedType = mapEventType(type);
-      log('Event', 'Tipo de evento mapeado', { original: type, mapped: mappedType });
-    } catch (mapError) {
-      log('Event', 'Error en el mapeo del tipo de evento', mapError);
-      return { success: false, debugLogs, error: mapError instanceof Error ? mapError.message : 'Error en el mapeo del tipo de evento' };
+    if (productError || !product) {
+      log('Event', 'Producto no encontrado', { tracking_id: data.tracking_id });
+      return { success: false, debugLogs, error: 'Producto no encontrado' };
     }
 
-    const commonEventData = {
-      browser_info: data.event_data?.browser_info || {},
-      fbc: data.event_data?.fbc || null,
-      fbp: data.event_data?.fbp || null,
-      utm_data: data.event_data?.utm_data || {},
-      original_type: type,
-      ...data.event_data
-    };
+    // Validate tracking permissions
+    const validation = await validateTracking(product.user_id, product.id, log);
 
-    log('Event', 'Insertando tracking event en la base de datos', {
+    if (!validation.valid) {
+      await logTrackingAttempt(
+        product.user_id,
+        product.id,
+        data.type,
+        'failed',
+        validation.error,
+        log
+      );
+      
+      log('Event', 'Tracking validation failed', validation);
+      return { success: false, debugLogs, error: validation.error };
+    }
+
+    // Process the event
+    const eventData = {
       product_id: product.id,
-      event_type: mappedType,
+      event_type: data.type,
       visitor_id: data.visitor_id,
       session_id: data.session_id,
       page_view_id: data.page_view_id,
@@ -225,64 +165,53 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       user_agent: data.user_agent || data.event_data?.browser_info?.userAgent,
       screen_resolution: data.screen_resolution,
       viewport_size: data.viewport_size,
-      event_data: commonEventData
-    });
+      event_data: {
+        ...data.event_data,
+        tracking_validation: {
+          type: validation.type,
+          plan: validation.plan
+        }
+      }
+    };
+
+    log('Event', 'Inserting tracking event', eventData);
 
     const { error: insertError } = await supabase
       .from('tracking_events')
-      .insert([{
-        product_id: product.id,
-        event_type: mappedType,
-        visitor_id: data.visitor_id,
-        session_id: data.session_id,
-        page_view_id: data.page_view_id,
-        url: data.url,
-        referrer: data.referrer,
-        user_agent: data.user_agent || data.event_data?.browser_info?.userAgent,
-        screen_resolution: data.screen_resolution,
-        viewport_size: data.viewport_size,
-        event_data: commonEventData
-      }]);
+      .insert([eventData]);
 
     if (insertError) {
-      log('Event', 'Error insertando evento', insertError);
-      return { success: false, debugLogs, error: insertError.message || 'Error insertando evento' };
-    }
-    log('Event', 'Evento insertado correctamente');
-
-    // Si es un hotmart_click, además de registrar el evento, dispara la conversión en Facebook.
-    if (type === 'hotmart_click') {
-      log('Hotmart', 'Procesando hotmart_click y disparando conversión de Facebook', { event_data: commonEventData });
-      await sendFacebookConversion(product, data, commonEventData, log);
-
-      // Registro opcional en tabla específica de clicks
-      const hotmartData = {
-        product_id: product.id,
-        visitor_id: data.visitor_id,
-        url: data.url,
-        fbc: commonEventData.fbc,
-        fbp: commonEventData.fbp,
-        browser_info: commonEventData.browser_info,
-        utm_data: commonEventData.utm_data,
-        timestamp: new Date()
-      };
-
-      log('Hotmart', 'Insertando hotmart click en la base de datos', { hotmartData });
-      const { error: clickError } = await supabase
-        .from('hotmart_clicks')
-        .insert([hotmartData]);
-
-      if (clickError) {
-        log('Hotmart', 'Error guardando click', clickError);
-        return { success: false, debugLogs, error: clickError.message || 'Error guardando click' };
-      }
-      log('Hotmart', 'Click guardado exitosamente', { hotmartData });
+      await logTrackingAttempt(
+        product.user_id,
+        product.id,
+        data.type,
+        'failed',
+        insertError.message,
+        log
+      );
+      
+      log('Event', 'Error inserting event', insertError);
+      return { success: false, debugLogs, error: 'Error registrando evento' };
     }
 
-    log('Event', 'Evento procesado exitosamente', { tracking_id, type: mappedType });
+    // Log successful tracking
+    await logTrackingAttempt(
+      product.user_id,
+      product.id,
+      data.type,
+      'success',
+      undefined,
+      log
+    );
+
+    log('Event', 'Evento procesado exitosamente');
     return { success: true, debugLogs };
-  } catch (err) {
-    log('Event', 'Error procesando evento', err instanceof Error ? err.stack : err);
-    return { success: false, debugLogs, error: err instanceof Error ? err.message : 'Error interno del servidor' };
+  } catch (error) {
+    log('Event', 'Error procesando evento', error);
+    return { 
+      success: false, 
+      debugLogs, 
+      error: error instanceof Error ? error.message : 'Error interno del servidor' 
+    };
   }
 }

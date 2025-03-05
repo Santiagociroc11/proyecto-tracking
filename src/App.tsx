@@ -6,6 +6,7 @@ import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import CreateProduct from './pages/CreateProduct';
 import ProductDetails from './pages/ProductDetails';
+import Settings from './pages/Settings';
 import PrivateRoute from './components/PrivateRoute';
 import Header from './components/Header';
 
@@ -41,6 +42,14 @@ function App() {
                 </>
               </PrivateRoute>
             } />
+            <Route path="/settings" element={
+              <PrivateRoute>
+                <>
+                  <Header />
+                  <Settings />
+                </>
+              </PrivateRoute>
+            } />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -49,4 +58,4 @@ function App() {
   );
 }
 
-export default App;
+export default App

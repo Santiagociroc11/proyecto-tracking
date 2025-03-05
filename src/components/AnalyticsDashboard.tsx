@@ -1,43 +1,132 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
-import { BarChart, LineChart, ArrowUpRight, ArrowDownRight, DollarSign, Users } from 'lucide-react';
+import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { useTimezone } from '../hooks/useTimezone';
+import { formatDateToTimezone } from '../utils/date';
+import * as XLSX from 'xlsx';
 
 interface AnalyticsData {
   total_visits: number;
   total_clicks: number;
   total_purchases: number;
   conversion_rate: number;
-  campaign_stats: {
-    utm_source: string;
-    utm_medium: string;
-    utm_campaign: string;
+  utm_stats: {
+    source: string;
+    medium: string;
+    campaign: string;
+    content: string;
+    term: string;
+    visits: number;
+    clicks: number;
+    conversion_rate: number;
+  }[];
+  daily_stats: {
+    date: string;
     visits: number;
     clicks: number;
     purchases: number;
-    revenue: number;
+  }[];
+  top_sources: {
+    source: string;
+    visits: number;
+    clicks: number;
   }[];
 }
 
 interface Props {
   productId: string;
-  startDate?: Date;
-  endDate?: Date;
 }
 
-export default function AnalyticsDashboard({ productId, startDate, endDate }: Props) {
+type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'conversion_rate';
+type SortDirection = 'asc' | 'desc';
+
+export default function AnalyticsDashboard({ productId }: Props) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month'>('day');
+  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom'>('month');
+  const [startDate, setStartDate] = useState<string>(
+    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  );
+  const [endDate, setEndDate] = useState<string>(
+    new Date().toISOString().split('T')[0]
+  );
+  const [dateError, setDateError] = useState<string>('');
+  const { timezone } = useTimezone();
+  const [sortField, setSortField] = useState<SortField>('visits');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
 
   useEffect(() => {
     loadAnalytics();
-  }, [productId, startDate, endDate, timeframe]);
+  }, [productId, timeframe, startDate, endDate, timezone]);
+
+  const validateDateRange = (start: string, end: string): boolean => {
+    const startTime = new Date(start).getTime();
+    const endTime = new Date(end).getTime();
+    const maxRange = 365 * 24 * 60 * 60 * 1000; // 1 year in milliseconds
+
+    if (startTime > endTime) {
+      setDateError('La fecha inicial no puede ser posterior a la fecha final');
+      return false;
+    }
+
+    if (endTime - startTime > maxRange) {
+      setDateError('El rango máximo permitido es de 1 año');
+      return false;
+    }
+
+    if (endTime > Date.now()) {
+      setDateError('La fecha final no puede ser futura');
+      return false;
+    }
+
+    setDateError('');
+    return true;
+  };
+
+  const handleDateChange = (type: 'start' | 'end', value: string) => {
+    const newStartDate = type === 'start' ? value : startDate;
+    const newEndDate = type === 'end' ? value : endDate;
+
+    if (validateDateRange(newStartDate, newEndDate)) {
+      setTimeframe('custom');
+      if (type === 'start') setStartDate(value);
+      if (type === 'end') setEndDate(value);
+    }
+  };
+
+  const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month') => {
+    const now = new Date();
+    let start: Date;
+
+    switch (newTimeframe) {
+      case 'day':
+        start = new Date(now.setHours(0, 0, 0, 0));
+        break;
+      case 'week':
+        start = new Date(now.setDate(now.getDate() - 7));
+        break;
+      case 'month':
+        start = new Date(now.setMonth(now.getMonth() - 1));
+        break;
+      default:
+        return;
+    }
+
+    setTimeframe(newTimeframe);
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(new Date().toISOString().split('T')[0]);
+    setDateError('');
+  };
+
+  const resetDateFilter = () => {
+    setPresetTimeframe('month');
+  };
 
   async function loadAnalytics() {
     try {
       setLoading(true);
 
-      // Obtener eventos de tracking
       const { data: events, error: eventsError } = await supabase
         .from('tracking_events')
         .select(`
@@ -45,69 +134,115 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
           event_type,
           event_data,
           created_at,
-          visitor_id
+          visitor_id,
+          url
         `)
         .eq('product_id', productId)
-        .gte('created_at', startDate?.toISOString() || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString())
-        .lte('created_at', endDate?.toISOString() || new Date().toISOString())
+        .gte('created_at', `${startDate}T00:00:00`)
+        .lte('created_at', `${endDate}T23:59:59`)
         .order('created_at', { ascending: true });
 
       if (eventsError) throw eventsError;
 
       // Procesar datos
-      const campaignStats = new Map();
+      const utmStats = new Map();
+      const dailyStats = new Map();
+      const sourceStats = new Map();
       let totalVisits = 0;
       let totalClicks = 0;
       let totalPurchases = 0;
-      let totalRevenue = 0;
 
       events.forEach(event => {
-        const utmData = event.event_data?.utm_data || {};
-        const campaignKey = `${utmData.utm_source || 'direct'}-${utmData.utm_medium || 'none'}-${utmData.utm_campaign || 'none'}`;
+        // Procesar estadísticas diarias
+        const date = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
+        if (!dailyStats.has(date)) {
+          dailyStats.set(date, { date, visits: 0, clicks: 0, purchases: 0 });
+        }
+        const dayStats = dailyStats.get(date);
 
-        if (!campaignStats.has(campaignKey)) {
-          campaignStats.set(campaignKey, {
-            utm_source: utmData.utm_source || 'direct',
-            utm_medium: utmData.utm_medium || 'none',
-            utm_campaign: utmData.utm_campaign || 'none',
+        // Procesar UTMs
+        const utmData = event.event_data?.utm_data || {};
+        const utmKey = JSON.stringify({
+          source: utmData.utm_source || 'direct',
+          medium: utmData.utm_medium || 'none',
+          campaign: utmData.utm_campaign || 'none',
+          content: utmData.utm_content || 'none',
+          term: utmData.utm_term || 'none'
+        });
+
+        // Procesar fuentes
+        const source = utmData.utm_source || 'direct';
+        if (!sourceStats.has(source)) {
+          sourceStats.set(source, { source, visits: 0, clicks: 0 });
+        }
+        const sourceData = sourceStats.get(source);
+
+        if (!utmStats.has(utmKey)) {
+          utmStats.set(utmKey, {
+            source: utmData.utm_source || 'direct',
+            medium: utmData.utm_medium || 'none',
+            campaign: utmData.utm_campaign || 'none',
+            content: utmData.utm_content || 'none',
+            term: utmData.utm_term || 'none',
             visits: 0,
             clicks: 0,
-            purchases: 0,
-            revenue: 0
+            purchases: 0
           });
         }
 
-        const stats = campaignStats.get(campaignKey);
+        const stats = utmStats.get(utmKey);
 
         switch (event.event_type) {
           case 'pageview':
             stats.visits++;
+            dayStats.visits++;
+            sourceData.visits++;
             totalVisits++;
             break;
           case 'hotmart_click':
             stats.clicks++;
+            dayStats.clicks++;
+            sourceData.clicks++;
             totalClicks++;
             break;
           case 'custom':
             if (event.event_data?.type === 'hotmart_event' && 
                 event.event_data?.event === 'PURCHASE_APPROVED') {
               stats.purchases++;
-              stats.revenue += event.event_data?.data?.purchase?.price?.value || 0;
+              dayStats.purchases++;
               totalPurchases++;
-              totalRevenue += event.event_data?.data?.purchase?.price?.value || 0;
             }
             break;
         }
 
-        campaignStats.set(campaignKey, stats);
+        utmStats.set(utmKey, stats);
+        dailyStats.set(date, dayStats);
+        sourceStats.set(source, sourceData);
       });
+
+      // Calcular tasas de conversión
+      const utmStatsArray = Array.from(utmStats.values())
+        .map(stat => ({
+          ...stat,
+          conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0
+        }))
+        .sort((a, b) => b.visits - a.visits);
+
+      const dailyStatsArray = Array.from(dailyStats.values())
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+      const topSources = Array.from(sourceStats.values())
+        .sort((a, b) => b.visits - a.visits)
+        .slice(0, 5);
 
       setData({
         total_visits: totalVisits,
         total_clicks: totalClicks,
         total_purchases: totalPurchases,
         conversion_rate: totalClicks > 0 ? (totalPurchases / totalClicks) * 100 : 0,
-        campaign_stats: Array.from(campaignStats.values())
+        utm_stats: utmStatsArray,
+        daily_stats: dailyStatsArray,
+        top_sources: topSources
       });
 
     } catch (error) {
@@ -116,6 +251,82 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
       setLoading(false);
     }
   }
+
+  const exportToExcel = () => {
+    if (!data) return;
+
+    const workbook = XLSX.utils.book_new();
+
+    // Hoja de UTMs
+    const utmData = data.utm_stats.map(utm => ({
+      'Campaña': utm.campaign,
+      'Segmentación': utm.medium,
+      'Anuncio': utm.content,
+      'Fuente': utm.source,
+      'Visitas': utm.visits,
+      'Pagos Iniciados': utm.clicks,
+      'Conversión (%)': utm.conversion_rate.toFixed(2)
+    }));
+    const utmSheet = XLSX.utils.json_to_sheet(utmData);
+    XLSX.utils.book_append_sheet(workbook, utmSheet, 'UTMs');
+
+    // Hoja de estadísticas diarias
+    const dailyData = data.daily_stats.map(day => ({
+      'Fecha': day.date,
+      'Visitas': day.visits,
+      'Pagos Iniciados': day.clicks,
+      'Compras': day.purchases
+    }));
+    const dailySheet = XLSX.utils.json_to_sheet(dailyData);
+    XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
+
+    // Exportar
+    XLSX.writeFile(workbook, 'analytics.xlsx');
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const getSortedUtmStats = () => {
+    if (!data) return [];
+    
+    return [...data.utm_stats].sort((a, b) => {
+      const multiplier = sortDirection === 'asc' ? 1 : -1;
+      
+      if (sortField === 'conversion_rate') {
+        return (a.conversion_rate - b.conversion_rate) * multiplier;
+      }
+      
+      const aValue = a[sortField];
+      const bValue = b[sortField];
+      
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return (aValue - bValue) * multiplier;
+      }
+      
+      return String(aValue).localeCompare(String(bValue)) * multiplier;
+    });
+  };
+
+  const SortButton = ({ field, label }: { field: SortField; label: string }) => (
+    <button
+      onClick={() => handleSort(field)}
+      className="group inline-flex items-center space-x-1 text-xs font-medium text-gray-500 uppercase tracking-wider hover:text-gray-900"
+    >
+      <span>{label}</span>
+      <ArrowUpDown className={`h-4 w-4 ${
+        sortField === field 
+          ? 'text-gray-900' 
+          : 'text-gray-400 group-hover:text-gray-500'
+      }`} />
+    </button>
+  );
 
   if (loading) {
     return (
@@ -135,6 +346,97 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
 
   return (
     <div className="space-y-6">
+      {/* Filtros y Exportación */}
+      <div className="bg-white p-4 rounded-lg shadow">
+        <div className="flex flex-wrap gap-4 items-start justify-between">
+          <div className="space-y-4 w-full lg:w-auto">
+            <div className="flex flex-wrap gap-4 items-end">
+              <div>
+                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
+                  Fecha inicial
+                </label>
+                <input
+                  type="date"
+                  id="start-date"
+                  value={startDate}
+                  max={endDate}
+                  onChange={(e) => handleDateChange('start', e.target.value)}
+                  className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
+                  Fecha final
+                </label>
+                <input
+                  type="date"
+                  id="end-date"
+                  value={endDate}
+                  min={startDate}
+                  max={new Date().toISOString().split('T')[0]}
+                  onChange={(e) => handleDateChange('end', e.target.value)}
+                  className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                />
+              </div>
+              <button
+                onClick={resetDateFilter}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                title="Restablecer filtros"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+            </div>
+
+            {dateError && (
+              <div className="text-sm text-red-600">
+                {dateError}
+              </div>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setPresetTimeframe('day')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  timeframe === 'day'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                }`}
+              >
+                Hoy
+              </button>
+              <button
+                onClick={() => setPresetTimeframe('week')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  timeframe === 'week'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                }`}
+              >
+                Última Semana
+              </button>
+              <button
+                onClick={() => setPresetTimeframe('month')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                  timeframe === 'month'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                }`}
+              >
+                Último Mes
+              </button>
+            </div>
+          </div>
+
+          <button
+            onClick={exportToExcel}
+            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </button>
+        </div>
+      </div>
+
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
@@ -152,10 +454,10 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded">
-              <BarChart className="h-6 w-6 text-green-600" />
+              <BarChartIcon className="h-6 w-6 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Clicks en Hotmart</p>
+              <p className="text-sm font-medium text-gray-500">Pagos Iniciados</p>
               <h3 className="text-2xl font-bold text-gray-900">{data.total_clicks}</h3>
             </div>
           </div>
@@ -176,7 +478,7 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded">
-              <LineChart className="h-6 w-6 text-yellow-600" />
+              <LineChartIcon className="h-6 w-6 text-yellow-600" />
             </div>
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Tasa de Conversión</p>
@@ -188,45 +490,51 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
         </div>
       </div>
 
-      {/* Filtros de tiempo */}
-      <div className="flex space-x-2">
-        <button
-          onClick={() => setTimeframe('day')}
-          className={`px-4 py-2 rounded-md text-sm font-medium ${
-            timeframe === 'day'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          Hoy
-        </button>
-        <button
-          onClick={() => setTimeframe('week')}
-          className={`px-4 py-2 rounded-md text-sm font-medium ${
-            timeframe === 'week'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          Esta Semana
-        </button>
-        <button
-          onClick={() => setTimeframe('month')}
-          className={`px-4 py-2 rounded-md text-sm font-medium ${
-            timeframe === 'month'
-              ? 'bg-indigo-600 text-white'
-              : 'bg-white text-gray-700 hover:bg-gray-50'
-          }`}
-        >
-          Este Mes
-        </button>
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Gráfico de tendencias diarias */}
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={data.daily_stats}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Line type="monotone" dataKey="visits" stroke="#3B82F6" name="Visitas" />
+                <Line type="monotone" dataKey="clicks" stroke="#10B981" name="Pagos Iniciados" />
+                <Line type="monotone" dataKey="purchases" stroke="#8B5CF6" name="Compras" />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Gráfico de fuentes principales */}
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">Principales Fuentes de Tráfico</h3>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data.top_sources}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="source" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="visits" fill="#3B82F6" name="Visitas" />
+                <Bar dataKey="clicks" fill="#10B981" name="Pagos Iniciados" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
-      {/* Tabla de Campañas */}
+      {/* Tabla de UTMs */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6">
           <h3 className="text-lg leading-6 font-medium text-gray-900">
-            Rendimiento por Campaña
+            Rendimiento por UTM
           </h3>
         </div>
         <div className="border-t border-gray-200">
@@ -234,63 +542,59 @@ export default function AnalyticsDashboard({ productId, startDate, endDate }: Pr
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Fuente
+                  <th scope="col" className="px-6 py-3 text-left">
+                    <SortButton field="campaign" label="Campaña" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Medio
+                  <th scope="col" className="px-6 py-3 text-left">
+                    <SortButton field="medium" label="Segmentación" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Campaña
+                  <th scope="col" className="px-6 py-3 text-left">
+                    <SortButton field="content" label="Anuncio" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Visitas
+                  <th scope="col" className="px-6 py-3 text-left">
+                    <SortButton field="source" label="Fuente" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Clicks
+                  <th scope="col" className="px-6 py-3 text-right">
+                    <SortButton field="visits" label="Visitas" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Compras
+                  <th scope="col" className="px-6 py-3 text-right">
+                    <SortButton field="clicks" label="Pagos Iniciados" />
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Conversión
+                  <th scope="col" className="px-6 py-3 text-right">
+                    <SortButton field="conversion_rate" label="Conversión" />
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.campaign_stats.map((campaign, index) => {
-                  const conversionRate = campaign.clicks > 0 
-                    ? (campaign.purchases / campaign.clicks) * 100 
-                    : 0;
-                  
-                  const isPositive = conversionRate > (data.conversion_rate || 0);
+                {getSortedUtmStats().map((utm, index) => {
+                  const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
 
                   return (
-                    <tr key={index}>
+                    <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {campaign.utm_source}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {campaign.utm_medium}
+                        {utm.campaign}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {campaign.utm_campaign}
+                        {utm.medium}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {utm.content}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {utm.source}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {campaign.visits}
+                        {utm.visits}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {campaign.clicks}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {campaign.purchases}
+                        {utm.clicks}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end space-x-1">
                           <span className={`text-sm ${
                             isPositive ? 'text-green-600' : 'text-red-600'
                           }`}>
-                            {conversionRate.toFixed(2)}%
+                            {utm.conversion_rate.toFixed(2)}%
                           </span>
                           {isPositive ? (
                             <ArrowUpRight className="h-4 w-4 text-green-600" />

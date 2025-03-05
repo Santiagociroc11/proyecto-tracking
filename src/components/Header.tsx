@@ -1,10 +1,11 @@
 import React from 'react';
 import { useAuth } from '../contexts/AuthContext';
-import { Link } from 'react-router-dom';
-import { LogOut, Activity } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { LogOut, Activity, Settings } from 'lucide-react';
 
 export default function Header() {
   const { signOut } = useAuth();
+  const location = useLocation();
 
   return (
     <header className="bg-gradient-to-r from-indigo-600 to-purple-600">
@@ -17,7 +18,18 @@ export default function Header() {
               <span className="ml-1 text-gray-300 text-sm">by Automscc</span>
             </Link>
           </div>
-          <div className="flex items-center">
+          <div className="flex items-center space-x-4">
+            <Link
+              to="/settings"
+              className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md text-sm font-medium ${
+                location.pathname === '/settings'
+                  ? 'text-indigo-600 bg-white'
+                  : 'text-white bg-indigo-700 hover:bg-indigo-800'
+              } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-indigo-600 focus:ring-white`}
+            >
+              <Settings className="h-4 w-4 mr-2" />
+              Ajustes
+            </Link>
             <button
               onClick={() => signOut()}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-700 hover:bg-indigo-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-indigo-600 focus:ring-white"
