@@ -101,12 +101,12 @@ async function sendFacebookConversion(
   commonEventData: any,
   log: (context: string, message: string, data?: any) => void
 ): Promise<void> {
-  // Asegúrate de tener los datos necesarios para disparar la conversión
+  // Verificar que existan los datos necesarios.
   if (!product.fb_pixel_id || !product.fb_access_token) {
     log('Facebook', 'Datos de Facebook incompletos en producto', { product });
     return;
   }
-  // Construye el payload para la API de Facebook
+  // Construir el payload con los datos de tu flujo n8n.
   const fbPayload = {
     data: [
       {
@@ -136,8 +136,13 @@ async function sendFacebookConversion(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(fbPayload)
     });
+    log('Facebook', 'Respuesta HTTP de Facebook', {
+      status: fbResponse.status,
+      ok: fbResponse.ok
+    });
+    // Intentar convertir a JSON y loguear la respuesta.
     const fbResult = await fbResponse.json();
-    log('Facebook', 'Respuesta de Facebook', { fbResult });
+    log('Facebook', 'Respuesta de Facebook (JSON)', { fbResult });
   } catch (error) {
     log('Facebook', 'Error llamando API de Facebook', error);
   }
