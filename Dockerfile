@@ -13,6 +13,12 @@ RUN npm ci
 COPY . .
 
 # Build frontend and server
+ARG VITE_SUPABASE_URL
+ARG VITE_SUPABASE_ANON_KEY
+
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
+
 RUN npm run build
 
 # Production stage
@@ -27,7 +33,12 @@ RUN npm ci --production
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
-COPY .env .env
+
+# Set runtime environment variables
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
+ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
 # Expose port
 EXPOSE 3000
