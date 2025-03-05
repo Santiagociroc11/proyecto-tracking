@@ -58,6 +58,20 @@ interface Product {
   fb_test_event_code: string | null;
 }
 
+interface FacebookEventPayload {
+  data: {
+    event_name: string;
+    event_time: number;
+    action_source: string;
+    user_data: UserData;
+    custom_data: {
+      currency: string;
+      value: number;
+    };
+  }[];
+  test_event_code?: string;
+}
+
 async function hashData(value: string): Promise<string> {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
@@ -93,7 +107,7 @@ async function sendFacebookConversion(
       }
     });
 
-    const eventPayload = {
+    const eventPayload: FacebookEventPayload = {
       data: [{
         event_name: "Purchase",
         event_time: Math.floor(Date.now() / 1000),
@@ -159,11 +173,22 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       return { success: false, error: 'Tracking event no encontrado' };
     }
 
-    const product = trackingEvent.products as Product;
+    if (!trackingEvent?.products) {
+      console.error('Producto no encontrado');
+      return { success: false, error: 'Producto no encontrado' };
+    }
 
-    if (!product || !product.active) {
-      console.error('Producto no encontrado o inactivo');
-      return { success: false, error: 'Producto no encontrado o inactivo' };
+    const product: Product = {
+      id: trackingEvent.products.id,
+      active: trackingEvent.products.active,
+      fb_pixel_id: trackingEvent.products.fb_pixel_id,
+      fb_access_token: trackingEvent.products.fb_access_token,
+      fb_test_event_code: trackingEvent.products.fb_test_event_code
+    };
+
+    if (!product.active) {
+      console.error('Producto inactivo');
+      return { success: false, error: 'Producto inactivo' };
     }
 
     await supabase
