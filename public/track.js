@@ -382,7 +382,7 @@
         keepalive: true
       })
         .then(response => {
-          lt.__log('Backend', 'Respuesta fetch', response.status);
+          lt.__log('Backend', 'Respuesta fetch', response);
         })
         .catch(error => {
           lt.__log('Backend', 'Error en fetch', error);
