@@ -17,15 +17,11 @@ ARG VITE_SUPABASE_ANON_KEY
 ENV VITE_SUPABASE_URL=$VITE_SUPABASE_URL
 ENV VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY
 
-# Construir la aplicación Vite con las variables de entorno
-RUN VITE_SUPABASE_URL=$VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY npm run build
+# Construir la aplicación (compila tanto frontend como backend)
+RUN npm run build
 
+# Exponer el puerto en el que corre tu servidor Express
+EXPOSE 3000
 
-# Instalar `serve` para servir la aplicación en producción
-RUN npm install -g serve
-
-# Exponer el puerto 4173 para que EasyPanel lo use
-EXPOSE 1975
-
-# Servir la aplicación con `serve`
-CMD ["sh", "-c", "exec serve -s dist -l 1975"]
+# Arranca el servidor Express (ajusta la ruta según tu compilación)
+CMD ["node", "dist/server.js"]
