@@ -18,8 +18,7 @@ interface Product {
 const DEBUG_MODE = true;
 
 /**
- * Función getProduct que ahora recibe la función log para que todos los mensajes
- * se acumulen en el debug local y se envíen a n8n.
+ * Obtiene el producto usando el tracking_id y acumula logs.
  */
 async function getProduct(
   tracking_id: string,
@@ -53,14 +52,31 @@ async function getProduct(
 }
 
 /**
- * Función principal que maneja el evento de tracking y envía todo el debug a n8n.
- * Se acumulan todos los logs en un array y se incluyen en la respuesta.
+ * Mapea el tipo de evento recibido al valor permitido por el ENUM en la base de datos.
+ */
+function mapEventType(type: string): string {
+  // Lista de tipos permitidos (ajusta estos valores a los definidos en tu DB)
+  const allowedEventTypes = ['click', 'view', 'purchase', 'HOTMART_CLICK'];
+  
+  // Mapeo: si recibes "hotmart_click", lo transformas a "HOTMART_CLICK"
+  const eventTypeMapping: { [key: string]: string } = {
+    'hotmart_click': 'HOTMART_CLICK'
+  };
+  
+  const mappedType = eventTypeMapping[type] || type;
+  if (!allowedEventTypes.includes(mappedType)) {
+    throw new Error(`Tipo de evento no permitido: ${type}`);
+  }
+  return mappedType;
+}
+
+/**
+ * Maneja el evento de tracking y envía todo el debug a n8n.
  */
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ success: boolean; debugLogs: any[]; error?: string }> {
-  // Array local para almacenar cada log generado en la ejecución.
   const debugLogs: any[] = [];
 
-  // Función de log que acumula mensajes y, si DEBUG_MODE está activado, también los imprime en consola.
+  // Función de log que acumula y muestra mensajes.
   const log = (context: string, message: string, logData?: any) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
@@ -75,7 +91,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
 
   log('Event', 'Iniciando handleTrackingEvent', { raw_event: data });
 
-  // Validación básica del evento: no dejamos pasar datos a medias.
+  // Validación de datos obligatorios.
   if (!data.tracking_id || !data.type || !data.visitor_id) {
     const errorMsg = 'Datos del evento incompletos';
     log('Event', errorMsg, { data });
@@ -101,10 +117,20 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
     }
     log('Event', 'Producto validado correctamente', { product });
 
-    // Insertar evento en la base de datos.
+    // Mapea el tipo de evento antes de la inserción.
+    let mappedType: string;
+    try {
+      mappedType = mapEventType(type);
+      log('Event', 'Tipo de evento mapeado', { original: type, mapped: mappedType });
+    } catch (mapError) {
+      log('Event', 'Error en el mapeo del tipo de evento', mapError);
+      return { success: false, debugLogs, error: mapError instanceof Error ? mapError.message : 'Error en el mapeo del tipo de evento' };
+    }
+
+    // Insertar el evento en la base de datos.
     log('Event', 'Insertando tracking event en la base de datos', {
       product_id: product.id,
-      event_type: type,
+      event_type: mappedType,
       visitor_id: data.visitor_id,
       session_id: data.session_id,
       page_view_id: data.page_view_id,
@@ -115,7 +141,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       .from('tracking_events')
       .insert([{
         product_id: product.id,
-        event_type: type,
+        event_type: mappedType,
         visitor_id: data.visitor_id,
         session_id: data.session_id,
         page_view_id: data.page_view_id,
@@ -154,7 +180,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{ succes
       log('Hotmart', 'Click guardado exitosamente', { hotmartData });
     }
 
-    log('Event', 'Evento procesado exitosamente', { tracking_id, type });
+    log('Event', 'Evento procesado exitosamente', { tracking_id, type: mappedType });
     return { success: true, debugLogs };
   } catch (err) {
     log('Event', 'Error procesando evento', err instanceof Error ? err.stack : err);
