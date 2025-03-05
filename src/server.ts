@@ -106,8 +106,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ success: false, error: 'Error interno del servidor' });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 1975;
 
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   log('Server', `Servidor escuchando en puerto ${PORT}`);
 });
