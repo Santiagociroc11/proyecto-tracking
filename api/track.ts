@@ -62,7 +62,7 @@ async function validateUserStatus(
 
     const { data: user, error: userError } = await supabase
       .from('users')
-      .select('active')
+      .select('active, events_count, max_monthly_events')
       .eq('id', userId)
       .single();
 
@@ -76,8 +76,26 @@ async function validateUserStatus(
       return { valid: false, error: 'Usuario inactivo' };
     }
 
+    // Check if user has exceeded their monthly event limit
+    if (user.events_count >= user.max_monthly_events) {
+      log('UserStatus', 'Usuario excedió límite mensual de eventos', {
+        current: user.events_count,
+        limit: user.max_monthly_events
+      });
+      return { 
+        valid: false, 
+        error: 'Límite mensual de eventos excedido',
+        monthlyEventsCount: user.events_count,
+        monthlyEventsLimit: user.max_monthly_events
+      };
+    }
+
     log('UserStatus', 'Usuario activo', { user });
-    return { valid: true };
+    return { 
+      valid: true,
+      monthlyEventsCount: user.events_count,
+      monthlyEventsLimit: user.max_monthly_events
+    };
   } catch (err) {
     log('UserStatus', 'Error inesperado validando estado del usuario', err);
     return { valid: false, error: 'Error interno validando estado del usuario' };
@@ -173,9 +191,13 @@ async function updateUserEventCount(
 
     if (error) {
       log('EventCount', 'Error actualizando contador de eventos', error);
+      throw error;
     }
+    
+    log('EventCount', 'Contador de eventos actualizado exitosamente');
   } catch (err) {
     log('EventCount', 'Error inesperado actualizando contador', err);
+    throw err;
   }
 }
 

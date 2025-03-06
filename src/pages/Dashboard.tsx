@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, LogOut } from 'lucide-react';
+import { Plus, LogOut, Activity, AlertTriangle } from 'lucide-react';
 
 interface Product {
   id: string;
@@ -12,30 +12,131 @@ interface Product {
   created_at: string;
 }
 
+interface UsageStats {
+  eventsCount: number;
+  maxMonthlyEvents: number;
+}
+
 export default function Dashboard() {
   const { signOut } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
+  const [usage, setUsage] = useState<UsageStats | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadProducts();
+    loadData();
   }, []);
 
-  async function loadProducts() {
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .order('created_at', { ascending: false });
+  async function loadData() {
+    try {
+      setLoading(true);
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    if (error) {
-      console.error('Error loading products:', error);
-      return;
+      // Load user's usage stats
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('events_count, max_monthly_events')
+        .eq('id', user.id)
+        .single();
+
+      if (userError) {
+        console.error('Error loading usage stats:', userError);
+      } else {
+        setUsage({
+          eventsCount: userData.events_count,
+          maxMonthlyEvents: userData.max_monthly_events
+        });
+      }
+
+      // Load products
+      const { data: productsData, error: productsError } = await supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (productsError) {
+        console.error('Error loading products:', productsError);
+        return;
+      }
+
+      setProducts(productsData || []);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
     }
-
-    setProducts(data || []);
   }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  const usagePercentage = usage ? (usage.eventsCount / usage.maxMonthlyEvents) * 100 : 0;
+  const isNearLimit = usagePercentage >= 80;
+  const hasReachedLimit = usagePercentage >= 100;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Usage Stats */}
+      {usage && (
+        <div className="mb-8 bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium text-gray-900">Uso de Eventos</h2>
+            <Activity className="h-5 w-5 text-gray-400" />
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-sm font-medium text-gray-900 mb-1">
+                <span>{usage.eventsCount.toLocaleString()} de {usage.maxMonthlyEvents.toLocaleString()} eventos</span>
+                <span>{Math.round(usagePercentage)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div 
+                  className={`h-2.5 rounded-full ${
+                    hasReachedLimit 
+                      ? 'bg-red-600' 
+                      : isNearLimit 
+                        ? 'bg-yellow-400' 
+                        : 'bg-green-600'
+                  }`}
+                  style={{ width: `${Math.min(usagePercentage, 100)}%` }}
+                ></div>
+              </div>
+            </div>
+
+            {(isNearLimit || hasReachedLimit) && (
+              <div className={`p-4 rounded-md ${hasReachedLimit ? 'bg-red-50' : 'bg-yellow-50'}`}>
+                <div className="flex">
+                  <AlertTriangle className={`h-5 w-5 ${hasReachedLimit ? 'text-red-400' : 'text-yellow-400'}`} />
+                  <div className="ml-3">
+                    <h3 className={`text-sm font-medium ${hasReachedLimit ? 'text-red-800' : 'text-yellow-800'}`}>
+                      {hasReachedLimit 
+                        ? 'Has alcanzado el límite de eventos mensuales' 
+                        : 'Estás cerca de alcanzar el límite de eventos mensuales'}
+                    </h3>
+                    <div className={`mt-2 text-sm ${hasReachedLimit ? 'text-red-700' : 'text-yellow-700'}`}>
+                      <p>
+                        {hasReachedLimit 
+                          ? 'Contacta con soporte para aumentar tu límite de eventos.' 
+                          : 'Considera contactar con soporte para aumentar tu límite antes de alcanzarlo.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-3xl font-bold text-gray-900">Mis Productos</h1>
         <div className="flex gap-4">
