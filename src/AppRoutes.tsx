@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard';
 import CreateProduct from './pages/CreateProduct';
 import ProductDetails from './pages/ProductDetails';
 import Settings from './pages/Settings';
+import AdminCreateUser from './pages/AdminCreateUser';
 import Header from './components/Header';
 import PrivateRoute from './components/PrivateRoute';
 
@@ -24,9 +25,11 @@ export default function AppRoutes() {
     return <Login />;
   }
 
+  const isAdmin = user.role === 'admin';
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header onLogout={signOut} isAdmin={user.role === 'admin'} />
+      <Header onLogout={signOut} isAdmin={isAdmin} />
       <Routes>
         <Route path="/" element={
           <PrivateRoute>
@@ -48,6 +51,13 @@ export default function AppRoutes() {
             <Settings />
           </PrivateRoute>
         } />
+        {isAdmin && (
+          <Route path="/admin/create-user" element={
+            <PrivateRoute>
+              <AdminCreateUser />
+            </PrivateRoute>
+          } />
+        )}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

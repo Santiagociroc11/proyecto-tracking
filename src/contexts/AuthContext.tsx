@@ -48,7 +48,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('users')
         .select('active')
         .eq('id', userId)
-        .single();
+        .maybeSingle();
 
       if (error) throw error;
       setIsActive(data?.active ?? false);
@@ -77,8 +77,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .insert([{ 
           id: data.user.id,
           active: true,
-          max_monthly_events: 10000,
-          events_count: 0
+          max_monthly_events: 0,
+          events_count: 0,
+          role: 'user'
         }]);
 
       if (userError) {
@@ -101,7 +102,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .from('users')
         .select('active')
         .eq('id', data.user.id)
-        .single();
+        .maybeSingle();
 
       if (userError || !userData?.active) {
         await signOut();

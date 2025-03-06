@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Copy, CheckCircle, ArrowLeft } from 'lucide-react';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Product {
   id: string;
@@ -13,10 +14,12 @@ interface Product {
   fb_pixel_id: string | null;
   fb_access_token: string | null;
   fb_test_event_code: string | null;
+  user_id: string;
 }
 
 export default function ProductDetails() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [product, setProduct] = useState<Product | null>(null);
   const [copied, setCopied] = useState<'id' | 'script' | 'webhook' | null>(null);
   const [fbPixelId, setFbPixelId] = useState('');
@@ -24,34 +27,60 @@ export default function ProductDetails() {
   const [fbTestEventCode, setFbTestEventCode] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'setup' | 'analytics'>('setup');
 
   useEffect(() => {
-    loadProduct();
-  }, [id]);
+    if (user && id) {
+      loadProduct();
+    }
+  }, [id, user]);
 
   async function loadProduct() {
-    if (!id) return;
+    if (!id || !user) return;
 
-    const { data, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', id)
-      .single();
+    try {
+      setLoading(true);
+      setError('');
 
-    if (error) {
-      console.error('Error loading product:', error);
-      return;
+      // First check if user has access to this product
+      const { data: userData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      const { data: product, error: productError } = await supabase
+        .from('products')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (productError || !product) {
+        throw new Error('Producto no encontrado');
+      }
+
+      // Only allow access if user owns the product or is admin
+      if (product.user_id !== user.id && userData?.role !== 'admin') {
+        throw new Error('No tienes acceso a este producto');
+      }
+
+      setProduct(product);
+      setFbPixelId(product.fb_pixel_id || '');
+      setFbAccessToken(product.fb_access_token || '');
+      setFbTestEventCode(product.fb_test_event_code || '');
+    } catch (err) {
+      console.error('Error loading product:', err);
+      setError(err instanceof Error ? err.message : 'Error cargando el producto');
+    } finally {
+      setLoading(false);
     }
-
-    setProduct(data);
-    setFbPixelId(data.fb_pixel_id || '');
-    setFbAccessToken(data.fb_access_token || '');
-    setFbTestEventCode(data.fb_test_event_code || '');
   }
 
   async function handleSaveFacebookConfig(e: React.FormEvent) {
     e.preventDefault();
+    if (!id || !user) return;
+
     setSaving(true);
     setError('');
 
@@ -63,7 +92,8 @@ export default function ProductDetails() {
           fb_access_token: fbAccessToken,
           fb_test_event_code: fbTestEventCode
         })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', user.id); // Ensure user owns the product
 
       if (error) throw error;
       
@@ -124,10 +154,30 @@ fbq('track', 'PageView');
     setTimeout(() => setCopied(null), 2000);
   }
 
-  if (!product) {
+  if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (error || !product) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-red-50 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <div className="flex-shrink-0">
+              <svg className="h-5 w-5 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error || 'Error cargando el producto'}</p>
+              <Link to="/" className="mt-2 text-sm text-red-700 underline">Volver al inicio</Link>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -136,7 +186,7 @@ fbq('track', 'PageView');
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6">
         <Link
-          to="/dashboard"
+          to="/"
           className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
         >
           <ArrowLeft className="h-4 w-4 mr-2" />

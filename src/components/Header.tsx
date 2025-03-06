@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { LogOut, Activity, Settings } from 'lucide-react';
+import { LogOut, Activity, Settings, UserPlus } from 'lucide-react';
 
 interface HeaderProps {
   onLogout: () => void;
@@ -21,9 +21,18 @@ export default function Header({ onLogout, isAdmin }: HeaderProps) {
           </div>
           <div className="flex items-center space-x-4">
             {isAdmin && (
-              <span className="text-white bg-indigo-700 px-3 py-1 rounded-full text-sm">
-                Admin
-              </span>
+              <>
+                <span className="text-white bg-indigo-700 px-3 py-1 rounded-full text-sm">
+                  Admin
+                </span>
+                <Link
+                  to="/admin/create-user"
+                  className="inline-flex items-center px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-700 hover:bg-indigo-800"
+                >
+                  <UserPlus className="h-4 w-4 mr-2" />
+                  Crear Usuario
+                </Link>
+              </>
             )}
             <Link
               to="/settings"

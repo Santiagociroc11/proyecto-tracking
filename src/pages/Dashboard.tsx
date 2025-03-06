@@ -18,27 +18,27 @@ interface UsageStats {
 }
 
 export default function Dashboard() {
-  const { signOut } = useAuth();
+  const { user, signOut } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (user) {
+      loadData();
+    }
+  }, [user]);
 
   async function loadData() {
     try {
       setLoading(true);
       
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
       // Load user's usage stats
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('events_count, max_monthly_events')
+        .select('events_count, max_monthly_events, role')
         .eq('id', user.id)
         .single();
 
@@ -49,20 +49,27 @@ export default function Dashboard() {
           eventsCount: userData.events_count,
           maxMonthlyEvents: userData.max_monthly_events
         });
+
+        // Load products based on user role
+        const query = supabase
+          .from('products')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        // If not admin, only show user's products
+        if (userData.role !== 'admin') {
+          query.eq('user_id', user.id);
+        }
+
+        const { data: productsData, error: productsError } = await query;
+
+        if (productsError) {
+          console.error('Error loading products:', productsError);
+          return;
+        }
+
+        setProducts(productsData || []);
       }
-
-      // Load products
-      const { data: productsData, error: productsError } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (productsError) {
-        console.error('Error loading products:', productsError);
-        return;
-      }
-
-      setProducts(productsData || []);
     } catch (error) {
       console.error('Error loading dashboard data:', error);
     } finally {

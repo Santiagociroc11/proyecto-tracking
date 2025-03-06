@@ -259,7 +259,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
   validation?: ValidationResult;
 }> {
   const debugLogs: any[] = [];
-
+  
   const log: LogFunction = (context, message, logData?) => {
     const timestamp = new Date().toISOString();
     const logEntry = { timestamp, context, message, data: logData };
@@ -296,28 +296,48 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: 'Producto no encontrado' };
     }
 
-    const validation = await validateTracking(product.user_id, product.id.toString(), log);
+    // Validate product is active
+    if (!product.active) {
+      log('Event', 'Producto inactivo', { productId: product.id });
+      return { success: false, debugLogs, error: 'Producto inactivo' };
+    }
 
-    // Siempre registramos el intento, incluso si falla la validación
-    await logTrackingAttempt(
-      product.user_id,
-      product.id.toString(),
-      data.type,
-      validation.valid ? 'success' : 'failed',
-      validation.error,
-      log
-    );
+    // Check user status
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('active, events_count, max_monthly_events')
+      .eq('id', product.user_id)
+      .single();
 
-    if (!validation.valid) {
-      log('Event', 'Validación de tracking fallida', validation);
+    if (userError || !userData) {
+      log('Event', 'Error verificando estado del usuario', userError);
+      return { success: false, debugLogs, error: 'Error verificando estado del usuario' };
+    }
+
+    if (!userData.active) {
+      log('Event', 'Usuario inactivo', { userId: product.user_id });
+      return { success: false, debugLogs, error: 'Usuario inactivo' };
+    }
+
+    // Check event limits
+    if (userData.events_count >= userData.max_monthly_events) {
+      log('Event', 'Límite mensual de eventos excedido', {
+        current: userData.events_count,
+        limit: userData.max_monthly_events
+      });
       return { 
         success: false, 
         debugLogs, 
-        error: validation.error,
-        validation 
+        error: 'Límite mensual de eventos excedido',
+        validation: {
+          valid: false,
+          monthlyEventsCount: userData.events_count,
+          monthlyEventsLimit: userData.max_monthly_events
+        }
       };
     }
 
+    // Insert event
     const eventData = {
       product_id: product.id,
       event_type: data.type,
@@ -332,9 +352,8 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       event_data: {
         ...data.event_data,
         tracking_validation: {
-          subscription_plan: validation.subscription?.plan,
-          events_count: validation.monthlyEventsCount,
-          events_limit: validation.monthlyEventsLimit
+          events_count: userData.events_count,
+          events_limit: userData.max_monthly_events
         }
       }
     };
@@ -350,15 +369,21 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { 
         success: false, 
         debugLogs, 
-        error: 'Error registrando evento',
-        validation 
+        error: 'Error registrando evento'
       };
     }
 
-    // Actualizar el contador de eventos del usuario
-    await updateUserEventCount(product.user_id, log);
+    // Update event count
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ events_count: userData.events_count + 1 })
+      .eq('id', product.user_id);
 
-    // Si es un hotmart_click, enviar conversión a Facebook
+    if (updateError) {
+      log('Event', 'Error actualizando contador de eventos', updateError);
+    }
+
+    // Handle Facebook conversion if needed
     if (data.type === 'hotmart_click') {
       log('Facebook', 'Procesando hotmart_click', { event_data: data.event_data });
       await sendFacebookConversion(product, data, log);
@@ -368,7 +393,11 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
     return { 
       success: true, 
       debugLogs,
-      validation 
+      validation: {
+        valid: true,
+        monthlyEventsCount: userData.events_count + 1,
+        monthlyEventsLimit: userData.max_monthly_events
+      }
     };
   } catch (error) {
     log('Event', 'Error procesando evento', error);

@@ -4,6 +4,7 @@ import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, Arr
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone } from '../utils/date';
+import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 
 interface AnalyticsData {
@@ -42,6 +43,7 @@ type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clic
 type SortDirection = 'asc' | 'desc';
 
 export default function AnalyticsDashboard({ productId }: Props) {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom'>('month');
@@ -55,10 +57,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const { timezone } = useTimezone();
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [error, setError] = useState<string>('');
 
   useEffect(() => {
-    loadAnalytics();
-  }, [productId, timeframe, startDate, endDate, timezone]);
+    if (user) {
+      loadAnalytics();
+    }
+  }, [productId, timeframe, startDate, endDate, timezone, user]);
 
   const validateDateRange = (start: string, end: string): boolean => {
     const startTime = new Date(start).getTime();
@@ -126,6 +131,30 @@ export default function AnalyticsDashboard({ productId }: Props) {
   async function loadAnalytics() {
     try {
       setLoading(true);
+      setError('');
+
+      if (!user) {
+        setError('Usuario no autenticado');
+        return;
+      }
+
+      // First verify access to the product
+      const { data: userData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      const { data: product } = await supabase
+        .from('products')
+        .select('user_id')
+        .eq('id', productId)
+        .single();
+
+      if (!product || (product.user_id !== user.id && userData?.role !== 'admin')) {
+        setError('No tienes acceso a estas analíticas');
+        return;
+      }
 
       const { data: events, error: eventsError } = await supabase
         .from('tracking_events')
@@ -144,7 +173,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       if (eventsError) throw eventsError;
 
-      // Procesar datos
+      // Process data
       const utmStats = new Map();
       const dailyStats = new Map();
       const sourceStats = new Map();
@@ -153,14 +182,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalPurchases = 0;
 
       events.forEach(event => {
-        // Procesar estadísticas diarias
         const date = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
         if (!dailyStats.has(date)) {
           dailyStats.set(date, { date, visits: 0, clicks: 0, purchases: 0 });
         }
         const dayStats = dailyStats.get(date);
 
-        // Procesar UTMs
         const utmData = event.event_data?.utm_data || {};
         const utmKey = JSON.stringify({
           source: utmData.utm_source || 'direct',
@@ -170,7 +197,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           term: utmData.utm_term || 'none'
         });
 
-        // Procesar fuentes
         const source = utmData.utm_source || 'direct';
         if (!sourceStats.has(source)) {
           sourceStats.set(source, { source, visits: 0, clicks: 0 });
@@ -220,7 +246,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         sourceStats.set(source, sourceData);
       });
 
-      // Calcular tasas de conversión
       const utmStatsArray = Array.from(utmStats.values())
         .map(stat => ({
           ...stat,
@@ -246,7 +271,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
       });
 
     } catch (error) {
-      console.error('Error cargando analytics:', error);
+      console.error('Error loading analytics:', error);
+      setError('Error cargando las analíticas');
     } finally {
       setLoading(false);
     }
@@ -257,7 +283,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
     const workbook = XLSX.utils.book_new();
 
-    // Hoja de UTMs
+    // UTMs sheet
     const utmData = data.utm_stats.map(utm => ({
       'Campaña': utm.campaign,
       'Segmentación': utm.medium,
@@ -270,7 +296,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const utmSheet = XLSX.utils.json_to_sheet(utmData);
     XLSX.utils.book_append_sheet(workbook, utmSheet, 'UTMs');
 
-    // Hoja de estadísticas diarias
+    // Daily stats sheet
     const dailyData = data.daily_stats.map(day => ({
       'Fecha': day.date,
       'Visitas': day.visits,
@@ -280,7 +306,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
 
-    // Exportar
+    // Export
     XLSX.writeFile(workbook, 'analytics.xlsx');
   };
 
@@ -336,6 +362,14 @@ export default function AnalyticsDashboard({ productId }: Props) {
     );
   }
 
+  if (error) {
+    return (
+      <div className="min-h-[400px] flex items-center justify-center">
+        <p className="text-red-500">{error}</p>
+      </div>
+    );
+  }
+
   if (!data) {
     return (
       <div className="min-h-[400px] flex items-center justify-center">
@@ -346,7 +380,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Filtros y Exportación */}
+      {/* Filters and Export */}
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex flex-wrap gap-4 items-start justify-between">
           <div className="space-y-4 w-full lg:w-auto">
@@ -490,9 +524,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
       </div>
 
-      {/* Gráficos */}
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gráfico de tendencias diarias */}
+        {/* Daily trends chart */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
           <div className="h-80">
@@ -511,7 +545,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
 
-        {/* Gráfico de fuentes principales */}
+        {/* Top sources chart */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Principales Fuentes de Tráfico</h3>
           <div className="h-80">
@@ -530,7 +564,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
       </div>
 
-      {/* Tabla de UTMs */}
+      {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6">
           <h3 className="text-lg leading-6 font-medium text-gray-900">
