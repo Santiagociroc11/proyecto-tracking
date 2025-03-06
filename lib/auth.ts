@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from './supabase-server.js';
 
 export async function checkUserAccess(userId: string, resourceUserId: string): Promise<boolean> {
   try {
