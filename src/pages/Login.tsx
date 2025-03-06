@@ -1,63 +1,31 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
 import { Activity } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
-  const navigate = useNavigate();
   const { signIn } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
     setLoading(true);
+    setError('');
 
     try {
       await signIn(email, password);
-
-      // Get the current user after sign in
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) {
-        throw new Error('Error obteniendo información del usuario');
-      }
-
-      // Check if user is active in our database
-      const { data: userData, error: dbError } = await supabase
-        .from('users')
-        .select('active')
-        .eq('id', user.id)
-        .single();
-
-      if (dbError) {
-        await supabase.auth.signOut();
-        throw new Error('Error verificando estado del usuario');
-      }
-
-      if (!userData?.active) {
-        await supabase.auth.signOut();
-        throw new Error('Usuario inactivo. Por favor contacta al soporte.');
-      }
-
-      navigate('/dashboard');
     } catch (err) {
       console.error('Login error:', err);
-      setError(
-        err instanceof Error 
-          ? err.message 
-          : 'Error al iniciar sesión. Por favor verifica tus credenciales.'
-      );
+      setError(err instanceof Error ? err.message : 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-r from-indigo-600 to-purple-600 py-12 px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gradient-to-r from-indigo-600 to-purple-600 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow-xl">
         <div>
           <div className="flex justify-center">
@@ -70,12 +38,6 @@ export default function Login() {
           <h3 className="mt-4 text-center text-xl font-bold text-gray-900">
             Inicia sesión en tu cuenta
           </h3>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            O{' '}
-            <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
-              crea una nueva cuenta
-            </Link>
-          </p>
         </div>
 
         {error && (
