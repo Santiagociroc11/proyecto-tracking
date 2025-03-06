@@ -1,10 +1,10 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
-import type { User, Session } from '@supabase/supabase-js';
+import type { User } from '@supabase/supabase-js';
+import { useSession } from './SessionContext';
 
 interface AuthContextType {
   user: User | null;
-  session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<void>;
@@ -16,37 +16,39 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [isActive, setIsActive] = useState(false);
+  const { setSessionCookie, clearSessionCookie, hasSession } = useSession();
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        checkUserStatus(session.user.id);
-      }
-      setLoading(false);
-    });
+    if (hasSession) {
+      // Check active sessions and sets the user
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          checkUserStatus(session.user.id);
+        }
+        setLoading(false);
+      });
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await checkUserStatus(session.user.id);
-      } else {
-        setIsActive(false);
-      }
-      setLoading(false);
-    });
+      // Listen for changes on auth state
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          checkUserStatus(session.user.id);
+        } else {
+          setIsActive(false);
+        }
+        setLoading(false);
+      });
 
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+      return () => subscription.unsubscribe();
+    } else {
+      setUser(null);
+      setIsActive(false);
+      setLoading(false);
+    }
+  }, [hasSession]);
 
   const checkUserStatus = async (userId: string) => {
     try {
@@ -70,42 +72,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`
-      }
     });
     if (error) throw error;
+    if (data.session?.access_token) {
+      setSessionCookie(data.session.access_token);
+    }
   };
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) throw error;
+    if (data.session?.access_token) {
+      setSessionCookie(data.session.access_token);
+    }
   };
 
   const signOut = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
-    setUser(null);
-    setSession(null);
-    setIsActive(false);
+    clearSessionCookie();
   };
 
   return (
-    <AuthContext.Provider value={{ 
-      user, 
-      session, 
-      loading, 
-      signIn, 
-      signUp, 
-      signOut, 
-      isActive 
-    }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, isActive }}>
       {children}
     </AuthContext.Provider>
   );
