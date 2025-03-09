@@ -7,13 +7,16 @@ export default defineConfig({
   build: {
     outDir: 'dist/client',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
-        },
-      },
-    },
+          charts: ['recharts'],
+          utils: ['xlsx', '@supabase/supabase-js']
+        }
+      }
+    }
   },
   server: {
     proxy: {

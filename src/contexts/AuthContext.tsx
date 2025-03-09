@@ -77,7 +77,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .insert([{ 
           id: data.user.id,
           active: true,
-          max_monthly_events: 0,
+          max_monthly_events: 100,
           events_count: 0,
           role: 'user'
         }]);
