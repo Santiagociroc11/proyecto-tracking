@@ -38,19 +38,8 @@ COPY --from=builder /app/public ./public
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Create a non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
-
-USER nodejs
-
 # Expose port
 EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost:3000/health || exit 1
 
 # Start the server
 CMD ["node", "dist/server/server.js"]
