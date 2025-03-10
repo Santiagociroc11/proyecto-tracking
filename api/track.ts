@@ -147,14 +147,27 @@ async function updateUserEventCount(
   log: LogFunction
 ): Promise<void> {
   try {
-    const { error } = await supabase
+    // Get current count first
+    const { data: user, error: selectError } = await supabase
       .from('users')
-      .update({ events_count: supabase.sql`events_count + 1` })
+      .select('events_count')
+      .eq('id', userId)
+      .single();
+
+    if (selectError) {
+      log('EventCount', 'Error obteniendo contador actual', selectError);
+      throw selectError;
+    }
+
+    // Update with incremented value
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ events_count: (user?.events_count || 0) + 1 })
       .eq('id', userId);
 
-    if (error) {
-      log('EventCount', 'Error actualizando contador de eventos', error);
-      throw error;
+    if (updateError) {
+      log('EventCount', 'Error actualizando contador de eventos', updateError);
+      throw updateError;
     }
     
     log('EventCount', 'Contador de eventos actualizado exitosamente');
