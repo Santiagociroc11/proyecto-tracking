@@ -83,8 +83,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         password, // En un caso real, usaríamos hash
         active: true,
         role: 'user',
-        max_monthly_events: 10000,
-        max_products: 1,
+        max_monthly_events: 100,
+        max_products: 2,
         events_count: 0
       }])
       .select()
