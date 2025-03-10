@@ -108,13 +108,13 @@ async function validateTracking(
   log: LogFunction
 ): Promise<ValidationResult> {
   try {
-    // First validate user status
+    // Primero validamos el estado del usuario
     const userValidation = await validateUserStatus(userId, log);
     if (!userValidation.valid) {
       return userValidation;
     }
 
-    // Validate specific product
+    // Validar el producto específico
     const { data: product, error: productError } = await supabase
       .from('products')
       .select('active')
@@ -142,32 +142,56 @@ async function validateTracking(
   }
 }
 
+async function logTrackingAttempt(
+  userId: string,
+  productId: string,
+  eventType: string,
+  status: string,
+  errorMessage: string | undefined,
+  log: LogFunction
+): Promise<void> {
+  try {
+    log('Logging', 'Registrando intento de tracking', {
+      userId,
+      productId,
+      eventType,
+      status,
+      errorMessage
+    });
+
+    const { error } = await supabase
+      .from('tracking_logs')
+      .insert([{
+        user_id: userId,
+        product_id: productId,
+        event_type: eventType,
+        status,
+        error_message: errorMessage,
+        created_at: new Date().toISOString()
+      }]);
+
+    if (error) {
+      log('Logging', 'Error registrando intento', error);
+    } else {
+      log('Logging', 'Intento registrado exitosamente');
+    }
+  } catch (err) {
+    log('Logging', 'Error inesperado registrando intento', err);
+  }
+}
+
 async function updateUserEventCount(
   userId: string,
   log: LogFunction
 ): Promise<void> {
   try {
-    // Get current count first
-    const { data: user, error: selectError } = await supabase
-      .from('users')
-      .select('events_count')
-      .eq('id', userId)
-      .single();
+    const { error } = await supabase.rpc('increment_user_events_count', {
+      p_user_id: userId
+    });
 
-    if (selectError) {
-      log('EventCount', 'Error obteniendo contador actual', selectError);
-      throw selectError;
-    }
-
-    // Update with incremented value
-    const { error: updateError } = await supabase
-      .from('users')
-      .update({ events_count: (user?.events_count || 0) + 1 })
-      .eq('id', userId);
-
-    if (updateError) {
-      log('EventCount', 'Error actualizando contador de eventos', updateError);
-      throw updateError;
+    if (error) {
+      log('EventCount', 'Error actualizando contador de eventos', error);
+      throw error;
     }
     
     log('EventCount', 'Contador de eventos actualizado exitosamente');
@@ -254,7 +278,6 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
   }
 
   try {
-    // Get product and associated user
     const { data: product, error: productError } = await supabase
       .from('products')
       .select<string, Product>(`
@@ -273,15 +296,44 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       return { success: false, debugLogs, error: 'Producto no encontrado' };
     }
 
-    // Validate product and user status
-    const validation = await validateTracking(product.user_id, product.id.toString(), log);
-    if (!validation.valid) {
-      log('Event', 'Validación fallida', validation);
+    // Validate product is active
+    if (!product.active) {
+      log('Event', 'Producto inactivo', { productId: product.id });
+      return { success: false, debugLogs, error: 'Producto inactivo' };
+    }
+
+    // Check user status
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('active, events_count, max_monthly_events')
+      .eq('id', product.user_id)
+      .single();
+
+    if (userError || !userData) {
+      log('Event', 'Error verificando estado del usuario', userError);
+      return { success: false, debugLogs, error: 'Error verificando estado del usuario' };
+    }
+
+    if (!userData.active) {
+      log('Event', 'Usuario inactivo', { userId: product.user_id });
+      return { success: false, debugLogs, error: 'Usuario inactivo' };
+    }
+
+    // Check event limits
+    if (userData.events_count >= userData.max_monthly_events) {
+      log('Event', 'Límite mensual de eventos excedido', {
+        current: userData.events_count,
+        limit: userData.max_monthly_events
+      });
       return { 
         success: false, 
         debugLogs, 
-        error: validation.error,
-        validation 
+        error: 'Límite mensual de eventos excedido',
+        validation: {
+          valid: false,
+          monthlyEventsCount: userData.events_count,
+          monthlyEventsLimit: userData.max_monthly_events
+        }
       };
     }
 
@@ -300,8 +352,8 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
       event_data: {
         ...data.event_data,
         tracking_validation: {
-          events_count: validation.monthlyEventsCount,
-          events_limit: validation.monthlyEventsLimit
+          events_count: userData.events_count,
+          events_limit: userData.max_monthly_events
         }
       }
     };
@@ -322,7 +374,14 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
     }
 
     // Update event count
-    await updateUserEventCount(product.user_id, log);
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ events_count: userData.events_count + 1 })
+      .eq('id', product.user_id);
+
+    if (updateError) {
+      log('Event', 'Error actualizando contador de eventos', updateError);
+    }
 
     // Handle Facebook conversion if needed
     if (data.type === 'hotmart_click') {
@@ -334,7 +393,11 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
     return { 
       success: true, 
       debugLogs,
-      validation
+      validation: {
+        valid: true,
+        monthlyEventsCount: userData.events_count + 1,
+        monthlyEventsLimit: userData.max_monthly_events
+      }
     };
   } catch (error) {
     log('Event', 'Error procesando evento', error);

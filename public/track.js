@@ -3,6 +3,7 @@
   lt.d = document;
   lt.w = window;
 
+  // Sistema de logging con humor y claridad
   lt.__log = (context, message, data) => {
     if (data && data instanceof Error) {
       console.error(`[HotAPI Tracking] Error en ${context}:`, data);
@@ -24,8 +25,9 @@
   };
 
   lt.accs = [];
-  lt.IP = null;
+  lt.IP = null; // Variable para almacenar la IP
 
+  // Función para obtener la IP desde un servicio externo
   lt.__fetchIP = function () {
     lt.__log('IP', 'Obteniendo IP del cliente');
     fetch("https://api.ipify.org?format=json")
@@ -39,8 +41,10 @@
       });
   };
 
+  // Inicia la obtención de la IP
   lt.__fetchIP();
 
+  // Storage fallback: cookies vs. objeto local
   lt.__storage = {
     data: {},
     isAvailable: false,
@@ -48,6 +52,7 @@
       try {
         document.cookie = "test=1";
         const cookieEnabled = document.cookie.indexOf("test=") !== -1;
+        // Borramos la cookie test
         document.cookie = "test=1; expires=Thu, 01 Jan 1970 00:00:00 GMT";
         this.isAvailable = cookieEnabled;
         lt.__log('Storage', 'Estado de almacenamiento', { cookies: cookieEnabled });
@@ -57,19 +62,14 @@
       }
     },
     get(key) {
-      if (!this.isAvailable) return this.data[key] || null;
-      const value = document.cookie.split('; ').find(row => row.startsWith(key + '='));
-      return value ? value.split('=')[1] : null;
+      return this.isAvailable ? lt.__get_cookie(key) : this.data[key] || null;
     },
-    set(key, value, ttl = 365 * 24 * 60) {
-      if (!this.isAvailable) {
+    set(key, value, ttl) {
+      if (this.isAvailable) {
+        lt.__set_cookie(key, value, ttl);
+      } else {
         this.data[key] = value;
-        return;
       }
-      const d = new Date();
-      d.setTime(d.getTime() + (ttl * 60 * 1000));
-      const expires = "expires=" + d.toUTCString();
-      document.cookie = `${key}=${value};${expires};path=/;SameSite=Lax`;
     }
   };
 
@@ -85,17 +85,17 @@
     }
   };
 
-  lt.__getOrCreateVisitorId = function () {
+  lt.__getOrCreateUniqueId = function () {
     lt.__log('VisitorID', 'Obteniendo o creando ID de visitante');
     try {
-      let visitorId = this.__storage.get('_vid');
-      lt.__log('VisitorID', 'ID actual', visitorId);
-      if (!visitorId) {
-        visitorId = this.__generateUUID();
-        lt.__log('VisitorID', 'Nuevo ID generado', visitorId);
-        this.__storage.set('_vid', visitorId);
+      let uniqueId = this.__storage.get('_vid');
+      lt.__log('VisitorID', 'ID actual', uniqueId);
+      if (!uniqueId) {
+        uniqueId = this.__generateUUID();
+        lt.__log('VisitorID', 'Nuevo ID generado', uniqueId);
+        this.__storage.set('_vid', uniqueId);
       }
-      return visitorId;
+      return uniqueId;
     } catch (e) {
       lt.__log('VisitorID', 'Error obteniendo ID, generando nuevo', e);
       return this.__generateUUID();
@@ -130,7 +130,9 @@
     lt.__log('Init', 'Iniciando script de tracking');
     try {
       this.__storage.init();
-      this.visitorId = this.__getOrCreateVisitorId();
+      this.dom = this.__get_TLD();
+      lt.__log('Init', 'Dominio detectado', this.dom);
+      this.visitorId = this.__getOrCreateUniqueId();
       lt.__log('Init', 'ID de visitante', this.visitorId);
       if (this.pvid) {
         lt.__log('Init', 'PageView ID ya existe');
@@ -143,6 +145,7 @@
       this.__check_session_changed();
       const pendingCmds = this._c.slice();
       lt.__log('Init', 'Comandos pendientes', pendingCmds);
+      // Redefinimos push para procesar comandos en tiempo real
       this._c.push = (arr) => {
         lt.__log('Command', 'Nuevo comando', arr);
         lt.__proc_cmd(arr[0], arr[1]);
@@ -231,7 +234,7 @@
   lt.__register_pv = function (trackingId) {
     lt.__log('PageView', 'Registrando vista de página');
     try {
-      const maxAttempts = 10;
+      const maxAttempts = 10; // Intentos máximos
       let attempts = 0;
   
       const waitForData = () => {
@@ -241,6 +244,7 @@
         const { fbc, fbp } = this.__getFbcFbp();
         lt.__log('PageView', 'Cookies obtenidas en chequeo', { fbc, fbp });
   
+        // Verificamos que las cookies estén disponibles y que la IP esté cargada.
         if (((fbc && fbp) && this.IP) || attempts >= maxAttempts) {
           if (!this.IP) {
             lt.__log('PageView', 'IP no obtenida tras varios intentos, usando valor por defecto');
@@ -248,6 +252,7 @@
             lt.__log('PageView', 'Datos requeridos disponibles');
           }
   
+          // Volvemos a obtener las últimas cookies
           const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp();
           const utmData = this.__get_utm_data();
           const browserInfo = {
@@ -263,6 +268,7 @@
             visitor_id: this.visitorId,
             session_id: this.session_id,
             page_view_id: this.pvid,
+            timestamp: new Date().toISOString(),
             url: this.__config__.iframe ? document.referrer : document.URL,
             referrer: document.referrer || '',
             user_agent: navigator.userAgent,
@@ -278,7 +284,7 @@
               fbp: finalFbp,
               in_iframe: this.__config__.iframe,
               campaign_data: this.__get_current_campaign(),
-              ip: this.IP || '-'
+              ip: this.IP || '-'  // Incluye la IP o '-' si sigue sin estar
             }
           };
   
@@ -295,6 +301,7 @@
       lt.__log('PageView', 'Error registrando vista de página', e);
     }
   };
+  
 
   lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
@@ -302,6 +309,7 @@
       const eventData = typeof event === "object" ? event : { name: event };
       lt.__log('Event', 'Datos del evento', eventData);
       this.accs.forEach(trackingId => {
+        // Agregamos IP a event_data si existe
         eventData.ip = this.IP || '-';
         const data = {
           type: eventData.type || 'custom',
@@ -309,6 +317,7 @@
           visitor_id: this.visitorId,
           session_id: this.session_id,
           page_view_id: this.pvid,
+          timestamp: new Date().toISOString(),
           url: window.location.href,
           event_data: eventData,
           in_iframe: this.__config__.iframe
@@ -346,7 +355,7 @@
             browser_info: browserInfo,
             utm_data: this.__get_utm_data(),
             in_iframe: this.__config__.iframe,
-            ip: this.IP || '-'
+            ip: this.IP || '-' // Incluimos IP en el click
           };
           lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
           this.__register_event(hotmartData);
@@ -393,12 +402,16 @@
         body: JSON.stringify(data),
         keepalive: true
       })
-        .then(response => response.json())
+        .then(response => {
+          lt.__log('Backend', 'Respuesta fetch', response);
+          // Para ver el contenido de la respuesta:
+          return response.json();
+        })
         .then(data => {
-          lt.__log('Backend', 'Respuesta del backend', data);
+          lt.__log('Backend', 'Contenido de la respuesta', data);
         })
         .catch(error => {
-          lt.__log('Backend', 'Error enviando datos', error);
+          lt.__log('Backend', 'Error en fetch', error);
         });
     } catch (e) {
       lt.__log('Backend', 'Error enviando datos', e);
@@ -414,6 +427,41 @@
     } catch (e) {
       lt.__log('Domain', 'Error obteniendo dominio', e);
       return '';
+    }
+  };
+
+  lt.__set_cookie = function (name, value, ttl) {
+    lt.__log('Cookie', `Estableciendo cookie: ${name}`);
+    try {
+      const d = new Date();
+      if (!ttl || isNaN(ttl)) ttl = 365 * 24 * 60;
+      d.setTime(d.getTime() + (ttl * 60 * 1000));
+      const expires = "expires=" + d.toUTCString();
+      document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax`;
+      lt.__log('Cookie', 'Cookie establecida correctamente');
+    } catch (e) {
+      lt.__log('Cookie', 'Error estableciendo cookie', e);
+    }
+  };
+
+  lt.__get_cookie = function (name) {
+    lt.__log('Cookie', `Obteniendo cookie: ${name}`);
+    try {
+      const nameEQ = name + "=";
+      const ca = document.cookie.split(';');
+      for (let c of ca) {
+        c = c.trim();
+        if (c.indexOf(nameEQ) === 0) {
+          const value = c.substring(nameEQ.length);
+          lt.__log('Cookie', 'Valor encontrado', value);
+          return value;
+        }
+      }
+      lt.__log('Cookie', 'Cookie no encontrada');
+      return null;
+    } catch (e) {
+      lt.__log('Cookie', 'Error obteniendo cookie', e);
+      return null;
     }
   };
 
