@@ -25,11 +25,9 @@ export default function AppRoutes() {
     return <Login />;
   }
 
-  const isAdmin = user.role === 'admin';
-
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header onLogout={signOut} isAdmin={isAdmin} />
+      <Header onLogout={signOut} isAdmin={user.role === 'admin'} />
       <Routes>
         <Route path="/" element={
           <PrivateRoute>
@@ -51,7 +49,7 @@ export default function AppRoutes() {
             <Settings />
           </PrivateRoute>
         } />
-        {isAdmin && (
+        {user.role === 'admin' && (
           <Route path="/admin/create-user" element={
             <PrivateRoute>
               <AdminCreateUser />
