@@ -284,7 +284,7 @@
               fbp: finalFbp,
               in_iframe: this.__config__.iframe,
               campaign_data: this.__get_current_campaign(),
-              ip: this.IP || '-'  // Incluye la IP o '-' si sigue sin estar
+              ip: this.IP || '-'
             }
           };
   
@@ -301,7 +301,6 @@
       lt.__log('PageView', 'Error registrando vista de página', e);
     }
   };
-  
 
   lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
@@ -355,7 +354,7 @@
             browser_info: browserInfo,
             utm_data: this.__get_utm_data(),
             in_iframe: this.__config__.iframe,
-            ip: this.IP || '-' // Incluimos IP en el click
+            ip: this.IP || '-'
           };
           lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
           this.__register_event(hotmartData);
@@ -402,16 +401,12 @@
         body: JSON.stringify(data),
         keepalive: true
       })
-        .then(response => {
-          lt.__log('Backend', 'Respuesta fetch', response);
-          // Para ver el contenido de la respuesta:
-          return response.json();
-        })
+        .then(response => response.json())
         .then(data => {
-          lt.__log('Backend', 'Contenido de la respuesta', data);
+          lt.__log('Backend', 'Respuesta del backend', data);
         })
         .catch(error => {
-          lt.__log('Backend', 'Error en fetch', error);
+          lt.__log('Backend', 'Error enviando datos', error);
         });
     } catch (e) {
       lt.__log('Backend', 'Error enviando datos', e);
