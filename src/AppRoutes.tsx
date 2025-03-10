@@ -11,7 +11,7 @@ import Header from './components/Header';
 import PrivateRoute from './components/PrivateRoute';
 
 export default function AppRoutes() {
-  const { user, loading, isActive, signOut } = useAuth();
+  const { user, loading, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -21,7 +21,7 @@ export default function AppRoutes() {
     );
   }
 
-  if (!user || !isActive) {
+  if (!user) {
     return <Login />;
   }
 

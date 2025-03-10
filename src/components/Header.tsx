@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { LogOut, Activity, Settings, UserPlus } from 'lucide-react';
 
 interface HeaderProps {
@@ -8,6 +8,13 @@ interface HeaderProps {
 }
 
 export default function Header({ onLogout, isAdmin }: HeaderProps) {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    onLogout();
+    navigate('/');
+  };
+
   return (
     <header className="bg-gradient-to-r from-indigo-600 to-purple-600">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -42,7 +49,7 @@ export default function Header({ onLogout, isAdmin }: HeaderProps) {
               Ajustes
             </Link>
             <button
-              onClick={onLogout}
+              onClick={handleLogout}
               className="inline-flex items-center px-4 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-indigo-700 hover:bg-indigo-800"
             >
               <LogOut className="h-4 w-4 mr-2" />
