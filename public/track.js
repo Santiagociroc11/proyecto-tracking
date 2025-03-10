@@ -3,7 +3,6 @@
   lt.d = document;
   lt.w = window;
 
-  // Sistema de logging con humor y claridad
   lt.__log = (context, message, data) => {
     if (data && data instanceof Error) {
       console.error(`[HotAPI Tracking] Error en ${context}:`, data);
@@ -58,14 +57,19 @@
       }
     },
     get(key) {
-      return this.isAvailable ? lt.__get_cookie(key) : this.data[key] || null;
+      if (!this.isAvailable) return this.data[key] || null;
+      const value = document.cookie.split('; ').find(row => row.startsWith(key + '='));
+      return value ? value.split('=')[1] : null;
     },
-    set(key, value, ttl) {
-      if (this.isAvailable) {
-        lt.__set_cookie(key, value, ttl);
-      } else {
+    set(key, value, ttl = 365 * 24 * 60) {
+      if (!this.isAvailable) {
         this.data[key] = value;
+        return;
       }
+      const d = new Date();
+      d.setTime(d.getTime() + (ttl * 60 * 1000));
+      const expires = "expires=" + d.toUTCString();
+      document.cookie = `${key}=${value};${expires};path=/;SameSite=Lax`;
     }
   };
 
@@ -81,17 +85,17 @@
     }
   };
 
-  lt.__getOrCreateUniqueId = function () {
+  lt.__getOrCreateVisitorId = function () {
     lt.__log('VisitorID', 'Obteniendo o creando ID de visitante');
     try {
-      let uniqueId = this.__storage.get('_vid');
-      lt.__log('VisitorID', 'ID actual', uniqueId);
-      if (!uniqueId) {
-        uniqueId = this.__generateUUID();
-        lt.__log('VisitorID', 'Nuevo ID generado', uniqueId);
-        this.__storage.set('_vid', uniqueId);
+      let visitorId = this.__storage.get('_vid');
+      lt.__log('VisitorID', 'ID actual', visitorId);
+      if (!visitorId) {
+        visitorId = this.__generateUUID();
+        lt.__log('VisitorID', 'Nuevo ID generado', visitorId);
+        this.__storage.set('_vid', visitorId);
       }
-      return uniqueId;
+      return visitorId;
     } catch (e) {
       lt.__log('VisitorID', 'Error obteniendo ID, generando nuevo', e);
       return this.__generateUUID();
@@ -126,9 +130,7 @@
     lt.__log('Init', 'Iniciando script de tracking');
     try {
       this.__storage.init();
-      this.dom = this.__get_TLD();
-      lt.__log('Init', 'Dominio detectado', this.dom);
-      this.visitorId = this.__getOrCreateUniqueId();
+      this.visitorId = this.__getOrCreateVisitorId();
       lt.__log('Init', 'ID de visitante', this.visitorId);
       if (this.pvid) {
         lt.__log('Init', 'PageView ID ya existe');
@@ -307,7 +309,6 @@
           visitor_id: this.visitorId,
           session_id: this.session_id,
           page_view_id: this.pvid,
-          timestamp: new Date().toISOString(),
           url: window.location.href,
           event_data: eventData,
           in_iframe: this.__config__.iframe
@@ -413,41 +414,6 @@
     } catch (e) {
       lt.__log('Domain', 'Error obteniendo dominio', e);
       return '';
-    }
-  };
-
-  lt.__set_cookie = function (name, value, ttl) {
-    lt.__log('Cookie', `Estableciendo cookie: ${name}`);
-    try {
-      const d = new Date();
-      if (!ttl || isNaN(ttl)) ttl = 365 * 24 * 60;
-      d.setTime(d.getTime() + (ttl * 60 * 1000));
-      const expires = "expires=" + d.toUTCString();
-      document.cookie = `${name}=${value};${expires};path=/;SameSite=Lax`;
-      lt.__log('Cookie', 'Cookie establecida correctamente');
-    } catch (e) {
-      lt.__log('Cookie', 'Error estableciendo cookie', e);
-    }
-  };
-
-  lt.__get_cookie = function (name) {
-    lt.__log('Cookie', `Obteniendo cookie: ${name}`);
-    try {
-      const nameEQ = name + "=";
-      const ca = document.cookie.split(';');
-      for (let c of ca) {
-        c = c.trim();
-        if (c.indexOf(nameEQ) === 0) {
-          const value = c.substring(nameEQ.length);
-          lt.__log('Cookie', 'Valor encontrado', value);
-          return value;
-        }
-      }
-      lt.__log('Cookie', 'Cookie no encontrada');
-      return null;
-    } catch (e) {
-      lt.__log('Cookie', 'Error obteniendo cookie', e);
-      return null;
     }
   };
 
