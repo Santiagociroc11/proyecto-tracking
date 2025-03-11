@@ -6,7 +6,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies (including dev) for building
+# Install dependencies
 RUN npm install
 
 # Copy source files
@@ -26,10 +26,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install production dependencies
 COPY package*.json ./
-
-# Install only production dependencies
 RUN npm install --omit=dev
 
 # Copy built files from builder
@@ -39,14 +37,13 @@ COPY --from=builder /app/dist ./dist
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Create logs directory first
-RUN mkdir -p /app/logs
-
-# Create a non-root user and set permissions
+# Create a non-root user
 RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app && \
-    chown -R nodejs:nodejs /app/logs
+    adduser -S nodejs -u 1001
+
+# Create and set permissions for app directories
+RUN mkdir -p /app/logs && \
+    chown -R nodejs:nodejs /app
 
 # Switch to non-root user
 USER nodejs
