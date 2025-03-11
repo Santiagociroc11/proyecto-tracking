@@ -487,4 +487,3 @@
   window._lt = lt;
   lt.__init__();
 })();
-

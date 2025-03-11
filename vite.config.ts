@@ -24,16 +24,6 @@ export default defineConfig({
         target: 'http://localhost:3000',
         changeOrigin: true
       }
-    },
-    // Configuración para evitar recargas innecesarias
-    hmr: {
-      overlay: false, // Desactiva el overlay de errores
-      clientPort: 5173, // Puerto por defecto de Vite
-      timeout: 5000, // Aumenta el timeout para evitar recargas por pérdida momentánea de conexión
-    },
-    watch: {
-      usePolling: false, // Desactiva el polling
-      interval: 1000, // Intervalo de chequeo más largo
     }
   },
   resolve: {
