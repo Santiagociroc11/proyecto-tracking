@@ -39,15 +39,17 @@ COPY --from=builder /app/dist ./dist
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Create a non-root user
+# Create logs directory first
+RUN mkdir -p /app/logs
+
+# Create a non-root user and set permissions
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+    chown -R nodejs:nodejs /app && \
+    chown -R nodejs:nodejs /app/logs
 
+# Switch to non-root user
 USER nodejs
-
-# Create logs directory and set permissions
-RUN mkdir -p logs && chown -R nodejs:nodejs logs
 
 # Expose port
 EXPOSE 3000
