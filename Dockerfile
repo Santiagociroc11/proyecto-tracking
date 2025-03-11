@@ -6,8 +6,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Install ALL dependencies (including dev) for building
+RUN npm install
 
 # Copy source files
 COPY . .
@@ -26,9 +26,11 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy package files and install production dependencies
+# Copy package files
 COPY package*.json ./
-RUN npm ci --omit=dev
+
+# Install only production dependencies
+RUN npm install --omit=dev
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
@@ -43,6 +45,9 @@ RUN addgroup -g 1001 -S nodejs && \
     chown -R nodejs:nodejs /app
 
 USER nodejs
+
+# Create logs directory and set permissions
+RUN mkdir -p logs && chown -R nodejs:nodejs logs
 
 # Expose port
 EXPOSE 3000
