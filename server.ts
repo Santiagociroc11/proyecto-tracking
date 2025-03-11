@@ -104,11 +104,13 @@ app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.
   }
 }));
 
-// Handle client-side routing
+// Handle client-side routing - IMPORTANT for production SPA routing
 app.get('*', (req, res) => {
+  // Skip API routes
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'API endpoint not found' });
   }
+  // Serve index.html for all other routes
   res.sendFile(path.join(staticPath, 'index.html'));
 });
 
