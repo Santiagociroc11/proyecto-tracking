@@ -92,10 +92,8 @@ app.use('/api', apiRouter);
 
 // En producción, servir archivos estáticos y manejar SPA routing
 if (process.env.NODE_ENV === 'production') {
-  const clientPath = path.join(__dirname, '..', 'client');
-  
-  // Servir archivos estáticos
-  app.use(express.static(clientPath));
+  // Servir archivos estáticos del frontend
+  app.use(express.static(path.join(__dirname, '..', 'client')));
   
   // Servir script de tracking
   app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
@@ -107,12 +105,13 @@ if (process.env.NODE_ENV === 'production') {
     }
   }));
 
-  // SPA routing - todas las rutas no-API sirven index.html
+  // Manejar rutas del SPA - IMPORTANTE: debe ir después de las rutas de la API
   app.get('*', (req, res) => {
+    // No manejar rutas de API aquí
     if (req.path.startsWith('/api/')) {
       return res.status(404).json({ error: 'API endpoint not found' });
     }
-    res.sendFile(path.join(clientPath, 'index.html'));
+    res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
   });
 }
 
