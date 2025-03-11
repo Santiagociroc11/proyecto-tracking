@@ -95,20 +95,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     diagnostics.info('Auth', 'Attempting sign up', { email });
     try {
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('email', email)
-        .single();
+      // Generate UUID for the new user
+      const userId = crypto.randomUUID();
 
-      if (existingUser) {
-        diagnostics.warn('Auth', 'Email already registered', { email });
-        throw new Error('El email ya está registrado');
-      }
-
-      const { data, error } = await supabase
+      const { error: insertError } = await supabase
         .from('users')
         .insert([{
+          id: userId,
           email,
           password,
           active: true,
@@ -116,26 +109,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           max_monthly_events: 100,
           max_products: 2,
           events_count: 0
-        }])
-        .select()
-        .single();
+        }]);
 
-      if (error) {
-        diagnostics.error('Auth', 'Error creating user', error);
-        throw error;
+      if (insertError) {
+        diagnostics.error('Auth', 'Error creating user', insertError);
+        if (insertError.code === '23505') { // Unique constraint violation
+          throw new Error('El email ya está registrado');
+        }
+        throw insertError;
       }
 
-      const userData = {
-        id: data.id,
-        email: data.email,
-        role: data.role,
-        active: data.active
+      // Fetch the newly created user
+      const { data: userData, error: fetchError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (fetchError || !userData) {
+        diagnostics.error('Auth', 'Error fetching new user', fetchError);
+        throw new Error('Error al crear el usuario');
+      }
+
+      const user = {
+        id: userData.id,
+        email: userData.email,
+        role: userData.role,
+        active: userData.active
       };
 
-      diagnostics.info('Auth', 'Sign up successful', { userId: userData.id });
-      setUser(userData);
+      diagnostics.info('Auth', 'Sign up successful', { userId: user.id });
+      setUser(user);
       setIsActive(true);
-      localStorage.setItem('user', JSON.stringify(userData));
+      localStorage.setItem('user', JSON.stringify(user));
+
+      // Create default user settings
+      await supabase
+        .from('user_settings')
+        .insert([{
+          user_id: userId,
+          timezone: 'UTC',
+          notification_preferences: {
+            email: true,
+            in_app: true
+          }
+        }]);
+
     } catch (error) {
       diagnostics.error('Auth', 'Sign up process failed', error);
       throw error;
