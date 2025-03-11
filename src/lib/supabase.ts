@@ -1,12 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
+import { diagnostics } from './diagnostics';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('Missing Supabase environment variables');
-  throw new Error('Missing Supabase environment variables');
+  const error = 'Missing Supabase environment variables';
+  diagnostics.error('Supabase', error, {
+    VITE_SUPABASE_URL: !!supabaseUrl,
+    VITE_SUPABASE_ANON_KEY: !!supabaseAnonKey
+  });
+  throw new Error(error);
 }
+
+diagnostics.info('Supabase', 'Initializing Supabase client', { url: supabaseUrl });
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
@@ -16,7 +23,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 // Add error handling for failed requests
 supabase.handleError = (error: any) => {
-  console.error('Supabase error:', error);
-  // You could add additional error handling here
+  diagnostics.error('Supabase', 'Request error', error);
   return error;
 };

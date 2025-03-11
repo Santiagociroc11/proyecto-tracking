@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { diagnostics } from '../lib/diagnostics';
 import { Plus, LogOut, Activity, AlertTriangle, Package } from 'lucide-react';
 
 interface Product {
@@ -34,7 +35,7 @@ export default function Dashboard() {
 
   async function loadData() {
     try {
-      console.log('Loading dashboard data for user:', user?.id);
+      diagnostics.info('Dashboard', 'Loading dashboard data', { userId: user?.id });
       setLoading(true);
       setError(null);
       
@@ -56,10 +57,11 @@ export default function Dashboard() {
         .single();
 
       if (userError) {
-        console.error('Error loading usage stats:', userError);
+        diagnostics.error('Dashboard', 'Error loading usage stats', userError);
         throw new Error('Error cargando estadísticas de uso');
       }
 
+      diagnostics.info('Dashboard', 'Usage stats loaded', userData);
       setUsage({
         eventsCount: userData.events_count,
         maxMonthlyEvents: userData.max_monthly_events,
@@ -81,14 +83,14 @@ export default function Dashboard() {
       const { data: productsData, error: productsError } = await query;
 
       if (productsError) {
-        console.error('Error loading products:', productsError);
+        diagnostics.error('Dashboard', 'Error loading products', productsError);
         throw new Error('Error cargando productos');
       }
 
-      console.log('Products loaded:', productsData?.length);
+      diagnostics.info('Dashboard', 'Products loaded', { count: productsData?.length });
       setProducts(productsData || []);
     } catch (error) {
-      console.error('Error in loadData:', error);
+      diagnostics.error('Dashboard', 'Error in loadData', error);
       setError(error instanceof Error ? error.message : 'Error cargando el dashboard');
     } finally {
       setLoading(false);
@@ -119,6 +121,26 @@ export default function Dashboard() {
               </button>
             </div>
           </div>
+        </div>
+        <div className="mt-4">
+          <button
+            onClick={() => {
+              diagnostics.info('Dashboard', 'Downloading diagnostic report');
+              const report = diagnostics.getDiagnosticReport();
+              const blob = new Blob([report], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'diagnostic-report.json';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }}
+            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+          >
+            Descargar Reporte de Diagnóstico
+          </button>
         </div>
       </div>
     );
