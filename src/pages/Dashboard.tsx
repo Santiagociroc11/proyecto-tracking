@@ -24,18 +24,23 @@ export default function Dashboard() {
   const [products, setProducts] = useState<Product[]>([]);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
+    if (user?.id) {
       loadData();
     }
-  }, [user]);
+  }, [user?.id]);
 
   async function loadData() {
     try {
+      console.log('Loading dashboard data for user:', user?.id);
       setLoading(true);
+      setError(null);
       
-      if (!user) return;
+      if (!user?.id) {
+        throw new Error('Usuario no autenticado');
+      }
 
       // Load user's usage stats and products
       const { data: userData, error: userError } = await supabase
@@ -52,36 +57,39 @@ export default function Dashboard() {
 
       if (userError) {
         console.error('Error loading usage stats:', userError);
-      } else {
-        setUsage({
-          eventsCount: userData.events_count,
-          maxMonthlyEvents: userData.max_monthly_events,
-          productsCount: userData.products[0].count,
-          maxProducts: userData.max_products
-        });
-
-        // Load products based on user role
-        const query = supabase
-          .from('products')
-          .select('*')
-          .order('created_at', { ascending: false });
-
-        // If not admin, only show user's products
-        if (userData.role !== 'admin') {
-          query.eq('user_id', user.id);
-        }
-
-        const { data: productsData, error: productsError } = await query;
-
-        if (productsError) {
-          console.error('Error loading products:', productsError);
-          return;
-        }
-
-        setProducts(productsData || []);
+        throw new Error('Error cargando estadísticas de uso');
       }
+
+      setUsage({
+        eventsCount: userData.events_count,
+        maxMonthlyEvents: userData.max_monthly_events,
+        productsCount: userData.products[0].count,
+        maxProducts: userData.max_products
+      });
+
+      // Load products based on user role
+      const query = supabase
+        .from('products')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      // If not admin, only show user's products
+      if (userData.role !== 'admin') {
+        query.eq('user_id', user.id);
+      }
+
+      const { data: productsData, error: productsError } = await query;
+
+      if (productsError) {
+        console.error('Error loading products:', productsError);
+        throw new Error('Error cargando productos');
+      }
+
+      console.log('Products loaded:', productsData?.length);
+      setProducts(productsData || []);
     } catch (error) {
-      console.error('Error loading dashboard data:', error);
+      console.error('Error in loadData:', error);
+      setError(error instanceof Error ? error.message : 'Error cargando el dashboard');
     } finally {
       setLoading(false);
     }
@@ -91,6 +99,27 @@ export default function Dashboard() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="bg-red-50 border-l-4 border-red-400 p-4">
+          <div className="flex">
+            <AlertTriangle className="h-5 w-5 text-red-400" />
+            <div className="ml-3">
+              <p className="text-sm text-red-700">{error}</p>
+              <button 
+                onClick={loadData} 
+                className="mt-2 text-sm text-red-700 underline hover:text-red-800"
+              >
+                Intentar nuevamente
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
