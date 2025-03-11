@@ -32,7 +32,6 @@ RUN npm install --omit=dev
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
 
 # Create logs directory and set permissions
 RUN mkdir -p logs && chown -R node:node logs

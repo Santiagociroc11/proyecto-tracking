@@ -186,41 +186,81 @@ app.use('/api', apiRouter);
 // Servir archivos estáticos y manejar rutas del SPA
 if (process.env.NODE_ENV === 'production') {
   log('Server', 'Iniciando en modo producción');
+  
   // Servir archivos estáticos del frontend
   const clientPath = path.join(__dirname, '..', 'client');
+  log('Server', 'Verificando ruta del cliente', { clientPath });
   
-  // Verificar que el directorio del cliente existe
-  if (!fs.existsSync(clientPath)) {
-    log('Server', 'Directorio del cliente no encontrado', { path: clientPath }, true);
-    process.exit(1);
+  if (fs.existsSync(clientPath)) {
+    app.use(express.static(clientPath));
+    log('Server', 'Sirviendo archivos estáticos desde', { clientPath });
+  } else {
+    log('Server', 'Directorio del cliente no encontrado, usando dist/client', { clientPath });
+    const distClientPath = path.join(__dirname, '..', '..', 'client');
+    if (fs.existsSync(distClientPath)) {
+      app.use(express.static(distClientPath));
+      log('Server', 'Sirviendo archivos estáticos desde', { distClientPath });
+    } else {
+      log('Server', 'No se encontró el directorio de archivos estáticos', { 
+        clientPath,
+        distClientPath
+      }, true);
+    }
   }
-
-  app.use(express.static(clientPath));
 
   // Servir script de tracking
-  const trackJsPath = path.join(__dirname, '..', 'public', 'track.js');
-  if (!fs.existsSync(trackJsPath)) {
-    log('Server', 'Archivo track.js no encontrado', { path: trackJsPath }, true);
-    process.exit(1);
+  const trackJsPaths = [
+    path.join(__dirname, '..', 'public', 'track.js'),
+    path.join(__dirname, '..', '..', 'public', 'track.js'),
+    path.join(__dirname, '..', 'client', 'track.js'),
+    path.join(__dirname, '..', '..', 'client', 'track.js')
+  ];
+
+  let trackJsPath = null;
+  for (const path of trackJsPaths) {
+    if (fs.existsSync(path)) {
+      trackJsPath = path;
+      break;
+    }
   }
 
-  app.use('/track.js', express.static(trackJsPath, {
-    maxAge: '1h',
-    setHeaders: (res) => {
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-      res.setHeader('X-Content-Type-Options', 'nosniff');
-    }
-  }));
+  if (trackJsPath) {
+    log('Server', 'Sirviendo track.js desde', { trackJsPath });
+    app.use('/track.js', express.static(trackJsPath, {
+      maxAge: '1h',
+      setHeaders: (res) => {
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        res.setHeader('X-Content-Type-Options', 'nosniff');
+      }
+    }));
+  } else {
+    log('Server', 'No se encontró track.js en ninguna ubicación', { 
+      searchedPaths: trackJsPaths 
+    }, true);
+  }
 
   // Manejar todas las rutas del frontend
   app.get('*', (req, res) => {
-    // No manejar rutas de API aquí
     if (req.path.startsWith('/api/')) {
       log('Server', 'Ruta de API no encontrada', { path: req.path }, true);
       return res.status(404).json({ error: 'API endpoint not found' });
     }
-    res.sendFile(path.join(clientPath, 'index.html'));
+
+    const indexPath = path.join(clientPath, 'index.html');
+    const distIndexPath = path.join(__dirname, '..', '..', 'client', 'index.html');
+
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else if (fs.existsSync(distIndexPath)) {
+      res.sendFile(distIndexPath);
+    } else {
+      log('Server', 'No se encontró index.html', {
+        indexPath,
+        distIndexPath
+      }, true);
+      res.status(500).send('Error: No se encontró el archivo index.html');
+    }
   });
 } else {
   log('Server', 'Iniciando en modo desarrollo');
