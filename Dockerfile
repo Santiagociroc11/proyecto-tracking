@@ -33,19 +33,17 @@ RUN npm install --omit=dev
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
 
-# Create logs directory and set permissions
-RUN mkdir -p logs && chown -R node:node logs
+# Create required directories and set permissions
+RUN mkdir -p logs && \
+    mkdir -p public && \
+    chown -R node:node /app
 
 # Set runtime environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Create a non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
-
-USER nodejs
+# Use node user for better security
+USER node
 
 # Expose only the production server port
 EXPOSE 3000
