@@ -121,7 +121,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const VITE_PORT = parseInt(process.env.VITE_PORT || '5173', 10);
 
 app.listen(PORT, '0.0.0.0', () => {
-  log('Server', `Servidor escuchando en puerto ${PORT}`);
+  log('Server', `Servidor API escuchando en puerto ${PORT}`);
+  log('Server', `Servidor Vite escuchando en puerto ${VITE_PORT}`);
 });

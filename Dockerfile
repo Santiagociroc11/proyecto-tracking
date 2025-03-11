@@ -37,6 +37,7 @@ COPY --from=builder /app/public ./public
 # Set runtime environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
+ENV VITE_PORT=5173
 
 # Create a non-root user
 RUN addgroup -g 1001 -S nodejs && \
@@ -45,8 +46,9 @@ RUN addgroup -g 1001 -S nodejs && \
 
 USER nodejs
 
-# Expose port
+# Expose both frontend and backend ports
 EXPOSE 3000
+EXPOSE 5173
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
