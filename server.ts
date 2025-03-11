@@ -90,29 +90,31 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
 
 app.use('/api', apiRouter);
 
-// Serve static files
-const staticPath = path.join(__dirname, '..', 'client');
-app.use(express.static(staticPath));
+// En producción, servir archivos estáticos y manejar SPA routing
+if (process.env.NODE_ENV === 'production') {
+  const clientPath = path.join(__dirname, '..', 'client');
+  
+  // Servir archivos estáticos
+  app.use(express.static(clientPath));
+  
+  // Servir script de tracking
+  app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
+    maxAge: '1h',
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+    }
+  }));
 
-// Serve tracking script
-app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
-  maxAge: '1h',
-  setHeaders: (res) => {
-    res.setHeader('Cache-Control', 'public, max-age=3600');
-    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-  }
-}));
-
-// Handle client-side routing - IMPORTANT for production SPA routing
-app.get('*', (req, res) => {
-  // Skip API routes
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API endpoint not found' });
-  }
-  // Serve index.html for all other routes
-  res.sendFile(path.join(staticPath, 'index.html'));
-});
+  // SPA routing - todas las rutas no-API sirven index.html
+  app.get('*', (req, res) => {
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ error: 'API endpoint not found' });
+    }
+    res.sendFile(path.join(clientPath, 'index.html'));
+  });
+}
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -121,9 +123,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const VITE_PORT = parseInt(process.env.VITE_PORT || '5173', 10);
 
 app.listen(PORT, '0.0.0.0', () => {
-  log('Server', `Servidor API escuchando en puerto ${PORT}`);
-  log('Server', `Servidor Vite escuchando en puerto ${VITE_PORT}`);
+  log('Server', `Servidor escuchando en puerto ${PORT} (${process.env.NODE_ENV})`);
 });
