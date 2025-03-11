@@ -28,9 +28,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Check if user is stored in localStorage
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
-      const userData = JSON.parse(storedUser);
-      setUser(userData);
-      setIsActive(userData.active);
+      try {
+        const userData = JSON.parse(storedUser);
+        setUser(userData);
+        setIsActive(userData.active);
+      } catch (error) {
+        console.error('Error parsing stored user:', error);
+        localStorage.removeItem('user');
+      }
     }
     setLoading(false);
   }, []);
@@ -40,7 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('users')
       .select('*')
       .eq('email', email)
-      .eq('password', password) // En un caso real, usaríamos hash
+      .eq('password', password)
       .single();
 
     if (error || !data) {
@@ -80,7 +85,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .from('users')
       .insert([{
         email,
-        password, // En un caso real, usaríamos hash
+        password,
         active: true,
         role: 'user',
         max_monthly_events: 100,
