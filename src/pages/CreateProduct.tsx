@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { AlertTriangle, Package } from 'lucide-react';
+import { diagnostics } from '../lib/diagnostics';
 
 export default function CreateProduct() {
   const navigate = useNavigate();
@@ -10,85 +11,178 @@ export default function CreateProduct() {
   const [error, setError] = useState('');
   const [productCount, setProductCount] = useState(0);
   const [maxProducts, setMaxProducts] = useState(1);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    loadProductLimits();
+    // Get the first active user from the database
+    async function getFirstUser() {
+      try {
+        const { data, error } = await supabase
+          .from('users')
+          .select('id')
+          .eq('active', true)
+          .limit(1)
+          .single();
+
+        if (error) {
+          diagnostics.error('CreateProduct', 'Error fetching first user', error);
+          return;
+        }
+
+        if (data) {
+          setUserId(data.id);
+          diagnostics.info('CreateProduct', 'User ID set', { userId: data.id });
+          loadProductLimits(data.id);
+        }
+      } catch (err) {
+        diagnostics.error('CreateProduct', 'Error in getFirstUser', err);
+      }
+    }
+
+    getFirstUser();
   }, []);
 
-  async function loadProductLimits() {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  async function loadProductLimits(currentUserId: string) {
+    if (!currentUserId) {
+      diagnostics.warn('CreateProduct', 'No user ID available');
+      return;
+    }
 
-      // Get user's product limits and current count in a single query
+    diagnostics.info('CreateProduct', 'Loading product limits', { userId: currentUserId });
+    try {
+      // Get the user's max products limit
       const { data: userData, error: userError } = await supabase
         .from('users')
-        .select(`
-          max_products,
-          products:products(count)
-        `)
-        .eq('id', user.id)
+        .select('max_products')
+        .eq('id', currentUserId)
         .single();
 
-      if (userError) throw userError;
+      if (userError) {
+        diagnostics.error('CreateProduct', 'Error fetching user data', userError);
+        throw userError;
+      }
 
-      setMaxProducts(userData.max_products);
-      setProductCount(userData.products[0].count);
+      diagnostics.info('CreateProduct', 'User data fetched', { userData });
+
+      if (userData) {
+        setMaxProducts(userData.max_products);
+        diagnostics.info('CreateProduct', 'Max products set', { maxProducts: userData.max_products });
+      }
+
+      // Get the actual count of products
+      const { count, error: countError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', currentUserId);
+
+      if (countError) {
+        diagnostics.error('CreateProduct', 'Error counting products', countError);
+        throw countError;
+      }
+
+      const finalCount = count || 0;
+      diagnostics.info('CreateProduct', 'Product count fetched', { 
+        count: finalCount,
+        maxProducts: userData?.max_products,
+        remaining: userData ? userData.max_products - finalCount : 0
+      });
+
+      setProductCount(finalCount);
     } catch (err) {
+      diagnostics.error('CreateProduct', 'Error in loadProductLimits', err);
       console.error('Error loading product limits:', err);
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!userId) {
+      diagnostics.error('CreateProduct', 'No user ID available for product creation');
+      setError('Error: Usuario no disponible');
+      return;
+    }
+
+    diagnostics.info('CreateProduct', 'Starting product creation', { productName: name });
     setLoading(true);
     setError('');
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        throw new Error('Usuario no autenticado');
+      // Get current product count
+      const { count: currentCount, error: countError } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId);
+
+      if (countError) {
+        diagnostics.error('CreateProduct', 'Error counting products during creation', countError);
+        throw countError;
       }
 
-      // Check product limit before inserting
-      const { data: userData } = await supabase
+      diagnostics.info('CreateProduct', 'Current product count', { count: currentCount });
+
+      // Get user's max products limit
+      const { data: userData, error: userError } = await supabase
         .from('users')
-        .select(`
-          max_products,
-          products:products(count)
-        `)
-        .eq('id', user.id)
+        .select('max_products')
+        .eq('id', userId)
         .single();
 
-      if (!userData) {
+      if (userError || !userData) {
+        diagnostics.error('CreateProduct', 'Error fetching user limits', { error: userError });
         throw new Error('Error verificando límites de productos');
       }
 
-      const currentCount = userData.products[0].count;
-      if (currentCount >= userData.max_products) {
+      diagnostics.info('CreateProduct', 'User limits fetched', { 
+        maxProducts: userData.max_products,
+        currentCount: currentCount
+      });
+
+      if ((currentCount || 0) >= userData.max_products) {
+        diagnostics.warn('CreateProduct', 'Product limit reached', {
+          current: currentCount,
+          max: userData.max_products
+        });
         throw new Error('Has alcanzado el límite de productos permitidos');
       }
 
       // Create product if within limits
+      const trackingId = crypto.randomUUID();
+      diagnostics.info('CreateProduct', 'Creating new product', { 
+        name,
+        trackingId,
+        userId
+      });
+
       const { data, error: insertError } = await supabase
         .from('products')
         .insert([
           {
             name,
-            tracking_id: crypto.randomUUID(),
-            user_id: user.id
+            tracking_id: trackingId,
+            user_id: userId
           },
         ])
         .select()
         .single();
 
-      if (insertError) throw insertError;
+      if (insertError) {
+        diagnostics.error('CreateProduct', 'Error inserting product', insertError);
+        throw insertError;
+      }
+
+      diagnostics.info('CreateProduct', 'Product created successfully', { 
+        productId: data.id,
+        name: data.name
+      });
       
       navigate(`/products/${data.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error al crear el producto');
-      console.error('Error creating product:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al crear el producto';
+      diagnostics.error('CreateProduct', 'Product creation failed', { 
+        error: err,
+        message: errorMessage
+      });
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -96,6 +190,35 @@ export default function CreateProduct() {
 
   const remainingProducts = maxProducts - productCount;
   const usagePercentage = (productCount / maxProducts) * 100;
+
+  // Log state changes
+  useEffect(() => {
+    diagnostics.info('CreateProduct', 'State updated', {
+      productCount,
+      maxProducts,
+      remainingProducts,
+      usagePercentage
+    });
+  }, [productCount, maxProducts]);
+
+  if (!userId) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="max-w-md mx-auto">
+          <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
+            <div className="flex">
+              <AlertTriangle className="h-5 w-5 text-yellow-400" />
+              <div className="ml-3">
+                <p className="text-sm text-yellow-700">
+                  Cargando datos del usuario...
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -129,15 +252,26 @@ export default function CreateProduct() {
               </div>
             </div>
 
-            {remainingProducts <= 1 && (
-              <div className={`p-4 rounded-md ${remainingProducts <= 0 ? 'bg-red-50' : 'bg-yellow-50'}`}>
+            {remainingProducts <= 1 && remainingProducts > 0 && (
+              <div className="p-4 rounded-md bg-yellow-50">
                 <div className="flex">
-                  <AlertTriangle className={`h-5 w-5 ${remainingProducts <= 0 ? 'text-red-400' : 'text-yellow-400'}`} />
+                  <AlertTriangle className="h-5 w-5 text-yellow-400" />
                   <div className="ml-3">
-                    <p className={`text-sm ${remainingProducts <= 0 ? 'text-red-700' : 'text-yellow-700'}`}>
-                      {remainingProducts <= 0
-                        ? 'Has alcanzado el límite de productos permitidos. Contacta con soporte para aumentar tu límite.'
-                        : 'Solo te queda 1 producto disponible. Considera contactar con soporte para aumentar tu límite.'}
+                    <p className="text-sm text-yellow-700">
+                      Solo te queda 1 producto disponible. Considera contactar con soporte para aumentar tu límite.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {remainingProducts <= 0 && (
+              <div className="p-4 rounded-md bg-red-50">
+                <div className="flex">
+                  <AlertTriangle className="h-5 w-5 text-red-400" />
+                  <div className="ml-3">
+                    <p className="text-sm text-red-700">
+                      Has alcanzado el límite de productos permitidos. Contacta con soporte para aumentar tu límite.
                     </p>
                   </div>
                 </div>
