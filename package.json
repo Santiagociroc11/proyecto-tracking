@@ -3,14 +3,12 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "vite --port 5173",
-    "dev:server": "cross-env NODE_ENV=development tsx watch server.ts",
+    "dev": "vite",
+    "dev:server": "tsx watch server.ts",
     "build:frontend": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
-    "build:public": "mkdir -p dist/client/public && cp -r public/* dist/client/public/",
-    "build": "rimraf dist && npm run build:frontend && npm run build:server && npm run build:public",
-    "start": "cross-env NODE_ENV=production node dist/server/server.js",
+    "build": "rimraf dist && npm run build:frontend && npm run build:server",
+    "start": "node dist/server/server.js",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -36,8 +34,6 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.18",
-    "concurrently": "^8.2.2",
-    "cross-env": "^7.0.3",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",

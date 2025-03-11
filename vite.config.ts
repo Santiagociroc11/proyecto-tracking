@@ -7,25 +7,19 @@ export default defineConfig({
   build: {
     outDir: 'dist/client',
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks: {
           vendor: ['react', 'react-dom', 'react-router-dom'],
-          charts: ['recharts'],
-          utils: ['xlsx', '@supabase/supabase-js']
-        }
-      }
-    }
+        },
+      },
+    },
   },
   server: {
-    port: 5173,
-    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',
-        changeOrigin: true,
-        secure: false
+        changeOrigin: true
       }
     }
   },
@@ -33,6 +27,5 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src')
     }
-  },
-  base: '/'
+  }
 });
