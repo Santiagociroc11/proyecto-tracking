@@ -6,19 +6,76 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+
+// Ensure logs directory exists
+const logsDir = path.join(__dirname, '..', 'logs');
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// Create write streams for logs
+const accessLogStream = fs.createWriteStream(path.join(logsDir, 'access.log'), { flags: 'a' });
+const errorLogStream = fs.createWriteStream(path.join(logsDir, 'error.log'), { flags: 'a' });
 
 const app = express();
 
 // Enable trust proxy for rate limiting behind reverse proxy
 app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
-// Sistema de logging
-function log(context: string, message: string, data?: any) {
+// Enhanced logging system
+function log(context: string, message: string, data?: any, isError = false) {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] [Server] [${context}] ${message}`, data || '');
+  const logEntry = `[${timestamp}] [Server] [${context}] ${message} ${data ? JSON.stringify(data, null, 2) : ''}\n`;
+  
+  // Write to appropriate log file
+  const stream = isError ? errorLogStream : accessLogStream;
+  stream.write(logEntry);
+
+  // Also log to console
+  console[isError ? 'error' : 'log'](logEntry);
+}
+
+// Process error handling
+process.on('uncaughtException', (error) => {
+  log('Process', 'Uncaught Exception', error, true);
+  // Give time for logs to be written before exiting
+  setTimeout(() => process.exit(1), 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  log('Process', 'Unhandled Rejection', { reason, promise }, true);
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  log('Process', 'Received SIGTERM - Graceful shutdown initiated');
+  shutdown();
+});
+
+process.on('SIGINT', () => {
+  log('Process', 'Received SIGINT - Graceful shutdown initiated');
+  shutdown();
+});
+
+function shutdown() {
+  // Close server and other resources
+  server.close(() => {
+    log('Process', 'Server closed');
+    // Close log streams
+    accessLogStream.end();
+    errorLogStream.end();
+    process.exit(0);
+  });
+
+  // Force close if graceful shutdown fails
+  setTimeout(() => {
+    log('Process', 'Forced shutdown after timeout', null, true);
+    process.exit(1);
+  }, 10000);
 }
 
 // Configurar límites de tasa
@@ -37,6 +94,33 @@ const limiter = rateLimit({
   }
 });
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    log('Request', `${req.method} ${req.url}`, {
+      status: res.statusCode,
+      duration: `${duration}ms`,
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+  });
+  next();
+});
+
+// Error logging middleware
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  log('Error', 'Unhandled error', { 
+    error: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    body: req.body
+  }, true);
+  res.status(500).json({ success: false, error: 'Error interno del servidor' });
+});
+
 // Configurar CORS
 app.use(cors({
   origin: '*',
@@ -47,9 +131,18 @@ app.use(cors({
 app.use(express.json({ limit: '1mb' }));
 app.use(limiter);
 
-// Health check endpoint
+// Health check endpoint with detailed status
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  const health = {
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    memory: process.memoryUsage(),
+    environment: process.env.NODE_ENV,
+    version: process.version
+  };
+  res.json(health);
+  log('Health', 'Health check performed', health);
 });
 
 // API Routes
@@ -66,7 +159,7 @@ apiRouter.post('/track', async (req, res) => {
     log('Track', 'Evento procesado', result);
     res.json(result);
   } catch (error) {
-    log('Track', 'Error procesando evento', error);
+    log('Track', 'Error procesando evento', error, true);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
@@ -76,27 +169,42 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
   try {
     const hottok = req.headers['x-hotmart-hottok'];
     if (!hottok) {
-      log('Hotmart', 'Webhook sin token');
+      log('Hotmart', 'Webhook sin token', null, true);
       return res.status(401).json({ success: false, error: 'Unauthorized' });
     }
     const result = await handleHotmartWebhook(req.body);
     log('Hotmart', 'Webhook procesado', result);
     res.json(result);
   } catch (error) {
-    log('Hotmart', 'Error procesando webhook', error);
+    log('Hotmart', 'Error procesando webhook', error, true);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
   }
 });
 
 app.use('/api', apiRouter);
 
-// En producción, servir archivos estáticos y manejar SPA routing
+// Servir archivos estáticos y manejar rutas del SPA
 if (process.env.NODE_ENV === 'production') {
+  log('Server', 'Iniciando en modo producción');
   // Servir archivos estáticos del frontend
-  app.use(express.static(path.join(__dirname, '..', 'client')));
+  const clientPath = path.join(__dirname, '..', 'client');
   
+  // Verificar que el directorio del cliente existe
+  if (!fs.existsSync(clientPath)) {
+    log('Server', 'Directorio del cliente no encontrado', { path: clientPath }, true);
+    process.exit(1);
+  }
+
+  app.use(express.static(clientPath));
+
   // Servir script de tracking
-  app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
+  const trackJsPath = path.join(__dirname, '..', 'public', 'track.js');
+  if (!fs.existsSync(trackJsPath)) {
+    log('Server', 'Archivo track.js no encontrado', { path: trackJsPath }, true);
+    process.exit(1);
+  }
+
+  app.use('/track.js', express.static(trackJsPath, {
     maxAge: '1h',
     setHeaders: (res) => {
       res.setHeader('Cache-Control', 'public, max-age=3600');
@@ -105,24 +213,22 @@ if (process.env.NODE_ENV === 'production') {
     }
   }));
 
-  // Manejar rutas del SPA - IMPORTANTE: debe ir después de las rutas de la API
+  // Manejar todas las rutas del frontend
   app.get('*', (req, res) => {
     // No manejar rutas de API aquí
     if (req.path.startsWith('/api/')) {
+      log('Server', 'Ruta de API no encontrada', { path: req.path }, true);
       return res.status(404).json({ error: 'API endpoint not found' });
     }
-    res.sendFile(path.join(__dirname, '..', 'client', 'index.html'));
+    res.sendFile(path.join(clientPath, 'index.html'));
   });
+} else {
+  log('Server', 'Iniciando en modo desarrollo');
 }
-
-// Error handling middleware
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  log('Error', 'Error no manejado', err);
-  res.status(500).json({ success: false, error: 'Error interno del servidor' });
-});
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-app.listen(PORT, '0.0.0.0', () => {
-  log('Server', `Servidor escuchando en puerto ${PORT} (${process.env.NODE_ENV})`);
+// Create server instance for graceful shutdown
+const server = app.listen(PORT, '0.0.0.0', () => {
+  log('Server', `Servidor escuchando en puerto ${PORT} (${process.env.NODE_ENV || 'development'})`);
 });

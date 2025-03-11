@@ -34,6 +34,9 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/public ./public
 
+# Create logs directory and set permissions
+RUN mkdir -p logs && chown -R node:node logs
+
 # Set runtime environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
@@ -48,8 +51,8 @@ USER nodejs
 # Expose only the production server port
 EXPOSE 3000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+# Health check with increased timeout and start period
+HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
 # Start the server
