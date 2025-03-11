@@ -188,12 +188,12 @@ if (process.env.NODE_ENV === 'production') {
   log('Server', 'Iniciando en modo producción');
   
   // Servir archivos estáticos del frontend
-  const clientPath = path.join(__dirname, '..', 'client');
-  app.use(express.static(clientPath));
-  log('Server', 'Sirviendo archivos estáticos desde', { clientPath });
+  const staticPath = path.join(__dirname, '..', 'client');
+  app.use(express.static(staticPath));
+  log('Server', 'Sirviendo archivos estáticos desde', { staticPath });
 
   // Servir script de tracking
-  const trackJsPath = path.join(clientPath, 'public', 'track.js');
+  const trackJsPath = path.join(staticPath, 'public', 'track.js');
   if (fs.existsSync(trackJsPath)) {
     app.use('/track.js', express.static(trackJsPath, {
       maxAge: '1h',
@@ -205,7 +205,7 @@ if (process.env.NODE_ENV === 'production') {
     }));
     log('Server', 'Sirviendo track.js desde', { trackJsPath });
   } else {
-    log('Server', 'No se encontró track.js', { trackJsPath }, true);
+    log('Server', 'Archivo track.js no encontrado', { trackJsPath }, true);
   }
 
   // Manejar todas las rutas del frontend
@@ -215,8 +215,13 @@ if (process.env.NODE_ENV === 'production') {
       return res.status(404).json({ error: 'API endpoint not found' });
     }
 
-    const indexPath = path.join(clientPath, 'index.html');
-    res.sendFile(indexPath);
+    const indexPath = path.join(staticPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      res.sendFile(indexPath);
+    } else {
+      log('Server', 'Archivo index.html no encontrado', { indexPath }, true);
+      res.status(404).send('Not found');
+    }
   });
 } else {
   log('Server', 'Iniciando en modo desarrollo');

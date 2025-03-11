@@ -7,7 +7,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci
 
 # Copy source files
 COPY . .
@@ -28,27 +28,26 @@ WORKDIR /app
 
 # Copy package files and install production dependencies
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm ci --omit=dev
 
 # Copy built files from builder
 COPY --from=builder /app/dist ./dist
-
-# Create required directories and set permissions
-RUN mkdir -p logs && \
-    mkdir -p public && \
-    chown -R node:node /app
 
 # Set runtime environment variables
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Use node user for better security
-USER node
+# Create a non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
 
-# Expose only the production server port
+USER nodejs
+
+# Expose port
 EXPOSE 3000
 
-# Health check with increased timeout and start period
+# Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=30s --retries=3 \
     CMD wget -qO- http://localhost:3000/health || exit 1
 
