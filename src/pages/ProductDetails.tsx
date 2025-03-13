@@ -97,7 +97,7 @@ export default function ProductDetails() {
       if (error) throw error;
       
       await loadProduct();
-      setCurrentStep(3);
+      setCurrentStep(2);
     } catch (err) {
       console.error('Error saving Facebook config:', err);
       setError('Error al guardar la configuración de Facebook');
