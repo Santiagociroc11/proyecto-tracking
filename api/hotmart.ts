@@ -107,7 +107,7 @@ async function sendPushNotification(userId: string, message: string) {
           sub.subscription,
           message
         );
-      } catch (error) {
+      } catch (error: any) {
         if (error.statusCode === 410) {
           // Subscription has expired or is invalid
           await supabase
