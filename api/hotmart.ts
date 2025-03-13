@@ -204,13 +204,13 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           event: event.event,
           data: event.data,
         },
-        session_id: trackingEvent.session_id,
+        session_id: trackingEvent.event_data.session_id,
         utm_data:{
-          utm_term: trackingEvent.utm_data?.utm_term,
-          utm_medium: trackingEvent.utm_data?.utm_medium,
-          utm_source: trackingEvent.utm_data?.utm_source,
-          utm_content: trackingEvent.utm_data?.utm_content,
-          utm_campaign: trackingEvent.utm_data?.utm_campaign
+          utm_term: trackingEvent.event_data.utm_data?.utm_term,
+          utm_medium: trackingEvent.event_data.utm_data?.utm_medium,
+          utm_source: trackingEvent.event_data.utm_data?.utm_source,
+          utm_content: trackingEvent.event_data.utm_data?.utm_content,
+          utm_campaign: trackingEvent.event_data.utm_data?.utm_campaign
         },
       },
     ])
