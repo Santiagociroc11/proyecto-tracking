@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info } from 'lucide-react';
+import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2 } from 'lucide-react';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -20,6 +20,7 @@ interface Product {
 export default function ProductDetails() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [copied, setCopied] = useState<'script' | 'webhook' | null>(null);
   const [fbPixelId, setFbPixelId] = useState('');
@@ -30,6 +31,9 @@ export default function ProductDetails() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'setup' | 'analytics'>('setup');
   const [currentStep, setCurrentStep] = useState(1);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedName, setEditedName] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
     if (user && id) {
@@ -65,6 +69,7 @@ export default function ProductDetails() {
       }
 
       setProduct(product);
+      setEditedName(product.name);
       setFbPixelId(product.fb_pixel_id || '');
       setFbAccessToken(product.fb_access_token || '');
       setFbTestEventCode(product.fb_test_event_code || '');
@@ -73,6 +78,54 @@ export default function ProductDetails() {
       setError(err instanceof Error ? err.message : 'Error cargando el producto');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleSaveName() {
+    if (!id || !user || !editedName.trim()) return;
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ name: editedName.trim() })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      await loadProduct();
+      setIsEditing(false);
+    } catch (err) {
+      console.error('Error updating product name:', err);
+      setError('Error al actualizar el nombre del producto');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDeleteProduct() {
+    if (!id || !user) return;
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .delete()
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+      
+      navigate('/');
+    } catch (err) {
+      console.error('Error deleting product:', err);
+      setError('Error al eliminar el producto');
+      setSaving(false);
     }
   }
 
@@ -181,7 +234,7 @@ fbq('track', 'PageView');
   }
 
   return (
-    <div className="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6 flex items-center justify-between">
         <Link
           to="/"
@@ -190,8 +243,44 @@ fbq('track', 'PageView');
           <ArrowLeft className="h-4 w-4 mr-2" />
           Volver al Dashboard
         </Link>
-        <div className="flex items-center">
-          <h1 className="text-2xl font-bold text-gray-900 mr-3">{product.name}</h1>
+        <div className="flex items-center space-x-4">
+          {isEditing ? (
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={editedName}
+                onChange={(e) => setEditedName(e.target.value)}
+                className="border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+              />
+              <button
+                onClick={handleSaveName}
+                disabled={saving}
+                className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+              >
+                {saving ? 'Guardando...' : 'Guardar'}
+              </button>
+              <button
+                onClick={() => {
+                  setIsEditing(false);
+                  setEditedName(product.name);
+                }}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center">
+              <h1 className="text-2xl font-bold text-gray-900 mr-3">{product.name}</h1>
+              <button
+                onClick={() => setIsEditing(true)}
+                className="p-1 text-gray-400 hover:text-gray-600"
+                title="Editar nombre"
+              >
+                <Edit2 className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${
             product.active 
               ? 'bg-green-100 text-green-800' 
@@ -199,8 +288,43 @@ fbq('track', 'PageView');
           }`}>
             {product.active ? 'Activo' : 'Inactivo'}
           </span>
+          <button
+            onClick={() => setShowDeleteConfirm(true)}
+            className="inline-flex items-center px-4 py-2 border border-red-300 rounded-md shadow-sm text-sm font-medium text-red-700 bg-white hover:bg-red-50"
+            title="Eliminar producto"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">
+              ¿Estás seguro de que quieres eliminar este producto?
+            </h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Esta acción no se puede deshacer. Se eliminarán todos los datos asociados al producto.
+            </p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={() => setShowDeleteConfirm(false)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleDeleteProduct}
+                disabled={saving}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-red-600 hover:bg-red-700"
+              >
+                {saving ? 'Eliminando...' : 'Eliminar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="border-b border-gray-200">
