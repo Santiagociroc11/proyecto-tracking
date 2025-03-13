@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto-js'; // Importar crypto-js
+import webpush from 'web-push';
 
 interface HotmartEvent {
   data: {
@@ -42,6 +43,8 @@ interface Product {
   fb_pixel_id?: string | null;
   fb_access_token?: string | null;
   fb_test_event_code?: string | null;
+  user_id: string;
+  name: string;
 }
 
 interface TrackingEventWithProduct {
@@ -62,6 +65,65 @@ interface TrackingEventWithProduct {
 
 function hashSHA256(value: string): string {
   return crypto.SHA256(value).toString(crypto.enc.Hex);
+}
+
+async function sendPushNotification(userId: string, message: string) {
+  try {
+    // Get VAPID keys
+    const { data: vapidKeys, error: vapidError } = await supabase
+      .from('push_keys')
+      .select('public_key, private_key')
+      .single();
+
+    if (vapidError || !vapidKeys) {
+      throw new Error('Failed to get VAPID keys');
+    }
+
+    // Get user's push subscriptions
+    const { data: subscriptions, error: subError } = await supabase
+      .from('push_subscriptions')
+      .select('subscription')
+      .eq('user_id', userId);
+
+    if (subError) {
+      throw subError;
+    }
+
+    if (!subscriptions || subscriptions.length === 0) {
+      return; // User has no push subscriptions
+    }
+
+    // Configure web-push
+    webpush.setVapidDetails(
+      'mailto:your-email@example.com', // Replace with your email
+      vapidKeys.public_key,
+      vapidKeys.private_key
+    );
+
+    // Send notification to all user's subscriptions
+    const sendPromises = subscriptions.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          sub.subscription,
+          message
+        );
+      } catch (error) {
+        if (error.statusCode === 410) {
+          // Subscription has expired or is invalid
+          await supabase
+            .from('push_subscriptions')
+            .delete()
+            .eq('user_id', userId)
+            .eq('subscription', sub.subscription);
+        }
+        console.error('Error sending push notification:', error);
+      }
+    });
+
+    await Promise.all(sendPromises);
+  } catch (error) {
+    console.error('Error in sendPushNotification:', error);
+  }
 }
 
 async function sendFacebookConversion(
@@ -228,6 +290,34 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       console.log('Evento PURCHASE_APPROVED detectado. Enviando conversión a Facebook...');
       await sendFacebookConversion(product, event, trackingEvent);
       console.log('Conversión enviada a Facebook.');
+      const utmData = trackingEvent.event_data?.utm_data || {};
+      const purchaseDate = new Date();
+      
+      // Format the notification message with campaign details
+      const notificationMessage = JSON.stringify({
+        title: '¡Nueva Venta!',
+        body: `Compra realizada del producto ${product.name}\n` +
+              `Campaña: ${utmData.utm_campaign || 'Directa'}\n` +
+              `Segmentación: ${utmData.utm_medium || 'N/A'}\n` +
+              `Anuncio: ${utmData.utm_content || 'N/A'}\n` +
+              `Valor: ${event.data.purchase.price.value} ${event.data.purchase.price.currency_value}\n` +
+              `Fecha: ${purchaseDate.toLocaleString()}`,
+        data: {
+          type: 'purchase',
+          purchaseId: event.data.product.id,
+          productName: product.name,
+          buyerName: event.data.buyer.name,
+          amount: event.data.purchase.price.value,
+          currency: event.data.purchase.price.currency_value,
+          campaign: utmData.utm_campaign,
+          medium: utmData.utm_medium,
+          content: utmData.utm_content,
+          purchaseDate: purchaseDate.toISOString()
+        }
+      });
+
+      await sendPushNotification(product.user_id, notificationMessage);
+      await sendFacebookConversion(product, event, trackingEvent);
     } else {
       console.log('Evento no es PURCHASE_APPROVED. No se enviará la conversión a Facebook.');
     }
