@@ -130,8 +130,12 @@ async function sendFacebookConversion(
 
 export async function handleHotmartWebhook(event: HotmartEvent) {
   try {
-    const xcod = event.data.purchase.origin.xcod;
+    console.log('Iniciando handleHotmartWebhook con evento:', event);
 
+    const xcod = event.data.purchase.origin.xcod;
+    console.log('xcod obtenido:', xcod);
+
+    console.log('Consultando tracking_events en Supabase...');
     const { data: trackingEvent, error: trackingError } = await supabase
       .from('tracking_events')
       .select<string, TrackingEventWithProduct>(`
@@ -151,17 +155,34 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       .limit(1)
       .single();
 
-    if (trackingError || !trackingEvent) {
+    if (trackingError) {
       console.error('Error buscando tracking event:', trackingError);
+      console.log('Resultado de la consulta a Supabase (error):', trackingError);
       return { success: false, error: 'Tracking event no encontrado' };
     }
 
+    if (!trackingEvent) {
+      console.error('Tracking event no encontrado.');
+      console.log('Resultado de la consulta a Supabase (data):', trackingEvent);
+      return { success: false, error: 'Tracking event no encontrado' };
+    }
+
+    console.log('Tracking event encontrado:', trackingEvent);
+
     const product = trackingEvent.products;
-    if (!product || !product.active) {
-      console.error('Producto no encontrado o inactivo');
+    console.log('Producto obtenido del tracking event:', product);
+
+    if (!product) {
+      console.error('Producto no encontrado en el tracking event.');
       return { success: false, error: 'Producto no encontrado o inactivo' };
     }
 
+    if (!product.active) {
+      console.error('Producto inactivo.');
+      return { success: false, error: 'Producto no encontrado o inactivo' };
+    }
+
+    console.log('Insertando evento de compra en Supabase...');
     await supabase
       .from('tracking_events')
       .insert([
@@ -176,14 +197,21 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           },
         },
       ]);
+    console.log('Evento de compra insertado en Supabase.');
 
     if (event.event === 'PURCHASE_APPROVED') {
+      console.log('Evento PURCHASE_APPROVED detectado. Enviando conversión a Facebook...');
       await sendFacebookConversion(product, event, trackingEvent);
+      console.log('Conversión enviada a Facebook.');
+    } else {
+      console.log('Evento no es PURCHASE_APPROVED. No se enviará la conversión a Facebook.');
     }
 
+    console.log('handleHotmartWebhook completado con éxito.');
     return { success: true };
   } catch (error) {
     console.error('Error procesando webhook de Hotmart:', error);
+    console.log('Error detallado:', error);
     throw error;
   }
 }
