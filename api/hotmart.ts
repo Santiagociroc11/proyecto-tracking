@@ -83,7 +83,7 @@ async function sendFacebookConversion(
     fbp: trackingEvent?.event_data?.fbp || null,
   };
 
-  const eventPayload = {
+  const eventPayload: any = {
     data: [
       {
         event_name: 'Purchase',
@@ -103,7 +103,7 @@ async function sendFacebookConversion(
   };
 
   if (product.fb_test_event_code) {
-    eventPayload.data[0].test_event_code = product.fb_test_event_code;
+    eventPayload.test_event_code = product.fb_test_event_code;
   }
 
   const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
