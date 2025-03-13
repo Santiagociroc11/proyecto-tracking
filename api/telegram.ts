@@ -55,11 +55,12 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
       return;
     }
 
-    // Get the latest tracking event for this purchase
-    const { data: trackingEvent } = await supabase
+     // Get the latest tracking event for this purchase
+     const { data: trackingEvent } = await supabase
       .from('tracking_events')
       .select('event_data')
       .eq('visitor_id', purchaseData.purchase.origin.xcod)
+      .neq('event_type', 'compra_hotmart') 
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
@@ -84,8 +85,7 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
       `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
       `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
       `• Medio: ${utmData.utm_medium || 'Directo'}\n` +
-      `• Anuncio: ${utmData.utm_content || 'No especificado'}\n` +
-      `• Keyword: ${utmData.utm_term || 'No especificado'}`;
+      `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`
 
     // Send notification
     const success = await sendTelegramMessage(settings.telegram_chat_id, message);

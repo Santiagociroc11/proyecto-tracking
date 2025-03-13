@@ -168,6 +168,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         )
       `)
       .eq('visitor_id', xcod)
+      .neq('event_type', 'compra_hotmart') 
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
