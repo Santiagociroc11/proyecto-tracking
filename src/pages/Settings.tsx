@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Settings as SettingsIcon, BellRing } from 'lucide-react';
+import { Settings as SettingsIcon, BellRing, ExternalLink } from 'lucide-react';
 
 interface UserSettings {
   timezone: string;
@@ -16,7 +16,6 @@ export default function Settings() {
   const [telegramChatId, setTelegramChatId] = useState('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
-  const [botUsername, setBotUsername] = useState('your_notifications_bot');
 
   useEffect(() => {
     if (user) {
@@ -27,10 +26,13 @@ export default function Settings() {
   async function loadSettings() {
     try {
       setLoading(true);
+      
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('user_settings')
         .select('timezone, telegram_chat_id')
-        .eq('user_id', user?.id)
+        .eq('user_id', user.id)
         .maybeSingle();
 
       if (!error && data) {
@@ -169,7 +171,18 @@ export default function Settings() {
                     Pasos para activar las notificaciones:
                   </h5>
                   <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-                    <li>Abre Telegram y busca el bot: <code className="bg-gray-200 px-1 py-0.5 rounded">@{botUsername}</code></li>
+                    <li>
+                      Abre nuestro bot de Telegram:{' '}
+                      <a 
+                        href="https://t.me/HotApi_bot" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="inline-flex items-center text-indigo-600 hover:text-indigo-500"
+                      >
+                        @HotApi_bot
+                        <ExternalLink className="h-4 w-4 ml-1" />
+                      </a>
+                    </li>
                     <li>Inicia el bot con el comando <code className="bg-gray-200 px-1 py-0.5 rounded">/start</code></li>
                     <li>El bot te proporcionará tu Chat ID</li>
                     <li>Copia el Chat ID y pégalo en el campo de abajo</li>
@@ -189,7 +202,7 @@ export default function Settings() {
                     className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
                   />
                   <p className="mt-2 text-sm text-gray-500">
-                    Ingresa el Chat ID proporcionado por el bot para recibir notificaciones de ventas.
+                    Ingresa el Chat ID proporcionado por el bot para recibir notificaciones de ventas en tiempo real.
                   </p>
                 </div>
               </div>
