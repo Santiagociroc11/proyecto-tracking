@@ -231,13 +231,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
             sourceData.clicks++;
             totalClicks++;
             break;
-          case 'custom':
-            if (event.event_data?.type === 'hotmart_event' && 
-                event.event_data?.event === 'PURCHASE_APPROVED') {
+          case 'compra_hotmart':
               stats.purchases++;
               dayStats.purchases++;
               totalPurchases++;
-            }
             break;
         }
 
