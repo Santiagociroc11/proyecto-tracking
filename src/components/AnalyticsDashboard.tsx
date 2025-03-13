@@ -519,7 +519,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+     
         {/* Daily trends chart */}
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
@@ -538,8 +538,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
             </ResponsiveContainer>
           </div>
         </div>
-
-      </div>
 
       {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
