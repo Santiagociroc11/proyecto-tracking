@@ -49,6 +49,15 @@ interface TrackingEventWithProduct {
   visitor_id: string;
   event_data: any;
   products: Product;
+  utm_data?: {
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+    utm_content?: string;
+    utm_term?: string;
+  };
+  session_id: string;
+  page_view_id: string;
 }
 
 function hashSHA256(value: string): string {
@@ -195,7 +204,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           event: event.event,
           data: event.data,
         },
-        session_id: "hotmart_webhook",
+        session_id: trackingEvent.session_id,
+        utm_data:{
+          utm_term: trackingEvent.utm_data?.utm_term,
+          utm_medium: trackingEvent.utm_data?.utm_medium,
+          utm_source: trackingEvent.utm_data?.utm_source,
+          utm_content: trackingEvent.utm_data?.utm_content,
+          utm_campaign: trackingEvent.utm_data?.utm_campaign
+        },
       },
     ])
     .select();
