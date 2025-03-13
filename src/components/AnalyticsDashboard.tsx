@@ -539,25 +539,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
 
-        {/* Top sources chart */}
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Principales Fuentes de Tráfico</h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data.top_sources}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="source" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="visits" fill="#3B82F6" name="Visitas" />
-                <Bar dataKey="clicks" fill="#10B981" name="Pagos Iniciados" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </div>
-
       {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6">
