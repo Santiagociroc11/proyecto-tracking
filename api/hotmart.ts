@@ -162,7 +162,9 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           active,
           fb_pixel_id,
           fb_access_token,
-          fb_test_event_code
+          fb_test_event_code,
+          user_id,
+          name
         )
       `)
       .eq('visitor_id', xcod)
