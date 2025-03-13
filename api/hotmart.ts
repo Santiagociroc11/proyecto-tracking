@@ -183,7 +183,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     }
 
     console.log('Insertando evento de compra en Supabase...');
-    await supabase
+    const { data: insertData, error: insertError } = await supabase
       .from('tracking_events')
       .insert([
         {
@@ -196,8 +196,16 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
             data: event.data,
           },
         },
-      ]);
-    console.log('Evento de compra insertado en Supabase.');
+      ])
+      .select(); // Agregamos .select() para obtener los datos insertados
+
+    if (insertError) {
+      console.error('Error al insertar evento de compra en Supabase:', insertError);
+      console.log('Detalles del error de inserción:', insertError);
+    } else {
+      console.log('Evento de compra insertado en Supabase con éxito.');
+      console.log('Resultado de la inserción:', insertData);
+    }
 
     if (event.event === 'PURCHASE_APPROVED') {
       console.log('Evento PURCHASE_APPROVED detectado. Enviando conversión a Facebook...');
