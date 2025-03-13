@@ -539,6 +539,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
 
+      </div>
+
       {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6">
