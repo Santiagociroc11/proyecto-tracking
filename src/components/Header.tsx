@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogOut, Activity, Settings, UserPlus } from 'lucide-react';
+import { LogOut, Activity, Settings, UserPlus, Mail } from 'lucide-react';
 
 interface HeaderProps {
   onLogout: () => void;
@@ -9,6 +9,7 @@ interface HeaderProps {
 
 export default function Header({ onLogout, isAdmin }: HeaderProps) {
   const navigate = useNavigate();
+  const userEmail = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).email : '';
 
   const handleLogout = () => {
     onLogout();
@@ -27,6 +28,12 @@ export default function Header({ onLogout, isAdmin }: HeaderProps) {
             </Link>
           </div>
           <div className="flex items-center space-x-4">
+            {userEmail && (
+              <div className="flex items-center text-white">
+                <Mail className="h-4 w-4 mr-2" />
+                <span className="text-sm">{userEmail}</span>
+              </div>
+            )}
             {isAdmin && (
               <>
                 <span className="text-white bg-indigo-700 px-3 py-1 rounded-full text-sm">
