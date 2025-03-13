@@ -20,6 +20,7 @@ interface AnalyticsData {
     term: string;
     visits: number;
     clicks: number;
+    purchases: number;
     conversion_rate: number;
   }[];
   daily_stats: {
@@ -39,7 +40,7 @@ interface Props {
   productId: string;
 }
 
-type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'conversion_rate';
+type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'purchases' |  'conversion_rate';
 type SortDirection = 'asc' | 'desc';
 
 export default function AnalyticsDashboard({ productId }: Props) {
@@ -232,9 +233,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
             totalClicks++;
             break;
           case 'compra_hotmart':
-              stats.purchases++;
-              dayStats.purchases++;
-              totalPurchases++;
+            stats.purchases++;
+            dayStats.purchases++;
+            totalPurchases++;
             break;
         }
 
@@ -318,21 +319,21 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
   const getSortedUtmStats = () => {
     if (!data) return [];
-    
+
     return [...data.utm_stats].sort((a, b) => {
       const multiplier = sortDirection === 'asc' ? 1 : -1;
-      
+
       if (sortField === 'conversion_rate') {
         return (a.conversion_rate - b.conversion_rate) * multiplier;
       }
-      
+
       const aValue = a[sortField];
       const bValue = b[sortField];
-      
+
       if (typeof aValue === 'number' && typeof bValue === 'number') {
         return (aValue - bValue) * multiplier;
       }
-      
+
       return String(aValue).localeCompare(String(bValue)) * multiplier;
     });
   };
@@ -343,11 +344,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
       className="group inline-flex items-center space-x-1 text-xs font-medium text-gray-500 uppercase tracking-wider hover:text-gray-900"
     >
       <span>{label}</span>
-      <ArrowUpDown className={`h-4 w-4 ${
-        sortField === field 
-          ? 'text-gray-900' 
+      <ArrowUpDown className={`h-4 w-4 ${sortField === field
+          ? 'text-gray-900'
           : 'text-gray-400 group-hover:text-gray-500'
-      }`} />
+        }`} />
     </button>
   );
 
@@ -427,31 +427,28 @@ export default function AnalyticsDashboard({ productId }: Props) {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => setPresetTimeframe('day')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  timeframe === 'day'
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'day'
                     ? 'bg-indigo-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
+                  }`}
               >
                 Hoy
               </button>
               <button
                 onClick={() => setPresetTimeframe('week')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  timeframe === 'week'
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'week'
                     ? 'bg-indigo-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
+                  }`}
               >
                 Última Semana
               </button>
               <button
                 onClick={() => setPresetTimeframe('month')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                  timeframe === 'month'
+                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'month'
                     ? 'bg-indigo-600 text-white'
                     : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
+                  }`}
               >
                 Último Mes
               </button>
@@ -620,11 +617,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                         {utm.clicks}
                       </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                        {utm.purchases} {/* Nueva celda */}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end space-x-1">
-                          <span className={`text-sm ${
-                            isPositive ? 'text-green-600' : 'text-red-600'
-                          }`}>
+                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'
+                            }`}>
                             {utm.conversion_rate.toFixed(2)}%
                           </span>
                           {isPositive ? (
