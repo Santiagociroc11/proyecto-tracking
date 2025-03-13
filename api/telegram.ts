@@ -55,19 +55,24 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
       return;
     }
 
-     // Get the latest tracking event for this purchase
-     const { data: trackingEvent } = await supabase
+    // Get the latest non-purchase tracking event for this visitor
+    const { data: trackingEvent } = await supabase
       .from('tracking_events')
       .select('event_data')
       .eq('visitor_id', purchaseData.purchase.origin.xcod)
-      .neq('event_type', 'compra_hotmart') 
+      .neq('event_type', 'compra_hotmart') // Exclude purchase events
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
 
-    // Format date according to user's timezone
-    const purchaseDate = formatDateToTimezone(
-      new Date(purchaseData.creation_date), 
+    // Format dates according to user's timezone
+    const orderDate = formatDateToTimezone(
+      new Date(purchaseData.purchase.order_date), 
+      settings.timezone || 'UTC'
+    );
+    
+    const approvedDate = formatDateToTimezone(
+      new Date(purchaseData.purchase.approved_date), 
       settings.timezone || 'UTC'
     );
 
@@ -75,17 +80,20 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
     const utmData = trackingEvent?.event_data?.utm_data || {};
 
     // Format purchase message with detailed information
-    const message = `🎉 <b>¡Nueva venta confirmada!</b>\n\n` +
+    const message = `🎉 <b>¡VENTA CONFIRMADA!</b>\n\n` +
       `📦 Producto: ${purchaseData.product.name}\n` +
-      `📅 Fecha: ${purchaseDate}\n\n` +
+      `💰 Valor: ${purchaseData.purchase.price.currency_code} ${purchaseData.purchase.price.value}\n` +
+      `⏰ <b>Fechas:</b>\n` +
+      `• Aprobación: ${approvedDate}\n\n` +
       `👤 <b>Datos del comprador:</b>\n` +
       `• Nombre: ${purchaseData.buyer.name}\n` +
+      `• Email: ${purchaseData.buyer.email}\n` +
       `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n` +
       `📊 <b>Datos de campaña:</b>\n` +
       `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
       `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
       `• Medio: ${utmData.utm_medium || 'Directo'}\n` +
-      `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`
+      `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`;
 
     // Send notification
     const success = await sendTelegramMessage(settings.telegram_chat_id, message);
