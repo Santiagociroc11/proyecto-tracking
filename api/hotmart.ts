@@ -184,20 +184,21 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
 
     console.log('Insertando evento de compra en Supabase...');
     const { data: insertData, error: insertError } = await supabase
-      .from('tracking_events')
-      .insert([
-        {
-          product_id: product.id,
-          event_type: 'compra_hotmart',
-          visitor_id: xcod,
-          event_data: {
-            type: 'hotmart_event',
-            event: event.event,
-            data: event.data,
-          },
+    .from('tracking_events')
+    .insert([
+      {
+        product_id: product.id,
+        event_type: 'compra_hotmart',
+        visitor_id: xcod,
+        event_data: {
+          type: 'hotmart_event',
+          event: event.event,
+          data: event.data,
         },
-      ])
-      .select(); // Agregamos .select() para obtener los datos insertados
+        session_id: "hotmart_webhook",
+      },
+    ])
+    .select();
 
     if (insertError) {
       console.error('Error al insertar evento de compra en Supabase:', insertError);
