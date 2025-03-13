@@ -589,6 +589,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
                     <SortButton field="clicks" label="Pagos Iniciados" />
                   </th>
                   <th scope="col" className="px-6 py-3 text-right">
+                    <SortButton field="purchases" label="Compras" />
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-right">
                     <SortButton field="conversion_rate" label="Conversión" />
                   </th>
                 </tr>
