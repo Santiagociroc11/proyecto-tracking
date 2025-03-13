@@ -74,11 +74,6 @@ apiRouter.post('/track', async (req, res) => {
 apiRouter.post('/hotmart/webhook', async (req, res) => {
   log('Hotmart', 'Recibiendo webhook', { headers: req.headers, body: req.body });
   try {
-    const hottok = req.headers['x-hotmart-hottok'];
-    if (!hottok) {
-      log('Hotmart', 'Webhook sin token');
-      return res.status(401).json({ success: false, error: 'Unauthorized' });
-    }
     const result = await handleHotmartWebhook(req.body);
     log('Hotmart', 'Webhook procesado', result);
     res.json(result);
