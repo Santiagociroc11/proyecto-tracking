@@ -82,13 +82,12 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
     // Format purchase message with detailed information
     const message = `🎉 <b>¡VENTA CONFIRMADA!</b>\n\n` +
       `📦 Producto: ${purchaseData.product.name}\n` +
-      `💰 Valor: ${purchaseData.purchase.price.currency_code} ${purchaseData.purchase.price.value}\n` +
-      `⏰ <b>Fechas:</b>\n` +
-      `• Aprobación: ${approvedDate}\n\n` +
+      `💰 Valor: ${purchaseData.purchase.original_offer_price.currency_value} ${purchaseData.purchase.original_offer_price.value}\n` +
+      `📅 Fecha: ${approvedDate}\n\n` +
       `👤 <b>Datos del comprador:</b>\n` +
       `• Nombre: ${purchaseData.buyer.name}\n` +
       `• Email: ${purchaseData.buyer.email}\n` +
-      `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n` +
+      `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n\n` +
       `📊 <b>Datos de campaña:</b>\n` +
       `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
       `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
