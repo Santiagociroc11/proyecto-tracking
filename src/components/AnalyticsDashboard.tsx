@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown } from 'lucide-react';
+import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown, Search } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone } from '../utils/date';
@@ -8,7 +8,8 @@ import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import { Resizable } from 'react-resizable';
 import 'react-resizable/css/styles.css';
-
+import Skeleton from 'react-loading-skeleton';
+import 'react-loading-skeleton/dist/skeleton.css';
 
 interface AnalyticsData {
   total_visits: number;
@@ -54,7 +55,7 @@ interface ResizableHeaderProps {
 
 const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, children }) => {
   const [currentWidth, setCurrentWidth] = useState(width);
-  const resizeThreshold = 2; // Reducimos el umbral para una respuesta más inmediata
+  const resizeThreshold = 2;
   const handleRef = useRef<HTMLDivElement>(null);
 
   const handleResize = (e: React.SyntheticEvent, { size }: { size: { width: number } }) => {
@@ -63,7 +64,7 @@ const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, chil
   };
 
   return (
-    <div className="relative"> {/* Contenedor relativo para el manejo del cursor */}
+    <div className="relative">
       <Resizable
         width={currentWidth}
         height={0}
@@ -71,19 +72,18 @@ const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, chil
         draggableOpts={{ enableUserSelectHack: false }}
         handle={
           <div
-            className="absolute right-0 top-0 h-full w-6 cursor-col-resize flex items-center justify-center" // Controlador más ancho y siempre visible
+            className="absolute right-0 top-0 h-full w-6 cursor-col-resize flex items-center justify-center"
             onClick={(e) => e.stopPropagation()}
             ref={handleRef}
           >
-            <div className="w-1 h-8 bg-gray-400 opacity-50" /> {/* Barra vertical sutil */}
+            <div className="w-1 h-8 bg-gray-400 opacity-50" />
           </div>
         }
       >
-        <div style={{ width: currentWidth, userSelect: 'none' }} className="pr-6"> {/* Aumentamos el padding derecho para el espacio del handle */}
+        <div style={{ width: currentWidth, userSelect: 'none' }} className="pr-6">
           {children}
         </div>
       </Resizable>
-      {/* Ajuste de cursor en toda la celda al hacer hover en el borde derecho */}
       <div
         className="absolute top-0 bottom-0 right-0 w-2 cursor-col-resize"
         style={{ zIndex: 1 }}
@@ -105,12 +105,21 @@ interface ColumnWidth {
   conversion: number;
 }
 
+const TIMEFRAME_OPTIONS = [
+  { label: 'Hoy', value: 'day' },
+  { label: 'Última Semana', value: 'week' },
+  { label: 'Último Mes', value: 'month' },
+  { label: 'Últimos 3 Meses', value: 'quarter' },
+  { label: 'Personalizado', value: 'custom' },
+];
+
+const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
 
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom'>('month');
+  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('month');
   const [startDate, setStartDate] = useState<string>(
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
@@ -123,7 +132,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [error, setError] = useState<string>('');
   const [columnWidths, setColumnWidths] = useState<ColumnWidth>(() => {
-    const storedWidths = localStorage.getItem('columnWidths');
+    const storedWidths = localStorage.getItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY);
     return storedWidths ? JSON.parse(storedWidths) : {
       campaign: 200,
       medium: 150,
@@ -135,12 +144,17 @@ export default function AnalyticsDashboard({ productId }: Props) {
       conversion: 120
     };
   });
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [utmFilters, setUtmFilters] = useState<{
+    campaign: string;
+    medium: string;
+    content: string;
+    source: string;
+  }>({ campaign: '', medium: '', content: '', source: '' });
 
   useEffect(() => {
-    localStorage.setItem('columnWidths', JSON.stringify(columnWidths));
+    localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
   }, [columnWidths]);
-
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
 
   const toggleRowExpansion = (index: number) => {
     const newExpandedRows = new Set(expandedRows);
@@ -200,7 +214,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     }
   };
 
-  const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month') => {
+  const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month' | 'quarter') => {
     const now = new Date();
     let start: Date;
 
@@ -213,6 +227,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         break;
       case 'month':
         start = new Date(now.setMonth(now.getMonth() - 1));
+        break;
+      case 'quarter':
+        start = new Date(now.setMonth(now.getMonth() - 3));
         break;
       default:
         return;
@@ -238,7 +255,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
-      // First verify access to the product
       const { data: userData } = await supabase
         .from('users')
         .select('role')
@@ -273,7 +289,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       if (eventsError) throw eventsError;
 
-      // Process data
       const utmStats = new Map();
       const dailyStats = new Map();
       const sourceStats = new Map();
@@ -380,7 +395,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
     const workbook = XLSX.utils.book_new();
 
-    // UTMs sheet
     const utmData = data.utm_stats.map(utm => ({
       'Campaña': utm.campaign,
       'Segmentación': utm.medium,
@@ -393,7 +407,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const utmSheet = XLSX.utils.json_to_sheet(utmData);
     XLSX.utils.book_append_sheet(workbook, utmSheet, 'UTMs');
 
-    // Daily stats sheet
     const dailyData = data.daily_stats.map(day => ({
       'Fecha': day.date,
       'Visitas': day.visits,
@@ -403,7 +416,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
 
-    // Export
     XLSX.writeFile(workbook, 'analytics.xlsx');
   };
 
@@ -416,26 +428,33 @@ export default function AnalyticsDashboard({ productId }: Props) {
     }
   };
 
-  const getSortedUtmStats = () => {
+  const getSortedUtmStats = useMemo(() => {
     if (!data) return;
 
-    return [...data.utm_stats].sort((a, b) => {
-      const multiplier = sortDirection === 'asc' ? 1 : -1;
+    return [...data.utm_stats]
+      .filter(utm =>
+        utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
+        utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
+        utm.content.toLowerCase().includes(utmFilters.content.toLowerCase()) &&
+        utm.source.toLowerCase().includes(utmFilters.source.toLowerCase())
+      )
+      .sort((a, b) => {
+        const multiplier = sortDirection === 'asc' ? 1 : -1;
 
-      if (sortField === 'conversion_rate') {
-        return (a.conversion_rate - b.conversion_rate) * multiplier;
-      }
+        if (sortField === 'conversion_rate') {
+          return (a.conversion_rate - b.conversion_rate) * multiplier;
+        }
 
-      const aValue = a[sortField];
-      const bValue = b[sortField];
+        const aValue = a[sortField];
+        const bValue = b[sortField];
 
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        return (aValue - bValue) * multiplier;
-      }
+        if (typeof aValue === 'number' && typeof bValue === 'number') {
+          return (aValue - bValue) * multiplier;
+        }
 
-      return String(aValue).localeCompare(String(bValue)) * multiplier;
-    });
-  };
+        return String(aValue).localeCompare(String(bValue)) * multiplier;
+      });
+  }, [data, sortField, sortDirection, utmFilters]);
 
   const SortButton = ({ field, label }: { field: SortField; label: string }) => (
     <button
@@ -450,10 +469,119 @@ export default function AnalyticsDashboard({ productId }: Props) {
     </button>
   );
 
+  const handleUtmFilterChange = useCallback((field: keyof typeof utmFilters, value: string) => {
+    setUtmFilters(prevFilters => ({
+      ...prevFilters,
+      [field]: value,
+    }));
+  },);
+
   if (loading) {
     return (
-      <div className="min-h-[400px] flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+      <div className="space-y-6">
+        <div className="bg-white p-4 rounded-lg shadow">
+          <div className="flex flex-wrap gap-4 items-start justify-between">
+            <div className="space-y-4 w-full lg:w-auto">
+              <div className="flex flex-wrap gap-4 items-end">
+                <div>
+                  <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
+                    Fecha inicial
+                  </label>
+                  <input
+                    type="date"
+                    id="start-date"
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    readOnly
+                  />
+                </div>
+                <div>
+                  <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
+                    Fecha final
+                  </label>
+                  <input
+                    type="date"
+                    id="end-date"
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    readOnly
+                  />
+                </div>
+                <button className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white" disabled>
+                  <RefreshCw className="h-4 w-4" />
+                </button>
+              </div>
+              {dateError && (
+                <div className="text-sm text-red-600">
+                  {dateError}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {TIMEFRAME_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed`}
+                    disabled
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-gray-400 cursor-not-allowed" disabled>
+              <Download className="h-4 w-4 mr-2" />
+              Exportar
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, index) => (
+            <div key={index} className="bg-white p-6 rounded-lg shadow">
+              <Skeleton height={20} width={150} />
+              <Skeleton height={40} className="mt-2" />
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-white p-4 rounded-lg shadow">
+          <h3 className="text-lg font-medium text-gray-900 mb-4"><Skeleton width={200} /></h3>
+          <div className="h-80">
+            <Skeleton height="100%" />
+          </div>
+        </div>
+
+        <div className="bg-white shadow rounded-lg overflow-hidden">
+          <div className="px-4 py-5 sm:px-6">
+            <h3 className="text-lg leading-6 font-medium text-gray-900">
+              <Skeleton width={250} />
+            </h3>
+          </div>
+          <div className="border-t border-gray-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    {['Campaña', 'Segmentación', 'Anuncio', 'Fuente', 'Visitas', 'Pagos Iniciados', 'Compras', 'Conversión'].map((header, index) => (
+                      <th key={index} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        <Skeleton width={header.length * 8} />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={index}>
+                      {Array.from({ length: 8 }).map((_, i) => (
+                        <td key={i} className="px-6 py-4 whitespace-nowrap">
+                          <Skeleton />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -524,33 +652,18 @@ export default function AnalyticsDashboard({ productId }: Props) {
             )}
 
             <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setPresetTimeframe('day')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'day'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                  }`}
-              >
-                Hoy
-              </button>
-              <button
-                onClick={() => setPresetTimeframe('week')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'week'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                  }`}
-              >
-                Última Semana
-              </button>
-              <button
-                onClick={() => setPresetTimeframe('month')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'month'
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                  }`}
-              >
-                Último Mes
-              </button>
+              {TIMEFRAME_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  onClick={() => option.value === 'custom' ? setTimeframe('custom') : setPresetTimeframe(option.value as 'day' | 'week' | 'month' | 'quarter')}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === option.value
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                    }`}
+                >
+                  {option.label}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -618,8 +731,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* Charts */}
-
-      {/* Daily trends chart */}
       <div className="bg-white p-4 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
         <div className="h-80">
@@ -640,7 +751,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="px-4 py-5 sm:px-6">
+        <div className="px-4 py-5 sm:px-6 flex items-center justify-between">
           <h3 className="text-lg leading-6 font-medium text-gray-900">
             Rendimiento por UTM
           </h3>
@@ -652,23 +763,59 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 <tr>
                   <th scope="col" className="px-6 py-3 text-left relative">
                     <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
-                      <SortButton field="campaign" label="Campaña" />
+                      <div className="flex items-center justify-between">
+                        <SortButton field="campaign" label="Campaña" />
+                      </div>
                     </ResizableHeader>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      placeholder="Filtrar"
+                      value={utmFilters.campaign}
+                      onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
+                    />
                   </th>
                   <th scope="col" className="px-6 py-3 text-left relative">
                     <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
-                      <SortButton field="medium" label="Segmentación" />
+                      <div className="flex items-center justify-between">
+                        <SortButton field="medium" label="Segmentación" />
+                      </div>
                     </ResizableHeader>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      placeholder="Filtrar"
+                      value={utmFilters.medium}
+                      onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
+                    />
                   </th>
                   <th scope="col" className="px-6 py-3 text-left relative">
                     <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
-                      <SortButton field="content" label="Anuncio" />
+                      <div className="flex items-center justify-between">
+                        <SortButton field="content" label="Anuncio" />
+                      </div>
                     </ResizableHeader>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      placeholder="Filtrar"
+                      value={utmFilters.content}
+                      onChange={(e) => handleUtmFilterChange('content', e.target.value)}
+                    />
                   </th>
                   <th scope="col" className="px-6 py-3 text-left relative">
                     <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
-                      <SortButton field="source" label="Fuente" />
+                      <div className="flex items-center justify-between">
+                        <SortButton field="source" label="Fuente" />
+                      </div>
                     </ResizableHeader>
+                    <input
+                      type="text"
+                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                      placeholder="Filtrar"
+                      value={utmFilters.source}
+                      onChange={(e) => handleUtmFilterChange('source', e.target.value)}
+                    />
                   </th>
                   <th scope="col" className="px-6 py-3 text-right relative">
                     <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
@@ -693,7 +840,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {getSortedUtmStats().map((utm, index) => {
+              {getSortedUtmStats.map((utm, index) => {
                   const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
                   const isExpanded = expandedRows.has(index);
 
@@ -739,7 +886,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <td className="px-6 py-4 text-right">{utm.visits}</td>
                       <td className="px-6 py-4 text-right">{utm.clicks}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {utm.purchases} {/* Nueva celda */}
+                        {utm.purchases}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end space-x-1">
