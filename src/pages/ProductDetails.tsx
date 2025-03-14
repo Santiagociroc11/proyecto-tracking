@@ -282,8 +282,8 @@ fbq('track', 'PageView');
             </div>
           )}
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${product.active
-              ? 'bg-green-100 text-green-800'
-              : 'bg-red-100 text-red-800'
+            ? 'bg-green-100 text-green-800'
+            : 'bg-red-100 text-red-800'
             }`}>
             {product.active ? 'Activo' : 'Inactivo'}
           </span>
@@ -331,8 +331,8 @@ fbq('track', 'PageView');
             <button
               onClick={() => setActiveTab('setup')}
               className={`${activeTab === 'setup'
-                  ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
             >
               <Code2 className="h-4 w-4 mr-2" />
@@ -341,8 +341,8 @@ fbq('track', 'PageView');
             <button
               onClick={() => setActiveTab('analytics')}
               className={`${activeTab === 'analytics'
-                  ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
             >
               <Globe className="h-4 w-4 mr-2" />
@@ -362,16 +362,17 @@ fbq('track', 'PageView');
                   {[
                     { step: 1, title: 'Facebook', icon: <Facebook className="h-4 w-4" /> },
                     { step: 2, title: 'Script', icon: <Code2 className="h-4 w-4" /> },
-                    { step: 3, title: 'Hotmart', icon: <Webhook className="h-4 w-4" /> }
+                    { step: 3, title: 'Hotmart', icon: <Webhook className="h-4 w-4" /> },
+                    { step: 4, title: 'UTMs', icon: <Info className="h-4 w-4" /> }
                   ].map(({ step, title, icon }) => (
                     <button
                       key={step}
                       onClick={() => setCurrentStep(step)}
                       className={`${currentStep === step
-                          ? 'border-indigo-500 bg-indigo-600 text-white'
-                          : currentStep > step
-                            ? 'border-indigo-500 bg-indigo-100 text-indigo-500'
-                            : 'border-gray-200 bg-white text-gray-500'
+                        ? 'border-indigo-500 bg-indigo-600 text-white'
+                        : currentStep > step
+                          ? 'border-indigo-500 bg-indigo-100 text-indigo-500'
+                          : 'border-gray-200 bg-white text-gray-500'
                         } relative w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
                     >
                       <div className={`mb-1 ${currentStep === step ? 'text-white' : ''}`}>
@@ -574,6 +575,108 @@ fbq('track', 'PageView');
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={() => setCurrentStep(2)}
+                            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            Anterior
+                          </button>
+                          <button
+                            onClick={() => setCurrentStep(4)}
+                            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            Siguiente: Configurar UTM
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 4 && (
+                  <div className="space-y-6">
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                      <div className="p-6">
+                        <h4 className="text-lg font-medium text-gray-900 flex items-center">
+                          <Info className="h-5 w-5 mr-2 text-indigo-500" />
+                          Configuración de UTMs en los Links de Facebook Ads
+                        </h4>
+                        <div className="mt-2 text-sm text-gray-500">
+                          <p className="mb-4">
+                            Para rastrear correctamente las conversiones provenientes de Facebook Ads, es esencial que todos los enlaces a tu página de ventas contengan los parámetros UTM.
+                          </p>
+                          <p className="mb-4">
+                            Facebook Ads ofrece parámetros dinámicos que facilitan la asignación automática de nombres a las UTMs basándose en la información de tu anuncio.
+                          </p>
+                          <h5 className="text-md font-medium text-gray-700 mb-2">Cómo Configurar:</h5>
+                          <ol className="list-decimal list-inside space-y-3">
+                            <li>Accede a tu cuenta de Facebook Ads y selecciona los anuncios deseados.</li>
+                            <li>Haz clic en "Editar" y localiza el campo "URL del sitio web" y pon esto al final:</li>
+                          </ol>
+                        </div>
+                        <div className="mt-4">
+                          <div className="flex items-center space-x-2">
+                            <code className="bg-gray-100 px-3 py-2 rounded-md flex-grow text-sm">
+                              {`?utm_campaign={{campaign.name}}&utm_source={{placement}}&utm_medium={{adset.name}}&utm_content={{ad.name}}&utm_term={{site_source_name}}`}
+                            </code>
+                            <button
+                              onClick={() => copyToClipboard(`?utm_campaign={{campaign.name}}&utm_source={{placement}}&utm_medium={{adset.name}}&utm_content={{ad.name}}&utm_term={{site_source_name}}`, 'utm')}
+                              className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                            >
+                              {copied === 'utm' ? (
+                                <>
+                                  <CheckCircle className="h-4 w-4 text-green-500 mr-2" />
+                                  ¡Copiado!
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-4 w-4 text-gray-500 mr-2" />
+                                  Copiar UTMs
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-6 text-sm text-gray-500">
+                          <p className="mb-2"><strong>Consejo:</strong></p>
+                          <h5 className="text-md font-medium text-gray-700 mt-4">Entiende los Parámetros Dinámicos:</h5>
+                          <ul className="list-disc list-inside space-y-2">
+                            <li>
+                              <code className="inline-block bg-gray-100 px-2 py-1 rounded-md text-sm">
+                                {`{{ placement }}`}
+                              </code>
+                              : Posicionamiento del anuncio (Facebook_Feed, Instagram_Stories, etc.)
+                            </li>
+                            <li>
+                              <code className="inline-block bg-gray-100 px-2 py-1 rounded-md text-sm">
+                                {`{{ ad.name }}`}
+                              </code>
+                              : Nombre del anuncio
+                            </li>
+                            <li>
+                              <code className="inline-block bg-gray-100 px-2 py-1 rounded-md text-sm">
+                                {`{{ adset.name }}`}
+                              </code>
+                              : Nombre del conjunto de anuncios
+                            </li>
+                            <li>
+                              <code className="inline-block bg-gray-100 px-2 py-1 rounded-md text-sm">
+                                {`{{ site_source_name }}`}
+                              </code>
+                              : Red social (Fb, Ig, Msg, An)
+                            </li>
+                            <li>
+                              <code className="inline-block bg-gray-100 px-2 py-1 rounded-md text-sm">
+                                {`{{ campaign.name }}`}
+                              </code>
+                              : Nombre de la campaña
+                            </li>
+                          </ul>
+                          <p className="mt-4">
+                            Para más información, consulta la <a href="https://www.facebook.com/business/help/952192354843755" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">documentación de Facebook Ads <ExternalLink className="h-3 w-3 inline" /></a>.
+                          </p>
+                        </div>
+                        <div className="mt-6 flex justify-between">
+                          <button
+                            onClick={() => setCurrentStep(3)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Anterior
