@@ -147,6 +147,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
   try {
     console.log('Iniciando handleHotmartWebhook con evento:', event);
 
+    if (!event.data.purchase.origin?.xcod) {
+      console.log('xcod no encontrado en el evento. Saliendo de handleHotmartWebhook.');
+      return;
+    }
+
     const xcod = event.data.purchase.origin.xcod;
     console.log('xcod obtenido:', xcod);
 
