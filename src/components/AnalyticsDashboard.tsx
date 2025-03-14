@@ -1,14 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone } from '../utils/date';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
-import { Resizable } from 'react-resizable';
-import 'react-resizable/css/styles.css';
-
 
 interface AnalyticsData {
   total_visits: number;
@@ -46,44 +43,12 @@ interface Props {
 type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate';
 type SortDirection = 'asc' | 'desc';
 
-interface ResizableHeaderProps {
+interface Column {
+  id: SortField;
+  label: string;
   width: number;
-  onResize: (width: number) => void;
-  children: React.ReactNode;
+  minWidth: number;
 }
-
-const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, children }) => {
-  return (
-    <Resizable
-      width={width}
-      height={0}
-      onResize={(e, { size }) => onResize(size.width)}
-      draggableOpts={{ enableUserSelectHack: false }}
-      handle={
-        <div
-          className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-indigo-200 opacity-0 hover:opacity-100"
-          onClick={e => e.stopPropagation()}
-        />
-      }
-    >
-      <div style={{ width }} className="relative pr-3">
-        {children}
-      </div>
-    </Resizable>
-  );
-};
-
-interface ColumnWidth {
-  campaign: number;
-  medium: number;
-  content: number;
-  source: number;
-  visits: number;
-  clicks: number;
-  purchases: number;
-  conversion: number;
-}
-
 
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
@@ -101,33 +66,53 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [error, setError] = useState<string>('');
-  const [columnWidths, setColumnWidths] = useState<ColumnWidth>({
-    campaign: 200,
-    medium: 150,
-    content: 200,
-    source: 150,
-    visits: 100,
-    clicks: 120,
-    purchases: 120,
-    conversion: 120
-  });
-  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [resizing, setResizing] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [currentColumn, setCurrentColumn] = useState<Column | null>(null);
 
-  const toggleRowExpansion = (index: number) => {
-    const newExpandedRows = new Set(expandedRows);
-    if (expandedRows.has(index)) {
-      newExpandedRows.delete(index);
-    } else {
-      newExpandedRows.add(index);
-    }
-    setExpandedRows(newExpandedRows);
-  };
+  const [columns, setColumns] = useState<Column[]>([
+    { id: 'campaign', label: 'Campaña', width: 200, minWidth: 100 },
+    { id: 'medium', label: 'Segmentación', width: 150, minWidth: 80 },
+    { id: 'content', label: 'Anuncio', width: 200, minWidth: 100 },
+    { id: 'source', label: 'Fuente', width: 150, minWidth: 80 },
+    { id: 'visits', label: 'Visitas', width: 100, minWidth: 60 },
+    { id: 'clicks', label: 'Pagos Iniciados', width: 120, minWidth: 80 },
+    { id: 'purchases', label: 'Compras', width: 100, minWidth: 60 },
+    { id: 'conversion_rate', label: 'Conversión', width: 120, minWidth: 80 }
+  ]);
 
-  const handleColumnResize = (column: keyof ColumnWidth, width: number) => {
-    setColumnWidths(prev => ({
-      ...prev,
-      [column]: width
-    }));
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  const handleMouseDown = (e: React.MouseEvent, column: Column) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const startX = e.pageX;
+    const startWidth = column.width;
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const diff = moveEvent.pageX - startX;
+      const newWidth = Math.max(column.minWidth, startWidth + diff);
+      
+      setColumns(prevColumns => 
+        prevColumns.map(col => 
+          col.id === column.id ? { ...col, width: newWidth } : col
+        )
+      );
+
+      // Add class to body during resize for better cursor handling
+      document.body.classList.add('table-resizing');
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.classList.remove('table-resizing');
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
   };
 
   useEffect(() => {
@@ -589,8 +574,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* Charts */}
-
-      {/* Daily trends chart */}
       <div className="bg-white p-4 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
         <div className="h-80">
@@ -617,105 +600,61 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </h3>
         </div>
         <div className="border-t border-gray-200">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto" ref={tableRef}>
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
-                      <SortButton field="campaign" label="Campaña" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
-                      <SortButton field="medium" label="Segmentación" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
-                      <SortButton field="content" label="Anuncio" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
-                      <SortButton field="source" label="Fuente" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
-                      <SortButton field="visits" label="Visitas" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('clicks', w)}>
-                      <SortButton field="clicks" label="Pagos Iniciados" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('purchases', w)}>
-                      <SortButton field="purchases" label="Compras" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.conversion} onResize={(w) => handleColumnResize('conversion', w)}>
-                      <SortButton field="conversion_rate" label="Conversión" />
-                    </ResizableHeader>
-                  </th>
+                  {columns.map(column => (
+                    <th
+                      key={column.id}
+                      className="relative group"
+                      style={{ width: column.width }}
+                    >
+                      <div className="px-6 py-3 text-left">
+                        <SortButton field={column.id} label={column.label} />
+                      </div>
+                      <div
+                        className="absolute top-0 right-0 h-full w-3 cursor-col-resize group-hover:bg-indigo-200 hover:bg-indigo-300"
+                        onMouseDown={(e) => handleMouseDown(e, column)}
+                        style={{
+                          transform: 'translateX(50%)',
+                          zIndex: 1
+                        }}
+                      />
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {getSortedUtmStats().map((utm, index) => {
                   const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
-                  const isExpanded = expandedRows.has(index);
 
                   return (
                     <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div
-                          className="flex items-center cursor-pointer"
-                          onClick={() => toggleRowExpansion(index)}
-                        >
-                          <div
-                            style={{ width: columnWidths.campaign - 40 }}
-                            className={`${isExpanded ? '' : 'truncate'}`}
-                          >
-                            {utm.campaign}
-                          </div>
-                        </div>
+                      <td className="px-6 py-4" style={{ width: columns[0].width }}>
+                        <div className="truncate text-sm">{utm.campaign}</div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.medium - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
-                          {utm.medium}
-                        </div>
+                      <td className="px-6 py-4" style={{ width: columns[1].width }}>
+                        <div className="truncate text-sm">{utm.medium}</div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.content - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
-                          {utm.content}
-                        </div>
+                      <td className="px-6 py-4" style={{ width: columns[2].width }}>
+                        <div className="truncate text-sm">{utm.content}</div>
                       </td>
-                      <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.source - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
-                          {utm.source}
-                        </div>
+                      <td className="px-6 py-4" style={{ width: columns[3].width }}>
+                        <div className="truncate text-sm">{utm.source}</div>
                       </td>
-                      <td className="px-6 py-4 text-right">{utm.visits}</td>
-                      <td className="px-6 py-4 text-right">{utm.clicks}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {utm.purchases} {/* Nueva celda */}
+                      <td className="px-6 py-4 text-right" style={{ width: columns[4].width }}>
+                        <div className="text-sm">{utm.visits}</div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                      <td className="px-6 py-4 text-right" style={{ width: columns[5].width }}>
+                        <div className="text-sm">{utm.clicks}</div>
+                      </td>
+                      <td className="px-6 py-4 text-right" style={{ width: columns[6].width }}>
+                        <div className="text-sm">{utm.purchases}</div>
+                      </td>
+                      <td className="px-6 py-4 text-right" style={{ width: columns[7].width }}>
                         <div className="flex items-center justify-end space-x-1">
-                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'
-                            }`}>
+                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                             {utm.conversion_rate.toFixed(2)}%
                           </span>
                           {isPositive ? (
@@ -733,6 +672,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
       </div>
-    </div >
+    </div>
   );
 }
