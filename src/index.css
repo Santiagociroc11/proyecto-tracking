@@ -23,3 +23,8 @@
 .react-resizable-handle:active {
   background-color: rgba(99, 102, 241, 0.2);
 }
+
+.cursor-col-resize {
+  cursor: col-resize;
+  user-select: none;
+}
