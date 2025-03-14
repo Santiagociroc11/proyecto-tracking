@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Settings as SettingsIcon, BellRing, ExternalLink } from 'lucide-react';
+import { Settings as SettingsIcon, BellRing, ExternalLink, ArrowLeft } from 'lucide-react';
+import { useNavigate } from 'react-router-dom'; // Import useNavigate
 
 interface UserSettings {
   timezone: string;
@@ -16,6 +17,7 @@ export default function Settings() {
   const [telegramChatId, setTelegramChatId] = useState('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const navigate = useNavigate(); // Initialize useNavigate
 
   useEffect(() => {
     if (user) {
@@ -26,7 +28,7 @@ export default function Settings() {
   async function loadSettings() {
     try {
       setLoading(true);
-      
+
       if (!user) return;
 
       const { data, error } = await supabase
@@ -49,7 +51,7 @@ export default function Settings() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!user) return;
-    
+
     setSaving(true);
     setSuccess(false);
     setError('');
@@ -67,7 +69,7 @@ export default function Settings() {
 
       if (error) throw error;
       setSuccess(true);
-      
+
       // Reload settings to confirm changes
       await loadSettings();
     } catch (err) {
@@ -77,6 +79,10 @@ export default function Settings() {
       setSaving(false);
     }
   }
+
+  const handleGoBack = () => {
+    navigate('/dashboard'); // Navigate to the dashboard route
+  };
 
   if (loading) {
     return (
@@ -91,11 +97,20 @@ export default function Settings() {
       <div className="max-w-3xl mx-auto">
         <div className="bg-white shadow sm:rounded-lg">
           <div className="px-4 py-5 sm:p-6">
-            <div className="flex items-center mb-6">
-              <SettingsIcon className="h-6 w-6 text-gray-400" />
-              <h3 className="ml-2 text-lg leading-6 font-medium text-gray-900">
-                Configuración
-              </h3>
+            <div className="flex items-center justify-between mb-6"> {/* Added justify-between */}
+              <div className="flex items-center">
+                <SettingsIcon className="h-6 w-6 text-gray-400" />
+                <h3 className="ml-2 text-lg leading-6 font-medium text-gray-900">
+                  Configuración
+                </h3>
+              </div>
+              <button // Added button to go back
+                onClick={handleGoBack}
+                className="inline-flex items-center px-3 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Volver
+              </button>
             </div>
 
             {success && (
@@ -173,10 +188,10 @@ export default function Settings() {
                   <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
                     <li>
                       Abre nuestro bot de Telegram:{' '}
-                      <a 
-                        href="https://t.me/HotApi_bot" 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
+                      <a
+                        href="https://t.me/HotApi_bot"
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="inline-flex items-center text-indigo-600 hover:text-indigo-500"
                       >
                         @HotApi_bot
