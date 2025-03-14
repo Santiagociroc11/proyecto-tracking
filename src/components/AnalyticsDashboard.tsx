@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown, Search } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
-import { formatDateToTimezone } from '../utils/date';
+import { formatDateToTimezone, getDateInTimezone, getStartEndDatesInUTC } from '../utils/date';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 import { Resizable } from 'react-resizable';
@@ -26,18 +26,18 @@ interface AnalyticsData {
     clicks: number;
     purchases: number;
     conversion_rate: number;
-  };
+  }[];
   daily_stats: {
     date: string;
     visits: number;
     clicks: number;
     purchases: number;
-  };
+  }[];
   top_sources: {
     source: string;
     visits: number;
     clicks: number;
-  };
+  }[];
 }
 
 interface Props {
@@ -255,6 +255,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
+      // First verify access to the product
       const { data: userData } = await supabase
         .from('users')
         .select('role')
@@ -272,6 +273,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
+      // Get UTC range for the query
+      const { start, end } = getStartEndDatesInUTC(startDate, endDate, timezone);
+
       const { data: events, error: eventsError } = await supabase
         .from('tracking_events')
         .select(`
@@ -283,12 +287,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
           url
         `)
         .eq('product_id', productId)
-        .gte('created_at', `${startDate}T00:00:00`)
-        .lte('created_at', `${endDate}T23:59:59`)
+        .gte('created_at', start)
+        .lte('created_at', end)
         .order('created_at', { ascending: true });
 
       if (eventsError) throw eventsError;
 
+      // Process data
       const utmStats = new Map();
       const dailyStats = new Map();
       const sourceStats = new Map();
@@ -297,7 +302,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalPurchases = 0;
 
       events.forEach(event => {
-        const date = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
+        // Convert UTC timestamp to user's timezone for grouping
+        const date = getDateInTimezone(event.created_at, timezone);
+        
         if (!dailyStats.has(date)) {
           dailyStats.set(date, { date, visits: 0, clicks: 0, purchases: 0 });
         }
@@ -365,12 +372,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         }))
         .sort((a, b) => b.visits - a.visits);
 
+      // Sort daily stats by date
       const dailyStatsArray = Array.from(dailyStats.values())
-        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-
-      const topSources = Array.from(sourceStats.values())
-        .sort((a, b) => b.visits - a.visits)
-        .slice(0, 5);
+        .sort((a, b) => a.date.localeCompare(b.date));
 
       setData({
         total_visits: totalVisits,
@@ -379,7 +383,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         conversion_rate: totalClicks > 0 ? (totalPurchases / totalClicks) * 100 : 0,
         utm_stats: utmStatsArray,
         daily_stats: dailyStatsArray,
-        top_sources: topSources
+        top_sources: Array.from(sourceStats.values())
+          .sort((a, b) => b.visits - a.visits)
+          .slice(0, 5)
       });
 
     } catch (error) {
@@ -840,7 +846,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-              {getSortedUtmStats.map((utm, index) => {
+                {getSortedUtmStats.map((utm, index) => {
                   const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
                   const isExpanded = expandedRows.has(index);
 
