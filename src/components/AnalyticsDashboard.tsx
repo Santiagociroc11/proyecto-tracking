@@ -1,7 +1,32 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
-import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown, Search } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
+import {
+  BarChart as BarChartIcon,
+  LineChart as LineChartIcon,
+  ArrowUpRight,
+  ArrowDownRight,
+  DollarSign,
+  Users,
+  Calendar,
+  Download,
+  RefreshCw,
+  ArrowUpDown,
+  Search,
+  ToggleLeft,
+  TrendingUp,
+} from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+} from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone, getDateInTimezone, getStartEndDatesInUTC } from '../utils/date';
 import { useAuth } from '../contexts/AuthContext';
@@ -10,12 +35,18 @@ import { Resizable } from 'react-resizable';
 import 'react-resizable/css/styles.css';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
+import { uniqBy } from 'lodash';
 
 interface AnalyticsData {
   total_visits: number;
+  unique_visits: number;
   total_clicks: number;
+  unique_clicks: number;
   total_purchases: number;
-  conversion_rate: number;
+  conversion_rate: number; // Compras / visitas
+  unique_conversion_rate: number; // Compras / visitas únicas
+  persuasion_rate: number; // Hotmart clicks / visitas
+  unique_persuasion_rate: number; // Unique clicks / unique visits
   utm_stats: {
     source: string;
     medium: string;
@@ -23,20 +54,29 @@ interface AnalyticsData {
     content: string;
     term: string;
     visits: number;
+    unique_visits: number;
     clicks: number;
+    unique_clicks: number;
     purchases: number;
     conversion_rate: number;
+    unique_conversion_rate: number;
+    persuasion_rate: number;
+    unique_persuasion_rate: number;
   }[];
   daily_stats: {
     date: string;
     visits: number;
+    unique_visits: number;
     clicks: number;
+    unique_clicks: number;
     purchases: number;
   }[];
   top_sources: {
     source: string;
     visits: number;
+    unique_visits: number;
     clicks: number;
+    unique_clicks: number;
   }[];
 }
 
@@ -44,7 +84,16 @@ interface Props {
   productId: string;
 }
 
-type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate';
+type SortField =
+  | 'campaign'
+  | 'medium'
+  | 'content'
+  | 'source'
+  | 'visits'
+  | 'clicks'
+  | 'purchases'
+  | 'conversion_rate'
+  | 'persuasion_rate';
 type SortDirection = 'asc' | 'desc';
 
 interface ResizableHeaderProps {
@@ -55,7 +104,6 @@ interface ResizableHeaderProps {
 
 const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, children }) => {
   const [currentWidth, setCurrentWidth] = useState(width);
-  const resizeThreshold = 2;
   const handleRef = useRef<HTMLDivElement>(null);
 
   const handleResize = (e: React.SyntheticEvent, { size }: { size: { width: number } }) => {
@@ -117,40 +165,41 @@ const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
 
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
+  const { timezone } = useTimezone();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('month');
   const [startDate, setStartDate] = useState<string>(
     new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   );
-  const [endDate, setEndDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [dateError, setDateError] = useState<string>('');
-  const { timezone } = useTimezone();
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [error, setError] = useState<string>('');
   const [columnWidths, setColumnWidths] = useState<ColumnWidth>(() => {
     const storedWidths = localStorage.getItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY);
-    return storedWidths ? JSON.parse(storedWidths) : {
-      campaign: 200,
-      medium: 150,
-      content: 200,
-      source: 150,
-      visits: 100,
-      clicks: 120,
-      purchases: 120,
-      conversion: 120
-    };
+    return storedWidths
+      ? JSON.parse(storedWidths)
+      : {
+          campaign: 200,
+          medium: 150,
+          content: 200,
+          source: 150,
+          visits: 100,
+          clicks: 120,
+          purchases: 120,
+          conversion: 120,
+        };
   });
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [utmFilters, setUtmFilters] = useState<{
-    campaign: string;
-    medium: string;
-    content: string;
-    source: string;
-  }>({ campaign: '', medium: '', content: '', source: '' });
+  const [utmFilters, setUtmFilters] = useState<{ campaign: string; medium: string; content: string; source: string }>({
+    campaign: '',
+    medium: '',
+    content: '',
+    source: '',
+  });
+  const [showUnique, setShowUnique] = useState(false);
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -167,9 +216,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
   };
 
   const handleColumnResize = (column: keyof ColumnWidth, width: number) => {
-    setColumnWidths(prev => ({
+    setColumnWidths((prev) => ({
       ...prev,
-      [column]: width
+      [column]: width,
     }));
   };
 
@@ -177,28 +226,26 @@ export default function AnalyticsDashboard({ productId }: Props) {
     if (user) {
       loadAnalytics();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId, timeframe, startDate, endDate, timezone, user]);
 
   const validateDateRange = (start: string, end: string): boolean => {
     const startTime = new Date(start).getTime();
     const endTime = new Date(end).getTime();
-    const maxRange = 365 * 24 * 60 * 60 * 1000; // 1 year in milliseconds
+    const maxRange = 365 * 24 * 60 * 60 * 1000; // 1 año
 
     if (startTime > endTime) {
       setDateError('La fecha inicial no puede ser posterior a la fecha final');
       return false;
     }
-
     if (endTime - startTime > maxRange) {
       setDateError('El rango máximo permitido es de 1 año');
       return false;
     }
-
     if (endTime > Date.now()) {
       setDateError('La fecha final no puede ser futura');
       return false;
     }
-
     setDateError('');
     return true;
   };
@@ -206,7 +253,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const handleDateChange = (type: 'start' | 'end', value: string) => {
     const newStartDate = type === 'start' ? value : startDate;
     const newEndDate = type === 'end' ? value : endDate;
-
     if (validateDateRange(newStartDate, newEndDate)) {
       setTimeframe('custom');
       if (type === 'start') setStartDate(value);
@@ -217,7 +263,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month' | 'quarter') => {
     const now = new Date();
     let start: Date;
-
     switch (newTimeframe) {
       case 'day':
         start = new Date(now.setHours(0, 0, 0, 0));
@@ -234,7 +279,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
       default:
         return;
     }
-
     setTimeframe(newTimeframe);
     setStartDate(start.toISOString().split('T')[0]);
     setEndDate(new Date().toISOString().split('T')[0]);
@@ -255,7 +299,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
-      // First verify access to the product
+      // Verificar acceso al producto
       const { data: userData } = await supabase
         .from('users')
         .select('role')
@@ -273,7 +317,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
-      // Get UTC range for the query
       const { start, end } = getStartEndDatesInUTC(startDate, endDate, timezone);
 
       const { data: events, error: eventsError } = await supabase
@@ -293,22 +336,36 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       if (eventsError) throw eventsError;
 
-      // Process data
+      // Inicializamos mapas y sets para estadísticas
       const utmStats = new Map();
       const dailyStats = new Map();
-      const sourceStats = new Map();
       let totalVisits = 0;
       let totalClicks = 0;
       let totalPurchases = 0;
+      const uniqueVisitors = new Set();
+      const uniqueClicks = new Set();
+      const dailyUniqueVisitors = new Map<string, Set<any>>();
+      const dailyUniqueClicks = new Map<string, Set<any>>();
 
-      events.forEach(event => {
-        // Convert UTC timestamp to user's timezone for grouping
+      events.forEach((event) => {
         const date = getDateInTimezone(event.created_at, timezone);
-        
+
+        // Inicializar estadísticas diarias
         if (!dailyStats.has(date)) {
-          dailyStats.set(date, { date, visits: 0, clicks: 0, purchases: 0 });
+          dailyStats.set(date, {
+            date,
+            visits: 0,
+            unique_visits: 0,
+            clicks: 0,
+            unique_clicks: 0,
+            purchases: 0,
+          });
+          dailyUniqueVisitors.set(date, new Set());
+          dailyUniqueClicks.set(date, new Set());
         }
         const dayStats = dailyStats.get(date);
+        const dayUniqueVisitors = dailyUniqueVisitors.get(date);
+        const dayUniqueClicks = dailyUniqueClicks.get(date);
 
         const utmData = event.event_data?.utm_data || {};
         const utmKey = JSON.stringify({
@@ -316,14 +373,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           medium: utmData.utm_medium || 'none',
           campaign: utmData.utm_campaign || 'none',
           content: utmData.utm_content || 'none',
-          term: utmData.utm_term || 'none'
+          term: utmData.utm_term || 'none',
         });
-
-        const source = utmData.utm_source || 'direct';
-        if (!sourceStats.has(source)) {
-          sourceStats.set(source, { source, visits: 0, clicks: 0 });
-        }
-        const sourceData = sourceStats.get(source);
 
         if (!utmStats.has(utmKey)) {
           utmStats.set(utmKey, {
@@ -333,24 +384,31 @@ export default function AnalyticsDashboard({ productId }: Props) {
             content: utmData.utm_content || 'none',
             term: utmData.utm_term || 'none',
             visits: 0,
+            unique_visits: 0,
             clicks: 0,
-            purchases: 0
+            unique_clicks: 0,
+            purchases: 0,
+            visitorSet: new Set(), // Para visitas únicas
+            clickSet: new Set(),   // Para clics únicos
           });
         }
-
         const stats = utmStats.get(utmKey);
 
         switch (event.event_type) {
           case 'pageview':
             stats.visits++;
             dayStats.visits++;
-            sourceData.visits++;
+            uniqueVisitors.add(event.visitor_id);
+            dayUniqueVisitors.add(event.visitor_id);
+            stats.visitorSet.add(event.visitor_id);
             totalVisits++;
             break;
           case 'hotmart_click':
             stats.clicks++;
             dayStats.clicks++;
-            sourceData.clicks++;
+            uniqueClicks.add(event.visitor_id);
+            dayUniqueClicks.add(event.visitor_id);
+            stats.clickSet.add(event.visitor_id);
             totalClicks++;
             break;
           case 'compra_hotmart':
@@ -360,34 +418,65 @@ export default function AnalyticsDashboard({ productId }: Props) {
             break;
         }
 
+        dayStats.unique_visits = dayUniqueVisitors.size;
+        dayStats.unique_clicks = dayUniqueClicks.size;
+        stats.unique_visits = stats.visitorSet.size;
+        stats.unique_clicks = stats.clickSet.size;
         utmStats.set(utmKey, stats);
         dailyStats.set(date, dayStats);
-        sourceStats.set(source, sourceData);
       });
 
       const utmStatsArray = Array.from(utmStats.values())
-        .map(stat => ({
+        .map((stat) => ({
           ...stat,
-          conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0
+          conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
+          unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
+          persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
+          unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
         }))
         .sort((a, b) => b.visits - a.visits);
 
-      // Sort daily stats by date
-      const dailyStatsArray = Array.from(dailyStats.values())
-        .sort((a, b) => a.date.localeCompare(b.date));
+      const dailyStatsArray = Array.from(dailyStats.values()).sort((a, b) =>
+        a.date.localeCompare(b.date)
+      );
+
+      // Reducir estadísticas por fuente a partir de las UTMs
+      const sourceStatsArray = Object.values(
+        Array.from(utmStats.values()).reduce((acc, curr) => {
+          const source = curr.source;
+          if (!acc[source]) {
+            acc[source] = {
+              source,
+              visits: 0,
+              unique_visits: 0,
+              clicks: 0,
+              unique_clicks: 0,
+            };
+          }
+          acc[source].visits += curr.visits;
+          acc[source].unique_visits = Math.max(acc[source].unique_visits, curr.unique_visits);
+          acc[source].clicks += curr.clicks;
+          acc[source].unique_clicks = Math.max(acc[source].unique_clicks, curr.unique_clicks);
+          return acc;
+        }, {} as Record<string, any>)
+      )
+        .sort((a, b) => b.visits - a.visits)
+        .slice(0, 5);
 
       setData({
         total_visits: totalVisits,
+        unique_visits: uniqueVisitors.size,
         total_clicks: totalClicks,
+        unique_clicks: uniqueClicks.size,
         total_purchases: totalPurchases,
-        conversion_rate: totalClicks > 0 ? (totalPurchases / totalClicks) * 100 : 0,
+        conversion_rate: totalVisits > 0 ? (totalPurchases / totalVisits) * 100 : 0,
+        unique_conversion_rate: uniqueVisitors.size > 0 ? (totalPurchases / uniqueVisitors.size) * 100 : 0,
+        persuasion_rate: totalVisits > 0 ? (totalClicks / totalVisits) * 100 : 0,
+        unique_persuasion_rate: uniqueVisitors.size > 0 ? (uniqueClicks.size / uniqueVisitors.size) * 100 : 0,
         utm_stats: utmStatsArray,
         daily_stats: dailyStatsArray,
-        top_sources: Array.from(sourceStats.values())
-          .sort((a, b) => b.visits - a.visits)
-          .slice(0, 5)
+        top_sources: sourceStatsArray,
       });
-
     } catch (error) {
       console.error('Error loading analytics:', error);
       setError('Error cargando las analíticas');
@@ -398,26 +487,26 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
   const exportToExcel = () => {
     if (!data) return;
-
     const workbook = XLSX.utils.book_new();
 
-    const utmData = data.utm_stats.map(utm => ({
+    const utmData = data.utm_stats.map((utm) => ({
       'Campaña': utm.campaign,
       'Segmentación': utm.medium,
       'Anuncio': utm.content,
       'Fuente': utm.source,
-      'Visitas': utm.visits,
-      'Pagos Iniciados': utm.clicks,
-      'Conversión (%)': utm.conversion_rate.toFixed(2)
+      'Visitas': showUnique ? utm.unique_visits : utm.visits,
+      'Pagos Iniciados': showUnique ? utm.unique_clicks : utm.clicks,
+      'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
+      'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
     }));
     const utmSheet = XLSX.utils.json_to_sheet(utmData);
     XLSX.utils.book_append_sheet(workbook, utmSheet, 'UTMs');
 
-    const dailyData = data.daily_stats.map(day => ({
+    const dailyData = data.daily_stats.map((day) => ({
       'Fecha': day.date,
-      'Visitas': day.visits,
-      'Pagos Iniciados': day.clicks,
-      'Compras': day.purchases
+      'Visitas': showUnique ? day.unique_visits : day.visits,
+      'Pagos Iniciados': showUnique ? day.unique_clicks : day.clicks,
+      'Compras': day.purchases,
     }));
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
@@ -435,32 +524,35 @@ export default function AnalyticsDashboard({ productId }: Props) {
   };
 
   const getSortedUtmStats = useMemo(() => {
-    if (!data) return;
-
+    if (!data) return [];
     return [...data.utm_stats]
-      .filter(utm =>
-        utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
-        utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
-        utm.content.toLowerCase().includes(utmFilters.content.toLowerCase()) &&
-        utm.source.toLowerCase().includes(utmFilters.source.toLowerCase())
+      .filter(
+        (utm) =>
+          utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
+          utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
+          utm.content.toLowerCase().includes(utmFilters.content.toLowerCase()) &&
+          utm.source.toLowerCase().includes(utmFilters.source.toLowerCase())
       )
       .sort((a, b) => {
         const multiplier = sortDirection === 'asc' ? 1 : -1;
-
         if (sortField === 'conversion_rate') {
-          return (a.conversion_rate - b.conversion_rate) * multiplier;
+          const aRate = showUnique ? a.unique_conversion_rate : a.conversion_rate;
+          const bRate = showUnique ? b.unique_conversion_rate : b.conversion_rate;
+          return (aRate - bRate) * multiplier;
         }
-
+        if (sortField === 'persuasion_rate') {
+          const aRate = showUnique ? a.unique_persuasion_rate : a.persuasion_rate;
+          const bRate = showUnique ? b.unique_persuasion_rate : b.persuasion_rate;
+          return (aRate - bRate) * multiplier;
+        }
         const aValue = a[sortField];
         const bValue = b[sortField];
-
         if (typeof aValue === 'number' && typeof bValue === 'number') {
           return (aValue - bValue) * multiplier;
         }
-
         return String(aValue).localeCompare(String(bValue)) * multiplier;
       });
-  }, [data, sortField, sortDirection, utmFilters]);
+  }, [data, sortField, sortDirection, utmFilters, showUnique]);
 
   const SortButton = ({ field, label }: { field: SortField; label: string }) => (
     <button
@@ -468,19 +560,20 @@ export default function AnalyticsDashboard({ productId }: Props) {
       className="group inline-flex items-center space-x-1 text-xs font-medium text-gray-500 uppercase tracking-wider hover:text-gray-900"
     >
       <span>{label}</span>
-      <ArrowUpDown className={`h-4 w-4 ${sortField === field
-        ? 'text-gray-900'
-        : 'text-gray-400 group-hover:text-gray-500'
-        }`} />
+      <ArrowUpDown
+        className={`h-4 w-4 ${
+          sortField === field ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'
+        }`}
+      />
     </button>
   );
 
   const handleUtmFilterChange = useCallback((field: keyof typeof utmFilters, value: string) => {
-    setUtmFilters(prevFilters => ({
+    setUtmFilters((prevFilters) => ({
       ...prevFilters,
       [field]: value,
     }));
-  },);
+  }, []);
 
   if (loading) {
     return (
@@ -515,13 +608,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   <RefreshCw className="h-4 w-4" />
                 </button>
               </div>
-              {dateError && (
-                <div className="text-sm text-red-600">
-                  {dateError}
-                </div>
-              )}
+              {dateError && <div className="text-sm text-red-600">{dateError}</div>}
               <div className="flex flex-wrap gap-2">
-                {TIMEFRAME_OPTIONS.map(option => (
+                {TIMEFRAME_OPTIONS.map((option) => (
                   <button
                     key={option.value}
                     className={`px-4 py-2 rounded-md text-sm font-medium transition-colors bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed`}
@@ -549,7 +638,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
 
         <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4"><Skeleton width={200} /></h3>
+          <h3 className="text-lg font-medium text-gray-900 mb-4">
+            <Skeleton width={200} />
+          </h3>
           <div className="h-80">
             <Skeleton height="100%" />
           </div>
@@ -566,17 +657,19 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Campaña', 'Segmentación', 'Anuncio', 'Fuente', 'Visitas', 'Pagos Iniciados', 'Compras', 'Conversión'].map((header, index) => (
-                      <th key={index} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <Skeleton width={header.length * 8} />
-                      </th>
-                    ))}
+                    {['Campaña', 'Segmentación', 'Anuncio', 'Fuente', 'Visitas', 'Pagos Iniciados', 'Compras', 'Conversión', 'Persuasión'].map(
+                      (header, index) => (
+                        <th key={index} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          <Skeleton width={header.length * 8} />
+                        </th>
+                      )
+                    )}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {Array.from({ length: 5 }).map((_, index) => (
                     <tr key={index}>
-                      {Array.from({ length: 8 }).map((_, i) => (
+                      {Array.from({ length: 9 }).map((_, i) => (
                         <td key={i} className="px-6 py-4 whitespace-nowrap">
                           <Skeleton />
                         </td>
@@ -610,7 +703,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Filters and Export */}
+      {/* Filtros y Exportación */}
       <div className="bg-white p-4 rounded-lg shadow">
         <div className="flex flex-wrap gap-4 items-start justify-between">
           <div className="space-y-4 w-full lg:w-auto">
@@ -650,65 +743,75 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 <RefreshCw className="h-4 w-4" />
               </button>
             </div>
-
-            {dateError && (
-              <div className="text-sm text-red-600">
-                {dateError}
-              </div>
-            )}
-
+            {dateError && <div className="text-sm text-red-600">{dateError}</div>}
             <div className="flex flex-wrap gap-2">
-              {TIMEFRAME_OPTIONS.map(option => (
+              {TIMEFRAME_OPTIONS.map((option) => (
                 <button
                   key={option.value}
-                  onClick={() => option.value === 'custom' ? setTimeframe('custom') : setPresetTimeframe(option.value as 'day' | 'week' | 'month' | 'quarter')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === option.value
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                    }`}
+                  onClick={() =>
+                    option.value === 'custom'
+                      ? setTimeframe('custom')
+                      : setPresetTimeframe(option.value as 'day' | 'week' | 'month' | 'quarter')
+                  }
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    timeframe === option.value ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                  }`}
                 >
                   {option.label}
                 </button>
               ))}
             </div>
           </div>
+          <div className="flex items-center gap-4">
+            <label className="relative inline-flex items-center cursor-pointer">
+  <input
+    type="checkbox"
+    checked={showUnique}
+    onChange={() => setShowUnique(!showUnique)}
+    className="sr-only peer"
+  />
+  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 
+              peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] 
+              after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 
+              after:border after:rounded-full after:h-5 after:w-5 after:transition-all 
+              peer-checked:bg-indigo-600"></div>
+  <span className="ml-3 text-sm font-medium text-gray-900">
+    {showUnique ? 'Únicos' : 'Totales'}
+  </span>
+</label>
 
-          <button
-            onClick={exportToExcel}
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
-          </button>
+          </div>
         </div>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded">
               <Users className="h-6 w-6 text-blue-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Visitas Totales</p>
-              <h3 className="text-2xl font-bold text-gray-900">{data.total_visits}</h3>
+              <p className="text-sm font-medium text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_visits : data.total_visits}</h3>
             </div>
           </div>
         </div>
-
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-green-100 rounded">
               <BarChartIcon className="h-6 w-6 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Pagos Iniciados</p>
-              <h3 className="text-2xl font-bold text-gray-900">{data.total_clicks}</h3>
+              <p className="text-sm font-medium text-gray-500">
+                Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}
+              </p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {showUnique ? data.unique_clicks : data.total_clicks}
+              </h3>
             </div>
           </div>
         </div>
-
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-purple-100 rounded">
@@ -720,7 +823,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
             </div>
           </div>
         </div>
-
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded">
@@ -729,14 +831,27 @@ export default function AnalyticsDashboard({ productId }: Props) {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Tasa de Conversión</p>
               <h3 className="text-2xl font-bold text-gray-900">
-                {data.conversion_rate.toFixed(2)}%
+                {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-indigo-100 rounded">
+              <TrendingUp className="h-6 w-6 text-indigo-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Tasa de Persuasión</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%
               </h3>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Charts */}
+      {/* Gráfica de Tendencias Diarias */}
       <div className="bg-white p-4 rounded-lg shadow">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
         <div className="h-80">
@@ -747,20 +862,28 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <YAxis />
               <Tooltip />
               <Legend />
-              <Line type="monotone" dataKey="visits" stroke="#3B82F6" name="Visitas" />
-              <Line type="monotone" dataKey="clicks" stroke="#10B981" name="Pagos Iniciados" />
+              <Line
+                type="monotone"
+                dataKey={showUnique ? 'unique_visits' : 'visits'}
+                stroke="#3B82F6"
+                name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`}
+              />
+              <Line
+                type="monotone"
+                dataKey={showUnique ? 'unique_clicks' : 'clicks'}
+                stroke="#10B981"
+                name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`}
+              />
               <Line type="monotone" dataKey="purchases" stroke="#8B5CF6" name="Compras" />
             </LineChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* UTMs Table */}
+      {/* Tabla de UTMs */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6 flex items-center justify-between">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">
-            Rendimiento por UTM
-          </h3>
+          <h3 className="text-lg leading-6 font-medium text-gray-900">Rendimiento por UTM</h3>
         </div>
         <div className="border-t border-gray-200">
           <div className="overflow-x-auto">
@@ -843,62 +966,57 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <SortButton field="conversion_rate" label="Conversión" />
                     </ResizableHeader>
                   </th>
+                  <th scope="col" className="px-6 py-3 text-right relative">
+                    <div className="flex items-center justify-end">
+                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Persuasión</span>
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {getSortedUtmStats.map((utm, index) => {
-                  const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
+                  const currentConversion = showUnique ? utm.unique_conversion_rate : utm.conversion_rate;
+                  const currentPersuasion = showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate;
+                  const globalConversion = showUnique ? data.unique_conversion_rate : data.conversion_rate;
+                  const isPositive = currentConversion > globalConversion;
                   const isExpanded = expandedRows.has(index);
-
                   return (
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div
-                          className="flex items-center cursor-pointer"
-                          onClick={() => toggleRowExpansion(index)}
-                        >
-                          <div
-                            style={{ width: columnWidths.campaign - 40 }}
-                            className={`${isExpanded ? '' : 'truncate'}`}
-                          >
+                        <div className="flex items-center cursor-pointer" onClick={() => toggleRowExpansion(index)}>
+                          <div style={{ width: columnWidths.campaign - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
                             {utm.campaign}
                           </div>
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.medium - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
+                        <div style={{ width: columnWidths.medium - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
                           {utm.medium}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.content - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
+                        <div style={{ width: columnWidths.content - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
                           {utm.content}
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div
-                          style={{ width: columnWidths.source - 40 }}
-                          className={`${isExpanded ? '' : 'truncate'}`}
-                        >
+                        <div style={{ width: columnWidths.source - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
                           {utm.source}
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-right">{utm.visits}</td>
-                      <td className="px-6 py-4 text-right">{utm.clicks}</td>
+                      <td className="px-6 py-4 text-right">
+                        {showUnique ? utm.unique_visits : utm.visits}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {showUnique ? utm.unique_clicks : utm.clicks}
+                      </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                         {utm.purchases}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end space-x-1">
-                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'
-                            }`}>
-                            {utm.conversion_rate.toFixed(2)}%
+                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                            {(currentConversion ?? 0).toFixed(2)}%
                           </span>
                           {isPositive ? (
                             <ArrowUpRight className="h-4 w-4 text-green-600" />
@@ -906,6 +1024,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
                             <ArrowDownRight className="h-4 w-4 text-red-600" />
                           )}
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <span className="text-sm text-gray-900">
+                          {currentPersuasion.toFixed(2)}%
+                        </span>
                       </td>
                     </tr>
                   );
@@ -915,6 +1038,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
       </div>
-    </div >
+    </div>
   );
 }
