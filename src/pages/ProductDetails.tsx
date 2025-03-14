@@ -95,7 +95,7 @@ export default function ProductDetails() {
         .eq('user_id', user.id);
 
       if (error) throw error;
-      
+
       await loadProduct();
       setIsEditing(false);
     } catch (err) {
@@ -120,7 +120,7 @@ export default function ProductDetails() {
         .eq('user_id', user.id);
 
       if (error) throw error;
-      
+
       navigate('/');
     } catch (err) {
       console.error('Error deleting product:', err);
@@ -148,7 +148,7 @@ export default function ProductDetails() {
         .eq('user_id', user.id);
 
       if (error) throw error;
-      
+
       await loadProduct();
       setCurrentStep(2);
     } catch (err) {
@@ -165,7 +165,7 @@ export default function ProductDetails() {
 
   function getTrackingScript() {
     if (!product) return '';
-    
+
     return `<!-- Script de Seguimiento -->
 <script>
 (function() {
@@ -281,11 +281,10 @@ fbq('track', 'PageView');
               </button>
             </div>
           )}
-          <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-            product.active 
-              ? 'bg-green-100 text-green-800' 
+          <span className={`px-3 py-1 rounded-full text-sm font-medium ${product.active
+              ? 'bg-green-100 text-green-800'
               : 'bg-red-100 text-red-800'
-          }`}>
+            }`}>
             {product.active ? 'Activo' : 'Inactivo'}
           </span>
           <button
@@ -331,22 +330,20 @@ fbq('track', 'PageView');
           <nav className="-mb-px flex" aria-label="Tabs">
             <button
               onClick={() => setActiveTab('setup')}
-              className={`${
-                activeTab === 'setup'
+              className={`${activeTab === 'setup'
                   ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
+                } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
             >
               <Code2 className="h-4 w-4 mr-2" />
               Guía de Instalación
             </button>
             <button
               onClick={() => setActiveTab('analytics')}
-              className={`${
-                activeTab === 'analytics'
+              className={`${activeTab === 'analytics'
                   ? 'border-indigo-500 text-indigo-600 bg-indigo-50'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
+                } w-1/2 py-4 px-1 text-center border-b-2 font-medium text-sm flex items-center justify-center`}
             >
               <Globe className="h-4 w-4 mr-2" />
               Analytics
@@ -370,13 +367,12 @@ fbq('track', 'PageView');
                     <button
                       key={step}
                       onClick={() => setCurrentStep(step)}
-                      className={`${
-                        currentStep === step
+                      className={`${currentStep === step
                           ? 'border-indigo-500 bg-indigo-600 text-white'
                           : currentStep > step
-                          ? 'border-indigo-500 bg-indigo-100 text-indigo-500'
-                          : 'border-gray-200 bg-white text-gray-500'
-                      } relative w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
+                            ? 'border-indigo-500 bg-indigo-100 text-indigo-500'
+                            : 'border-gray-200 bg-white text-gray-500'
+                        } relative w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
                     >
                       <div className={`mb-1 ${currentStep === step ? 'text-white' : ''}`}>
                         {icon}
@@ -567,6 +563,13 @@ fbq('track', 'PageView');
                               )}
                             </button>
                           </div>
+                        </div>
+                        <div className="mt-6 text-sm text-gray-500">
+                          <p className="mb-2"><strong>Configuración del webhook:</strong></p>
+                          <ul className="list-disc list-inside space-y-2">
+                            <li><strong>Evento:</strong> Selecciona el evento "PURCHASE_APPROVED" para recibir notificaciones solo cuando las compras sean aprobadas.</li>
+                            <li><strong>Versión: 2</strong></li>
+                          </ul>
                         </div>
                         <div className="mt-6 flex justify-between">
                           <button
