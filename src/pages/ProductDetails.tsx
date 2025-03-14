@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2 } from 'lucide-react';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
@@ -19,6 +19,7 @@ interface Product {
 
 export default function ProductDetails() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
@@ -34,6 +35,14 @@ export default function ProductDetails() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  useEffect(() => {
+    // Set initial active tab based on URL parameter
+    const tab = searchParams.get('tab');
+    if (tab === 'analytics') {
+      setActiveTab('analytics');
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     if (user && id) {
