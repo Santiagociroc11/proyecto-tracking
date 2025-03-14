@@ -6,6 +6,8 @@ import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone } from '../utils/date';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
+import { Resizable } from 'react-resizable';
+import 'react-resizable/css/styles.css';
 
 
 interface AnalyticsData {
@@ -41,8 +43,47 @@ interface Props {
   productId: string;
 }
 
-type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'purchases' |  'conversion_rate';
+type SortField = 'campaign' | 'medium' | 'content' | 'source' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate';
 type SortDirection = 'asc' | 'desc';
+
+interface ResizableHeaderProps {
+  width: number;
+  onResize: (width: number) => void;
+  children: React.ReactNode;
+}
+
+const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, children }) => {
+  return (
+    <Resizable
+      width={width}
+      height={0}
+      onResize={(e, { size }) => onResize(size.width)}
+      draggableOpts={{ enableUserSelectHack: false }}
+      handle={
+        <div
+          className="absolute right-0 top-0 h-full w-2 cursor-col-resize hover:bg-indigo-200 opacity-0 hover:opacity-100"
+          onClick={e => e.stopPropagation()}
+        />
+      }
+    >
+      <div style={{ width }} className="relative pr-3">
+        {children}
+      </div>
+    </Resizable>
+  );
+};
+
+interface ColumnWidth {
+  campaign: number;
+  medium: number;
+  content: number;
+  source: number;
+  visits: number;
+  clicks: number;
+  purchases: number;
+  conversion: number;
+}
+
 
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
@@ -60,6 +101,34 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [error, setError] = useState<string>('');
+  const [columnWidths, setColumnWidths] = useState<ColumnWidth>({
+    campaign: 200,
+    medium: 150,
+    content: 200,
+    source: 150,
+    visits: 100,
+    clicks: 120,
+    purchases: 120,
+    conversion: 120
+  });
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+
+  const toggleRowExpansion = (index: number) => {
+    const newExpandedRows = new Set(expandedRows);
+    if (expandedRows.has(index)) {
+      newExpandedRows.delete(index);
+    } else {
+      newExpandedRows.add(index);
+    }
+    setExpandedRows(newExpandedRows);
+  };
+
+  const handleColumnResize = (column: keyof ColumnWidth, width: number) => {
+    setColumnWidths(prev => ({
+      ...prev,
+      [column]: width
+    }));
+  };
 
   useEffect(() => {
     if (user) {
@@ -346,8 +415,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
     >
       <span>{label}</span>
       <ArrowUpDown className={`h-4 w-4 ${sortField === field
-          ? 'text-gray-900'
-          : 'text-gray-400 group-hover:text-gray-500'
+        ? 'text-gray-900'
+        : 'text-gray-400 group-hover:text-gray-500'
         }`} />
     </button>
   );
@@ -429,8 +498,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <button
                 onClick={() => setPresetTimeframe('day')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'day'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
                   }`}
               >
                 Hoy
@@ -438,8 +507,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <button
                 onClick={() => setPresetTimeframe('week')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'week'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
                   }`}
               >
                 Última Semana
@@ -447,8 +516,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <button
                 onClick={() => setPresetTimeframe('month')}
                 className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${timeframe === 'month'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
                   }`}
               >
                 Último Mes
@@ -520,25 +589,25 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* Charts */}
-     
-        {/* Daily trends chart */}
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={data.daily_stats}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line type="monotone" dataKey="visits" stroke="#3B82F6" name="Visitas" />
-                <Line type="monotone" dataKey="clicks" stroke="#10B981" name="Pagos Iniciados" />
-                <Line type="monotone" dataKey="purchases" stroke="#8B5CF6" name="Compras" />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+
+      {/* Daily trends chart */}
+      <div className="bg-white p-4 rounded-lg shadow">
+        <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
+        <div className="h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data.daily_stats}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Legend />
+              <Line type="monotone" dataKey="visits" stroke="#3B82F6" name="Visitas" />
+              <Line type="monotone" dataKey="clicks" stroke="#10B981" name="Pagos Iniciados" />
+              <Line type="monotone" dataKey="purchases" stroke="#8B5CF6" name="Compras" />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
+      </div>
 
       {/* UTMs Table */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
@@ -552,56 +621,94 @@ export default function AnalyticsDashboard({ productId }: Props) {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left">
-                    <SortButton field="campaign" label="Campaña" />
+                  <th scope="col" className="px-6 py-3 text-left relative">
+                    <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
+                      <SortButton field="campaign" label="Campaña" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left">
-                    <SortButton field="medium" label="Segmentación" />
+                  <th scope="col" className="px-6 py-3 text-left relative">
+                    <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
+                      <SortButton field="medium" label="Segmentación" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left">
-                    <SortButton field="content" label="Anuncio" />
+                  <th scope="col" className="px-6 py-3 text-left relative">
+                    <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
+                      <SortButton field="content" label="Anuncio" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-left">
-                    <SortButton field="source" label="Fuente" />
+                  <th scope="col" className="px-6 py-3 text-left relative">
+                    <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
+                      <SortButton field="source" label="Fuente" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right">
-                    <SortButton field="visits" label="Visitas" />
+                  <th scope="col" className="px-6 py-3 text-right relative">
+                    <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
+                      <SortButton field="visits" label="Visitas" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right">
-                    <SortButton field="clicks" label="Pagos Iniciados" />
+                  <th scope="col" className="px-6 py-3 text-right relative">
+                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('clicks', w)}>
+                      <SortButton field="clicks" label="Pagos Iniciados" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right">
-                    <SortButton field="purchases" label="Compras" />
+                  <th scope="col" className="px-6 py-3 text-right relative">
+                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('purchases', w)}>
+                      <SortButton field="purchases" label="Compras" />
+                    </ResizableHeader>
                   </th>
-                  <th scope="col" className="px-6 py-3 text-right">
-                    <SortButton field="conversion_rate" label="Conversión" />
+                  <th scope="col" className="px-6 py-3 text-right relative">
+                    <ResizableHeader width={columnWidths.conversion} onResize={(w) => handleColumnResize('conversion', w)}>
+                      <SortButton field="conversion_rate" label="Conversión" />
+                    </ResizableHeader>
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {getSortedUtmStats().map((utm, index) => {
                   const isPositive = utm.conversion_rate > (data?.conversion_rate || 0);
+                  const isExpanded = expandedRows.has(index);
 
                   return (
                     <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {utm.campaign}
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div
+                          className="flex items-center cursor-pointer"
+                          onClick={() => toggleRowExpansion(index)}
+                        >
+                          <div
+                            style={{ width: columnWidths.campaign - 40 }}
+                            className={`${isExpanded ? '' : 'truncate'}`}
+                          >
+                            {utm.campaign}
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {utm.medium}
+                      <td className="px-6 py-4">
+                        <div
+                          style={{ width: columnWidths.medium - 40 }}
+                          className={`${isExpanded ? '' : 'truncate'}`}
+                        >
+                          {utm.medium}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {utm.content}
+                      <td className="px-6 py-4">
+                        <div
+                          style={{ width: columnWidths.content - 40 }}
+                          className={`${isExpanded ? '' : 'truncate'}`}
+                        >
+                          {utm.content}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {utm.source}
+                      <td className="px-6 py-4">
+                        <div
+                          style={{ width: columnWidths.source - 40 }}
+                          className={`${isExpanded ? '' : 'truncate'}`}
+                        >
+                          {utm.source}
+                        </div>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {utm.visits}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {utm.clicks}
-                      </td>
+                      <td className="px-6 py-4 text-right">{utm.visits}</td>
+                      <td className="px-6 py-4 text-right">{utm.clicks}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                         {utm.purchases} {/* Nueva celda */}
                       </td>
@@ -626,6 +733,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
       </div>
-    </div>
+    </div >
   );
 }

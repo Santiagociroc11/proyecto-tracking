@@ -1,3 +1,25 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+.react-resizable {
+  position: relative;
+}
+
+.react-resizable-handle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 10px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 1;
+}
+
+.react-resizable-handle:hover {
+  background-color: rgba(99, 102, 241, 0.1);
+}
+
+.react-resizable-handle:active {
+  background-color: rgba(99, 102, 241, 0.2);
+}
