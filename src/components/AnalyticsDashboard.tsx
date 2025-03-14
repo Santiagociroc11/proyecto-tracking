@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 import { BarChart as BarChartIcon, LineChart as LineChartIcon, ArrowUpRight, ArrowDownRight, DollarSign, Users, Calendar, Download, RefreshCw, ArrowUpDown } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from 'recharts';
@@ -25,18 +25,18 @@ interface AnalyticsData {
     clicks: number;
     purchases: number;
     conversion_rate: number;
-  }[];
+  };
   daily_stats: {
     date: string;
     visits: number;
     clicks: number;
     purchases: number;
-  }[];
+  };
   top_sources: {
     source: string;
     visits: number;
     clicks: number;
-  }[];
+  };
 }
 
 interface Props {
@@ -54,34 +54,43 @@ interface ResizableHeaderProps {
 
 const ResizableHeader: React.FC<ResizableHeaderProps> = ({ width, onResize, children }) => {
   const [currentWidth, setCurrentWidth] = useState(width);
-  const resizeThreshold = 5;
+  const resizeThreshold = 2; // Reducimos el umbral para una respuesta más inmediata
+  const handleRef = useRef<HTMLDivElement>(null);
 
   const handleResize = (e: React.SyntheticEvent, { size }: { size: { width: number } }) => {
-    if (Math.abs(size.width - currentWidth) >= resizeThreshold) {
-      setCurrentWidth(size.width);
-      onResize(size.width);
-    }
+    setCurrentWidth(size.width);
+    onResize(size.width);
   };
 
   return (
-    <Resizable
-      width={currentWidth}
-      height={0}
-      onResize={handleResize}
-      draggableOpts={{ enableUserSelectHack: false }}
-      handle={
-        <div
-          className="absolute right-0 top-0 h-full w-4 cursor-col-resize hover:bg-indigo-200 opacity-0 hover:opacity-100 flex items-center justify-center" // Controlador con estilo
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="w-1 h-6 bg-gray-400" /> {/* Barra vertical como controlador */}
+    <div className="relative"> {/* Contenedor relativo para el manejo del cursor */}
+      <Resizable
+        width={currentWidth}
+        height={0}
+        onResize={handleResize}
+        draggableOpts={{ enableUserSelectHack: false }}
+        handle={
+          <div
+            className="absolute right-0 top-0 h-full w-6 cursor-col-resize flex items-center justify-center" // Controlador más ancho y siempre visible
+            onClick={(e) => e.stopPropagation()}
+            ref={handleRef}
+          >
+            <div className="w-1 h-8 bg-gray-400 opacity-50" /> {/* Barra vertical sutil */}
+          </div>
+        }
+      >
+        <div style={{ width: currentWidth, userSelect: 'none' }} className="pr-6"> {/* Aumentamos el padding derecho para el espacio del handle */}
+          {children}
         </div>
-      }
-    >
-      <div style={{ width: currentWidth }} className="relative pr-3" style={{ userSelect: 'none' }}> {/* Deshabilitar selección */}
-        {children}
-      </div>
-    </Resizable>
+      </Resizable>
+      {/* Ajuste de cursor en toda la celda al hacer hover en el borde derecho */}
+      <div
+        className="absolute top-0 bottom-0 right-0 w-2 cursor-col-resize"
+        style={{ zIndex: 1 }}
+        onMouseEnter={() => handleRef.current?.classList.add('opacity-100')}
+        onMouseLeave={() => handleRef.current?.classList.remove('opacity-100')}
+      />
+    </div>
   );
 };
 
@@ -126,7 +135,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       conversion: 120
     };
   });
-  
+
   useEffect(() => {
     localStorage.setItem('columnWidths', JSON.stringify(columnWidths));
   }, [columnWidths]);
@@ -408,7 +417,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   };
 
   const getSortedUtmStats = () => {
-    if (!data) return [];
+    if (!data) return;
 
     return [...data.utm_stats].sort((a, b) => {
       const multiplier = sortDirection === 'asc' ? 1 : -1;
