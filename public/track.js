@@ -111,10 +111,9 @@
       if (!fbc) {
         const fbclid = new URLSearchParams(window.location.search).get("fbclid");
         if (fbclid) {
-          const subdomainIndex = window.location.hostname.split(".").length - 1;
-          const creationTime = Math.floor(Date.now() / 1000);
-          fbc = `fb.${subdomainIndex}.${creationTime}.${fbclid}`;
-          lt.__log('Facebook', 'FBC generado desde FBCLID', fbc);
+          const creationTime = Date.now(); 
+          fbc = `fb.1.${creationTime}.${fbclid}`;
+          lt.__log('Facebook', 'FBC generado correctamente desde FBCLID', fbc);
         } else {
           fbc = "-";
         }
@@ -236,14 +235,14 @@
     try {
       const maxAttempts = 10; // Intentos máximos
       let attempts = 0;
-  
+
       const waitForData = () => {
         attempts++;
         lt.__log('PageView', `Verificando cookies e IP, intento ${attempts} de ${maxAttempts}`);
-  
+
         const { fbc, fbp } = this.__getFbcFbp();
         lt.__log('PageView', 'Cookies obtenidas en chequeo', { fbc, fbp });
-  
+
         // Verificamos que las cookies estén disponibles y que la IP esté cargada.
         if (((fbc && fbp) && this.IP) || attempts >= maxAttempts) {
           if (!this.IP) {
@@ -251,7 +250,7 @@
           } else {
             lt.__log('PageView', 'Datos requeridos disponibles');
           }
-  
+
           // Volvemos a obtener las últimas cookies
           const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp();
           const utmData = this.__get_utm_data();
@@ -261,7 +260,7 @@
             language: navigator.language,
             cookiesEnabled: navigator.cookieEnabled
           };
-  
+
           const eventData = {
             type: 'pageview',
             tracking_id: trackingId,
@@ -287,7 +286,7 @@
               ip: this.IP || '-'  // Incluye la IP o '-' si sigue sin estar
             }
           };
-  
+
           lt.__log('PageView', 'Datos del evento', eventData);
           this.__send_to_backend(eventData);
         } else {
@@ -295,13 +294,13 @@
           setTimeout(waitForData, 500);
         }
       };
-  
+
       waitForData();
     } catch (e) {
       lt.__log('PageView', 'Error registrando vista de página', e);
     }
   };
-  
+
 
   lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
