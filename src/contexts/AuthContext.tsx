@@ -106,8 +106,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           password,
           active: true,
           role: 'user',
-          max_monthly_events: 100,
-          max_products: 3,
+          max_monthly_events: 1000,
+          max_products: 2,
           events_count: 0
         }]);
 
