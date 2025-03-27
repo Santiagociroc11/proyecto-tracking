@@ -110,7 +110,7 @@ export default function Login() {
           </div>
         </form>
 
-        <div className="text-center">
+        {/* <div className="text-center">
           <button
             onClick={() => setIsRegistering(!isRegistering)}
             className="font-medium text-indigo-600 hover:text-indigo-500"
@@ -119,7 +119,7 @@ export default function Login() {
               ? '¿Ya tienes una cuenta? Inicia sesión' 
               : '¿No tienes una cuenta? Regístrate'}
           </button>
-        </div>
+        </div> */}
       </div>
     </div>
   );
