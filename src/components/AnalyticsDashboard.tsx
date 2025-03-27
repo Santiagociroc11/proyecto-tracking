@@ -11,8 +11,6 @@ import {
   Download,
   RefreshCw,
   ArrowUpDown,
-  Search,
-  ToggleLeft,
   TrendingUp,
 } from 'lucide-react';
 import {
@@ -43,10 +41,10 @@ interface AnalyticsData {
   total_clicks: number;
   unique_clicks: number;
   total_purchases: number;
-  conversion_rate: number; // Compras / visitas
-  unique_conversion_rate: number; // Compras / visitas únicas
-  persuasion_rate: number; // Hotmart clicks / visitas
-  unique_persuasion_rate: number; // Unique clicks / unique visits
+  conversion_rate: number;
+  unique_conversion_rate: number;
+  persuasion_rate: number;
+  unique_persuasion_rate: number;
   utm_stats: {
     source: string;
     medium: string;
@@ -200,6 +198,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
     source: '',
   });
   const [showUnique, setShowUnique] = useState(false);
+  // Estado para controlar la pestaña activa: "resumen" o "detalle"
+  const [activeTab, setActiveTab] = useState<'resumen' | 'detalle'>('resumen');
+  // Estado para seleccionar la métrica del resumen
+  const [selectedSummaryMetric, setSelectedSummaryMetric] = useState<'conversion' | 'persuasion'>('conversion');
+  // Estado para seleccionar la categoría de UTM a analizar
+  const [selectedUtmCategory, setSelectedUtmCategory] = useState<'campaign' | 'medium' | 'content' | 'source'>('campaign');
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -388,8 +392,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
             clicks: 0,
             unique_clicks: 0,
             purchases: 0,
-            visitorSet: new Set(), // Para visitas únicas
-            clickSet: new Set(),   // Para clics únicos
+            visitorSet: new Set(),
+            clickSet: new Set(),
           });
         }
         const stats = utmStats.get(utmKey);
@@ -440,7 +444,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         a.date.localeCompare(b.date)
       );
 
-      // Reducir estadísticas por fuente a partir de las UTMs
       const sourceStatsArray = Object.values(
         Array.from(utmStats.values()).reduce((acc, curr) => {
           const source = curr.source;
@@ -561,9 +564,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     >
       <span>{label}</span>
       <ArrowUpDown
-        className={`h-4 w-4 ${
-          sortField === field ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'
-        }`}
+        className={`h-4 w-4 ${sortField === field ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'}`}
       />
     </button>
   );
@@ -575,9 +576,68 @@ export default function AnalyticsDashboard({ productId }: Props) {
     }));
   }, []);
 
+  // Resumen global
+  const topCampaignByVisits = useMemo(() => {
+    if (!data || data.utm_stats.length === 0) return null;
+    return data.utm_stats.reduce((prev, curr) => (curr.visits > prev.visits ? curr : prev));
+  }, [data]);
+
+  const topCampaignByConversion = useMemo(() => {
+    if (!data || data.utm_stats.length === 0) return null;
+    return data.utm_stats.reduce((prev, curr) => (curr.conversion_rate > prev.conversion_rate ? curr : prev));
+  }, [data]);
+
+  // Agrupación por categoría seleccionada
+  const groupedUtmSummary = useMemo(() => {
+    if (!data) return [];
+    const groupField = selectedUtmCategory;
+    const grouped: Record<string, {
+      category: string;
+      visits: number;
+      unique_visits: number;
+      clicks: number;
+      unique_clicks: number;
+      purchases: number;
+    }> = {};
+
+    data.utm_stats.forEach((utm) => {
+      const key = utm[groupField] || 'none';
+      if (!grouped[key]) {
+        grouped[key] = {
+          category: key,
+          visits: 0,
+          unique_visits: 0,
+          clicks: 0,
+          unique_clicks: 0,
+          purchases: 0,
+        };
+      }
+      grouped[key].visits += utm.visits;
+      grouped[key].unique_visits += utm.unique_visits;
+      grouped[key].clicks += utm.clicks;
+      grouped[key].unique_clicks += utm.unique_clicks;
+      grouped[key].purchases += utm.purchases;
+    });
+
+    const result = Object.values(grouped);
+    result.forEach((item) => {
+      item['conversion_rate'] = item.visits > 0 ? (item.purchases / item.visits) * 100 : 0;
+      item['unique_conversion_rate'] = item.unique_visits > 0 ? (item.purchases / item.unique_visits) * 100 : 0;
+      item['persuasion_rate'] = item.visits > 0 ? (item.clicks / item.visits) * 100 : 0;
+      item['unique_persuasion_rate'] = item.unique_visits > 0 ? (item.unique_clicks / item.unique_visits) * 100 : 0;
+    });
+    // Ordenar según la métrica seleccionada
+    const metricKey =
+      selectedSummaryMetric === 'conversion'
+        ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
+        : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate';
+    return result.sort((a, b) => b[metricKey] - a[metricKey]);
+  }, [data, selectedUtmCategory, selectedSummaryMetric, showUnique]);
+
   if (loading) {
     return (
       <div className="space-y-6">
+        {/* Contenido de carga (skeletons) */}
         <div className="bg-white p-4 rounded-lg shadow">
           <div className="flex flex-wrap gap-4 items-start justify-between">
             <div className="space-y-4 w-full lg:w-auto">
@@ -586,23 +646,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
                     Fecha inicial
                   </label>
-                  <input
-                    type="date"
-                    id="start-date"
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                    readOnly
-                  />
+                  <input type="date" id="start-date" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" readOnly />
                 </div>
                 <div>
                   <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
                     Fecha final
                   </label>
-                  <input
-                    type="date"
-                    id="end-date"
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                    readOnly
-                  />
+                  <input type="date" id="end-date" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" readOnly />
                 </div>
                 <button className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white" disabled>
                   <RefreshCw className="h-4 w-4" />
@@ -611,11 +661,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               {dateError && <div className="text-sm text-red-600">{dateError}</div>}
               <div className="flex flex-wrap gap-2">
                 {TIMEFRAME_OPTIONS.map((option) => (
-                  <button
-                    key={option.value}
-                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed`}
-                    disabled
-                  >
+                  <button key={option.value} className="px-4 py-2 rounded-md text-sm font-medium transition-colors bg-gray-100 text-gray-500 border border-gray-200 cursor-not-allowed" disabled>
                     {option.label}
                   </button>
                 ))}
@@ -627,7 +673,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
             </button>
           </div>
         </div>
-
+        {/* Skeletons para KPIs, gráficos y tabla */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {[...Array(4)].map((_, index) => (
             <div key={index} className="bg-white p-6 rounded-lg shadow">
@@ -636,7 +682,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
             </div>
           ))}
         </div>
-
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-medium text-gray-900 mb-4">
             <Skeleton width={200} />
@@ -645,7 +690,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
             <Skeleton height="100%" />
           </div>
         </div>
-
         <div className="bg-white shadow rounded-lg overflow-hidden">
           <div className="px-4 py-5 sm:px-6">
             <h3 className="text-lg leading-6 font-medium text-gray-900">
@@ -764,22 +808,14 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
           <div className="flex items-center gap-4">
             <label className="relative inline-flex items-center cursor-pointer">
-  <input
-    type="checkbox"
-    checked={showUnique}
-    onChange={() => setShowUnique(!showUnique)}
-    className="sr-only peer"
-  />
-  <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 
+              <input type="checkbox" checked={showUnique} onChange={() => setShowUnique(!showUnique)} className="sr-only peer" />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 
               peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] 
               after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 
               after:border after:rounded-full after:h-5 after:w-5 after:transition-all 
               peer-checked:bg-indigo-600"></div>
-  <span className="ml-3 text-sm font-medium text-gray-900">
-    {showUnique ? 'Únicos' : 'Totales'}
-  </span>
-</label>
-
+              <span className="ml-3 text-sm font-medium text-gray-900">{showUnique ? 'Únicos' : 'Totales'}</span>
+            </label>
           </div>
         </div>
       </div>
@@ -803,12 +839,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <BarChartIcon className="h-6 w-6 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">
-                Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}
-              </p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {showUnique ? data.unique_clicks : data.total_clicks}
-              </h3>
+              <p className="text-sm font-medium text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_clicks : data.total_clicks}</h3>
             </div>
           </div>
         </div>
@@ -880,163 +912,287 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
       </div>
 
-      {/* Tabla de UTMs */}
+      {/* Sección de pestañas para Resumen y Detalle UTMs */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="px-4 py-5 sm:px-6 flex items-center justify-between">
-          <h3 className="text-lg leading-6 font-medium text-gray-900">Rendimiento por UTM</h3>
-        </div>
-        <div className="border-t border-gray-200">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
-                      <div className="flex items-center justify-between">
-                        <SortButton field="campaign" label="Campaña" />
-                      </div>
-                    </ResizableHeader>
-                    <input
-                      type="text"
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                      placeholder="Filtrar"
-                      value={utmFilters.campaign}
-                      onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
-                    />
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
-                      <div className="flex items-center justify-between">
-                        <SortButton field="medium" label="Segmentación" />
-                      </div>
-                    </ResizableHeader>
-                    <input
-                      type="text"
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                      placeholder="Filtrar"
-                      value={utmFilters.medium}
-                      onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
-                    />
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
-                      <div className="flex items-center justify-between">
-                        <SortButton field="content" label="Anuncio" />
-                      </div>
-                    </ResizableHeader>
-                    <input
-                      type="text"
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                      placeholder="Filtrar"
-                      value={utmFilters.content}
-                      onChange={(e) => handleUtmFilterChange('content', e.target.value)}
-                    />
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left relative">
-                    <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
-                      <div className="flex items-center justify-between">
-                        <SortButton field="source" label="Fuente" />
-                      </div>
-                    </ResizableHeader>
-                    <input
-                      type="text"
-                      className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                      placeholder="Filtrar"
-                      value={utmFilters.source}
-                      onChange={(e) => handleUtmFilterChange('source', e.target.value)}
-                    />
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
-                      <SortButton field="visits" label="Visitas" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('clicks', w)}>
-                      <SortButton field="clicks" label="Pagos Iniciados" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('purchases', w)}>
-                      <SortButton field="purchases" label="Compras" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <ResizableHeader width={columnWidths.conversion} onResize={(w) => handleColumnResize('conversion', w)}>
-                      <SortButton field="conversion_rate" label="Conversión" />
-                    </ResizableHeader>
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right relative">
-                    <div className="flex items-center justify-end">
-                      <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Persuasión</span>
-                    </div>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {getSortedUtmStats.map((utm, index) => {
-                  const currentConversion = showUnique ? utm.unique_conversion_rate : utm.conversion_rate;
-                  const currentPersuasion = showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate;
-                  const globalConversion = showUnique ? data.unique_conversion_rate : data.conversion_rate;
-                  const isPositive = currentConversion > globalConversion;
-                  const isExpanded = expandedRows.has(index);
-                  return (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center cursor-pointer" onClick={() => toggleRowExpansion(index)}>
-                          <div style={{ width: columnWidths.campaign - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                            {utm.campaign}
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div style={{ width: columnWidths.medium - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                          {utm.medium}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div style={{ width: columnWidths.content - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                          {utm.content}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div style={{ width: columnWidths.source - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                          {utm.source}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {showUnique ? utm.unique_visits : utm.visits}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {showUnique ? utm.unique_clicks : utm.clicks}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                        {utm.purchases}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end space-x-1">
-                          <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                            {(currentConversion ?? 0).toFixed(2)}%
-                          </span>
-                          {isPositive ? (
-                            <ArrowUpRight className="h-4 w-4 text-green-600" />
-                          ) : (
-                            <ArrowDownRight className="h-4 w-4 text-red-600" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <span className="text-sm text-gray-900">
-                          {currentPersuasion.toFixed(2)}%
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+        <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
+          <div className="flex space-x-4">
+            <button
+              onClick={() => setActiveTab('resumen')}
+              className={`px-4 py-2 text-sm font-medium ${
+                activeTab === 'resumen' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'
+              }`}
+            >
+              Resumen
+            </button>
+            <button
+              onClick={() => setActiveTab('detalle')}
+              className={`px-4 py-2 text-sm font-medium ${
+                activeTab === 'detalle' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'
+              }`}
+            >
+              Tabla UTM
+            </button>
           </div>
         </div>
+
+        {activeTab === 'resumen' ? (
+          <div className="p-4 space-y-6">
+            {/* Resumen General */}
+            <div className="bg-white p-4 rounded-lg shadow">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Resumen General</h3>
+              <p>
+                En el período seleccionado se registraron {data.total_visits} visitas, {data.total_clicks} pagos iniciados y {data.total_purchases} compras. La tasa de conversión global es{' '}
+                {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}% y la tasa de persuasión es{' '}
+                {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%.
+              </p>
+            </div>
+
+            {/* Sección avanzada de análisis por categoría */}
+            <div className="mt-6">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Análisis Avanzado por Categoría de UTM</h3>
+              <div className="flex flex-wrap gap-4 items-center mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Categoría</label>
+                  <select
+                    value={selectedUtmCategory}
+                    onChange={(e) => setSelectedUtmCategory(e.target.value as 'campaign' | 'medium' | 'content' | 'source')}
+                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                  >
+                    <option value="campaign">Campaña</option>
+                    <option value="medium">Segmentación</option>
+                    <option value="content">Anuncio</option>
+                    <option value="source">Fuente</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Métrica</label>
+                  <div className="flex space-x-4 mt-1">
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="summaryMetric"
+                        value="conversion"
+                        checked={selectedSummaryMetric === 'conversion'}
+                        onChange={() => setSelectedSummaryMetric('conversion')}
+                        className="form-radio"
+                      />
+                      <span className="ml-2">Conversión</span>
+                    </label>
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="summaryMetric"
+                        value="persuasion"
+                        checked={selectedSummaryMetric === 'persuasion'}
+                        onChange={() => setSelectedSummaryMetric('persuasion')}
+                        className="form-radio"
+                      />
+                      <span className="ml-2">Persuasión</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-lg shadow">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={groupedUtmSummary.slice(0, 5)}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="category" />
+                    <YAxis tickFormatter={(tick) => `${tick.toFixed(0)}`} />
+                    <Tooltip
+                      formatter={(value: number) =>
+                        selectedSummaryMetric === 'conversion'
+                          ? `${value.toFixed(2)}%`
+                          : `${value.toFixed(2)}%`
+                      }
+                    />
+                    <Legend />
+                    <Bar
+                      dataKey={
+                        selectedSummaryMetric === 'conversion'
+                          ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
+                          : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate'
+                      }
+                      fill="#8884d8"
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-4">
+                  <h4 className="text-md font-medium text-gray-900">Top 5 por {selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : selectedUtmCategory === 'content' ? 'Anuncio' : 'Fuente'}</h4>
+                  <ul className="divide-y divide-gray-200">
+                    {groupedUtmSummary.slice(0, 5).map((item, index) => (
+                      <li key={index} className="py-2 flex justify-between items-center">
+                        <span className="font-medium text-gray-700">{item.category}</span>
+                        <div className="text-right">
+                          <div className="text-sm text-gray-500">
+                            {item.visits} visitas, {item.purchases} compras, {item.clicks} clics
+                          </div>
+                          <div className="text-sm text-gray-900 font-semibold">
+                            {selectedSummaryMetric === 'conversion'
+                              ? (showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)
+                              : (showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}
+                            %
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          // Tabla de UTMs (detalle)
+          <div className="border-t border-gray-200">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left relative">
+                      <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
+                        <div className="flex items-center justify-between">
+                          <SortButton field="campaign" label="Campaña" />
+                        </div>
+                      </ResizableHeader>
+                      <input
+                        type="text"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        placeholder="Filtrar"
+                        value={utmFilters.campaign}
+                        onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left relative">
+                      <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
+                        <div className="flex items-center justify-between">
+                          <SortButton field="medium" label="Segmentación" />
+                        </div>
+                      </ResizableHeader>
+                      <input
+                        type="text"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        placeholder="Filtrar"
+                        value={utmFilters.medium}
+                        onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left relative">
+                      <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
+                        <div className="flex items-center justify-between">
+                          <SortButton field="content" label="Anuncio" />
+                        </div>
+                      </ResizableHeader>
+                      <input
+                        type="text"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        placeholder="Filtrar"
+                        value={utmFilters.content}
+                        onChange={(e) => handleUtmFilterChange('content', e.target.value)}
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left relative">
+                      <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
+                        <div className="flex items-center justify-between">
+                          <SortButton field="source" label="Fuente" />
+                        </div>
+                      </ResizableHeader>
+                      <input
+                        type="text"
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                        placeholder="Filtrar"
+                        value={utmFilters.source}
+                        onChange={(e) => handleUtmFilterChange('source', e.target.value)}
+                      />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right relative">
+                      <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
+                        <SortButton field="visits" label="Visitas" />
+                      </ResizableHeader>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right relative">
+                      <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('clicks', w)}>
+                        <SortButton field="clicks" label="Pagos Iniciados" />
+                      </ResizableHeader>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right relative">
+                      <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('purchases', w)}>
+                        <SortButton field="purchases" label="Compras" />
+                      </ResizableHeader>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right relative">
+                      <ResizableHeader width={columnWidths.conversion} onResize={(w) => handleColumnResize('conversion', w)}>
+                        <SortButton field="conversion_rate" label="Conversión" />
+                      </ResizableHeader>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right relative">
+                      <div className="flex items-center justify-end">
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Persuasión</span>
+                      </div>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {getSortedUtmStats.map((utm, index) => {
+                    const currentConversion = showUnique ? utm.unique_conversion_rate : utm.conversion_rate;
+                    const currentPersuasion = showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate;
+                    const globalConversion = showUnique ? data.unique_conversion_rate : data.conversion_rate;
+                    const isPositive = currentConversion > globalConversion;
+                    const isExpanded = expandedRows.has(index);
+                    return (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <div className="flex items-center cursor-pointer" onClick={() => toggleRowExpansion(index)}>
+                            <div style={{ width: columnWidths.campaign - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                              {utm.campaign}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div style={{ width: columnWidths.medium - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                            {utm.medium}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div style={{ width: columnWidths.content - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                            {utm.content}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div style={{ width: columnWidths.source - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                            {utm.source}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {showUnique ? utm.unique_visits : utm.visits}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {showUnique ? utm.unique_clicks : utm.clicks}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {utm.purchases}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <div className="flex items-center justify-end space-x-1">
+                            <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                              {(currentConversion ?? 0).toFixed(2)}%
+                            </span>
+                            {isPositive ? (
+                              <ArrowUpRight className="h-4 w-4 text-green-600" />
+                            ) : (
+                              <ArrowDownRight className="h-4 w-4 text-red-600" />
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                          <span className="text-sm text-gray-900">{currentPersuasion.toFixed(2)}%</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
