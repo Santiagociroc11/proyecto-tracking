@@ -53,10 +53,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signIn = async (email: string, password: string) => {
     diagnostics.info('Auth', 'Attempting sign in', { email });
     try {
+      // Convertir el email a minúsculas para tener un valor consistente
+      const normalizedEmail = email.toLowerCase();
+
+      // Usamos ilike para realizar una comparación insensible a mayúsculas/minúsculas
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .eq('email', email)
+        .ilike('email', normalizedEmail)
         .eq('password', password)
         .single();
 
@@ -95,14 +99,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const signUp = async (email: string, password: string) => {
     diagnostics.info('Auth', 'Attempting sign up', { email });
     try {
-      // Generate UUID for the new user
+      // Convertir el email a minúsculas para almacenarlo de forma consistente
+      const normalizedEmail = email.toLowerCase();
+
+      // Generar un UUID para el nuevo usuario
       const userId = crypto.randomUUID();
 
       const { error: insertError } = await supabase
         .from('users')
         .insert([{
           id: userId,
-          email,
+          email: normalizedEmail,
           password,
           active: true,
           role: 'user',
@@ -113,13 +120,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (insertError) {
         diagnostics.error('Auth', 'Error creating user', insertError);
-        if (insertError.code === '23505') { // Unique constraint violation
+        if (insertError.code === '23505') { // Violación de restricción única
           throw new Error('El email ya está registrado');
         }
         throw insertError;
       }
 
-      // Fetch the newly created user
+      // Obtener el usuario recién creado
       const { data: userData, error: fetchError } = await supabase
         .from('users')
         .select('*')
@@ -143,7 +150,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsActive(true);
       localStorage.setItem('user', JSON.stringify(user));
 
-      // Create default user settings
+      // Crear configuraciones predeterminadas para el usuario
       await supabase
         .from('user_settings')
         .insert([{
