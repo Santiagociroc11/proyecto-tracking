@@ -166,9 +166,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const { timezone } = useTimezone();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('month');
+  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('day');
   const [startDate, setStartDate] = useState<string>(
-    new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    new Date().toISOString().split('T')[0]
   );
   const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [dateError, setDateError] = useState<string>('');
@@ -290,7 +290,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   };
 
   const resetDateFilter = () => {
-    setPresetTimeframe('month');
+    setPresetTimeframe('day');
   };
 
   async function loadAnalytics() {
