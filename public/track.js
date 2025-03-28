@@ -1,4 +1,11 @@
 (function () {
+  // Evita la re-inicialización global y no trackea si está en un iframe.
+  if (window.__hotAPIInitialized || window.self !== window.top) {
+    console.log('[HotAPI Tracking] Script ya inicializado o en un iframe. Saliendo...');
+    return;
+  }
+  window.__hotAPIInitialized = true;
+
   const lt = window.lt || {};
   lt.d = document;
   lt.w = window;
@@ -111,7 +118,7 @@
       if (!fbc) {
         const fbclid = new URLSearchParams(window.location.search).get("fbclid");
         if (fbclid) {
-          const creationTime = Date.now(); 
+          const creationTime = Date.now();
           fbc = `fb.1.${creationTime}.${fbclid}`;
           lt.__log('Facebook', 'FBC generado correctamente desde FBCLID', fbc);
         } else {
@@ -251,7 +258,6 @@
             lt.__log('PageView', 'Datos requeridos disponibles');
           }
 
-          // Volvemos a obtener las últimas cookies
           const { fbc: finalFbc, fbp: finalFbp } = this.__getFbcFbp();
           const utmData = this.__get_utm_data();
           const browserInfo = {
@@ -301,7 +307,6 @@
     }
   };
 
-
   lt.__register_event = function (event) {
     lt.__log('Event', 'Registrando evento personalizado');
     try {
@@ -330,6 +335,9 @@
 
   lt.__track_user_interaction = function (trackingId) {
     lt.__log('Interaction', 'Iniciando tracking de interacciones');
+    // Evitamos duplicar el listener de clic para Hotmart
+    if (window.__hotmartClickListenerAttached) return;
+    window.__hotmartClickListenerAttached = true;
     try {
       document.addEventListener('click', (event) => {
         const target = event.target.closest('a');
@@ -403,7 +411,6 @@
       })
         .then(response => {
           lt.__log('Backend', 'Respuesta fetch', response);
-          // Para ver el contenido de la respuesta:
           return response.json();
         })
         .then(data => {
