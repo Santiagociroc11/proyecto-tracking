@@ -51,34 +51,66 @@
   // Inicia la obtención de la IP
   lt.__fetchIP();
 
-  // Storage fallback: cookies vs. objeto local
-  lt.__storage = {
-    data: {},
-    isAvailable: false,
+  // Fallback para Almacenamiento Persistente Mejorado: 
+  // Se intenta usar localStorage, luego cookies y, si no, se usa un objeto en memoria.
+  lt.__persistentStorage = {
+    storageType: null,
+    memory: {},
     init() {
+      // Intenta usar localStorage
       try {
-        document.cookie = "test=1";
-        const cookieEnabled = document.cookie.indexOf("test=") !== -1;
-        // Borramos la cookie test
-        document.cookie = "test=1; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-        this.isAvailable = cookieEnabled;
-        lt.__log('Storage', 'Estado de almacenamiento', { cookies: cookieEnabled });
-      } catch (e) {
-        this.isAvailable = false;
-        lt.__log('Storage', 'Error verificando almacenamiento', e);
-      }
+        if (window.localStorage) {
+          localStorage.setItem('storage_test', '1');
+          localStorage.removeItem('storage_test');
+          this.storageType = 'localStorage';
+          lt.__log('Storage', 'Usando localStorage para persistencia');
+          return;
+        }
+      } catch (e) { }
+      // Intenta usar cookies
+      try {
+        document.cookie = "storage_test=1";
+        if (document.cookie.indexOf("storage_test=") !== -1) {
+          document.cookie = "storage_test=1; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+          this.storageType = 'cookie';
+          lt.__log('Storage', 'Usando cookies para persistencia');
+          return;
+        }
+      } catch (e) { }
+      // Fallback a objeto en memoria
+      this.storageType = 'memory';
+      lt.__log('Storage', 'Usando objeto en memoria para persistencia');
     },
     get(key) {
-      return this.isAvailable ? lt.__get_cookie(key) : this.data[key] || null;
+      if (this.storageType === 'localStorage') {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          lt.__log('Storage', 'Error leyendo de localStorage', e);
+        }
+      } else if (this.storageType === 'cookie') {
+        return lt.__get_cookie(key);
+      } else {
+        return this.memory[key] || null;
+      }
     },
     set(key, value, ttl) {
-      if (this.isAvailable) {
+      if (this.storageType === 'localStorage') {
+        try {
+          localStorage.setItem(key, value);
+        } catch (e) {
+          lt.__log('Storage', 'Error escribiendo en localStorage', e);
+        }
+      } else if (this.storageType === 'cookie') {
         lt.__set_cookie(key, value, ttl);
       } else {
-        this.data[key] = value;
+        this.memory[key] = value;
       }
     }
   };
+
+  // Inicializamos el sistema de almacenamiento persistente
+  lt.__persistentStorage.init();
 
   lt.__generateUUID = function () {
     lt.__log('UUID', 'Generando nuevo UUID');
@@ -95,12 +127,12 @@
   lt.__getOrCreateUniqueId = function () {
     lt.__log('VisitorID', 'Obteniendo o creando ID de visitante');
     try {
-      let uniqueId = this.__storage.get('_vid');
+      let uniqueId = lt.__persistentStorage.get('_vid');
       lt.__log('VisitorID', 'ID actual', uniqueId);
       if (!uniqueId) {
         uniqueId = this.__generateUUID();
         lt.__log('VisitorID', 'Nuevo ID generado', uniqueId);
-        this.__storage.set('_vid', uniqueId);
+        lt.__persistentStorage.set('_vid', uniqueId);
       }
       return uniqueId;
     } catch (e) {
@@ -109,18 +141,19 @@
     }
   };
 
+  // Se leen directamente las cookies que escribe Meta para FBC y FBP.
   lt.__getFbcFbp = function () {
-    lt.__log('Facebook', 'Obteniendo parámetros FBC/FBP');
+    lt.__log('Facebook', 'Obteniendo parámetros FBC/FBP desde cookies');
     try {
-      const fbp = this.__storage.get("_fbp") || "-";
-      let fbc = this.__storage.get("_fbc");
+      const fbp = lt.__get_cookie("_fbp") || "-";
+      let fbc = lt.__get_cookie("_fbc");
       lt.__log('Facebook', 'Cookies encontradas', { fbp, fbc });
       if (!fbc) {
         const fbclid = new URLSearchParams(window.location.search).get("fbclid");
         if (fbclid) {
           const creationTime = Date.now();
           fbc = `fb.1.${creationTime}.${fbclid}`;
-          lt.__log('Facebook', 'FBC generado correctamente desde FBCLID', fbc);
+          lt.__log('Facebook', 'FBC generado correctamente desde fbclid', fbc);
         } else {
           fbc = "-";
         }
@@ -135,7 +168,8 @@
   lt.__init__ = function () {
     lt.__log('Init', 'Iniciando script de tracking');
     try {
-      this.__storage.init();
+      // Inicializa el almacenamiento (para cookies)
+      // Nota: el método init() de __persistentStorage ya fue llamado anteriormente.
       this.dom = this.__get_TLD();
       lt.__log('Init', 'Dominio detectado', this.dom);
       this.visitorId = this.__getOrCreateUniqueId();
@@ -188,7 +222,7 @@
   lt.__check_session_changed = function () {
     lt.__log('Session', 'Verificando cambios en sesión');
     try {
-      let cookie = this.__storage.get('_ltsession');
+      let cookie = lt.__persistentStorage.get('_ltsession');
       lt.__log('Session', 'Cookie de sesión actual', cookie);
       const current_campaign = this.__get_current_campaign();
       let session_campaign = current_campaign;
@@ -214,7 +248,7 @@
         lt.__log('Session', 'Nueva sesión creada', this.session_id);
       }
       cookie = `${current_time}_${current_campaign}_${this.session_id}`;
-      this.__storage.set('_ltsession', cookie);
+      lt.__persistentStorage.set('_ltsession', cookie);
       lt.__log('Session', 'Cookie de sesión actualizada', cookie);
     } catch (e) {
       lt.__log('Session', 'Error en verificación de sesión', e);
@@ -289,7 +323,7 @@
               fbp: finalFbp,
               in_iframe: this.__config__.iframe,
               campaign_data: this.__get_current_campaign(),
-              ip: this.IP || '-'  // Incluye la IP o '-' si sigue sin estar
+              ip: this.IP || '-'
             }
           };
 
@@ -313,7 +347,6 @@
       const eventData = typeof event === "object" ? event : { name: event };
       lt.__log('Event', 'Datos del evento', eventData);
       this.accs.forEach(trackingId => {
-        // Agregamos IP a event_data si existe
         eventData.ip = this.IP || '-';
         const data = {
           type: eventData.type || 'custom',
@@ -333,18 +366,31 @@
     }
   };
 
+  // Función helper de throttle para limitar la frecuencia de ejecución de un callback
+  lt.__throttle = function(func, delay) {
+    let lastCall = 0;
+    return function(...args) {
+      const now = Date.now();
+      if (now - lastCall >= delay) {
+        lastCall = now;
+        return func.apply(this, args);
+      }
+    };
+  };
+
+  // Tracking de interacciones con throttle para evitar múltiples disparos en ráfaga.
   lt.__track_user_interaction = function (trackingId) {
     lt.__log('Interaction', 'Iniciando tracking de interacciones');
-    // Evitamos duplicar el listener de clic para Hotmart
     if (window.__hotmartClickListenerAttached) return;
     window.__hotmartClickListenerAttached = true;
     try {
-      document.addEventListener('click', (event) => {
+      // Se envuelve el callback con throttle (una vez cada 500ms)
+      const throttledClickHandler = lt.__throttle(function(event) {
         const target = event.target.closest('a');
         if (target && target.href && target.href.includes('hotmart')) {
           event.preventDefault();
           lt.__log('Interaction', 'Click en enlace Hotmart', target.href);
-          const { fbc, fbp } = this.__getFbcFbp();
+          const { fbc, fbp } = lt.__getFbcFbp();
           const browserInfo = {
             userAgent: navigator.userAgent,
             platform: navigator.platform,
@@ -353,39 +399,74 @@
           };
           const hotmartData = {
             type: 'hotmart_click',
-            visitor_id: this.visitorId,
-            session_id: this.session_id,
-            page_view_id: this.pvid,
+            visitor_id: lt.visitorId,
+            session_id: lt.session_id,
+            page_view_id: lt.pvid,
             url: target.href,
             fbc: fbc,
             fbp: fbp,
             browser_info: browserInfo,
-            utm_data: this.__get_utm_data(),
-            in_iframe: this.__config__.iframe,
-            ip: this.IP || '-' // Incluimos IP en el click
+            utm_data: lt.__get_utm_data(),
+            in_iframe: lt.__config__.iframe,
+            ip: lt.IP || '-'
           };
           lt.__log('Interaction', 'Datos de click en Hotmart', hotmartData);
-          this.__register_event(hotmartData);
+          lt.__register_event(hotmartData);
           const urlWithId = new URL(target.href);
-          urlWithId.searchParams.append('xcod', this.visitorId);
+          urlWithId.searchParams.append('xcod', lt.visitorId);
           lt.__log('Interaction', 'Redirigiendo a', urlWithId.toString());
           window.location.assign(urlWithId.toString());
         }
-      });
+      }, 500);
+
+      document.addEventListener('click', throttledClickHandler);
     } catch (e) {
       lt.__log('Interaction', 'Error en tracking de interacciones', e);
     }
   };
 
   lt.__get_utm_data = function () {
-    lt.__log('UTM', 'Obteniendo datos UTM');
+    lt.__log('UTM', 'Obteniendo datos UTM con persistencia');
     try {
-      const utmParams = {};
+      const utmFields = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+      let utmParams = {};
+      let foundInURL = false;
       const searchParams = new URLSearchParams(window.location.search);
-      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(param => {
-        utmParams[param] = searchParams.get(param) || '-';
+
+      utmFields.forEach(param => {
+        const value = searchParams.get(param);
+        if (value) {
+          utmParams[param] = decodeURIComponent(value);
+          foundInURL = true;
+        }
       });
-      lt.__log('UTM', 'Parámetros encontrados', utmParams);
+
+      if (foundInURL) {
+        try {
+          localStorage.setItem('utm_data', JSON.stringify(utmParams));
+          lt.__log('UTM', 'Datos UTM guardados en localStorage', utmParams);
+        } catch (e) {
+          lt.__log('UTM', 'Error guardando en localStorage', e);
+        }
+      } else {
+        try {
+          const stored = localStorage.getItem('utm_data');
+          if (stored) {
+            utmParams = JSON.parse(stored);
+            lt.__log('UTM', 'Datos UTM recuperados de localStorage', utmParams);
+          }
+        } catch (e) {
+          lt.__log('UTM', 'Error leyendo de localStorage', e);
+        }
+      }
+
+      utmFields.forEach(param => {
+        if (!utmParams[param]) {
+          utmParams[param] = '-';
+        }
+      });
+
+      lt.__log('UTM', 'Parámetros UTM persistidos', utmParams);
       return utmParams;
     } catch (e) {
       lt.__log('UTM', 'Error obteniendo datos UTM', e);
