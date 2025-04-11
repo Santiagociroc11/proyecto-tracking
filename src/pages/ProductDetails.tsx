@@ -490,10 +490,30 @@ fbq('track', 'PageView');
                         </h4>
                         <div className="mt-2 text-sm text-gray-500">
                           <p className="mb-4">Para comenzar a rastrear las visitas y conversiones, agrega este código a tu página de venta:</p>
-                          <ol className="list-decimal list-inside space-y-3 mb-4">
-                            <li>Accede al editor de tu página de venta</li>
-                            <li>Localiza la etiqueta <code>&lt;/body&gt;</code> al final de tu HTML</li>
-                            <li>Pega el siguiente código justo antes de esa etiqueta:</li>
+                          <ol className="space-y-4">
+                            <li className="flex items-start">
+                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">1</span>
+                              <span className="text-gray-700">Accede al editor de tu página de venta</span>
+                            </li>
+                            <li className="flex items-start">
+                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">2</span>
+                              <div className="text-gray-700">
+                                Debes instalar este script en el <code className="bg-gray-100 px-2 py-0.5 rounded text-indigo-600 font-mono">&lt;/HEAD&gt;</code> de la página
+                                <div className="mt-1 bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-xs">
+                                  <span className="font-semibold">IMPORTANTE:</span> ASEGÚRATE DE BORRAR CUALQUIER SCRIPT DE TRACKEO ANTERIOR QUE TENGA QUE VER CON HOTMART, TAMBIEN QUITA EL PIXEL DE FACEBOOK DE LA PAGINA, EL SCRIPT NUESTRO LO DISPARA.
+                                </div>
+                              </div>
+                            </li>
+                            <li className="flex items-start">
+                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">3</span>
+                              <div className="text-gray-700">
+                                Pega el siguiente código justo antes de esa etiqueta
+                                <div className="mt-1 flex items-start bg-red-50 border-l-4 border-red-500 p-2 text-red-700 text-xs">
+                                  <AlertTriangle className="h-4 w-4 mr-1 flex-shrink-0 mt-0.5" />
+                                  <span><span className="font-semibold">¡CUIDADO!</span> Si cambias el pixel por algún motivo, deberás volver a esta pantalla, copiar e ir a instalar nuevamente en tu página de venta.</span>
+                                </div>
+                              </div>
+                            </li>
                           </ol>
                         </div>
                         <div className="relative mt-4">
@@ -550,7 +570,12 @@ fbq('track', 'PageView');
                             <li>Accede a tu <a href="https://app-vlc.hotmart.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">Panel de Hotmart <ExternalLink className="h-3 w-3 inline" /></a></li>
                             <li>Ve a la configuración de tu producto</li>
                             <li>Busca la sección de "Notificaciones" o "Webhooks"</li>
-                            <li>Agrega esta URL como nuevo webhook:</li>
+                            <li>Agrega esta URL como nuevo webhook:
+                            <div className="mt-1 flex items-start bg-red-50 border-l-4 border-red-500 p-2 text-red-700 text-xs">
+                                  <AlertTriangle className="h-4 w-4 mr-1 flex-shrink-0 mt-0.5" />
+                                  <span><span className="font-semibold">¡AVISO!</span> Elimina el pixel del producto en hotmart, nuestro sistema lo dispara automaticamente en PAGOS INICIADOS Y COMPRAS</span>
+                                </div>
+                            </li>
                           </ol>
                         </div>
                         <div className="mt-4">
