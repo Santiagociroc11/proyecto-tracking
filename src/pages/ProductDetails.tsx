@@ -484,6 +484,9 @@ fbq('track', 'PageView');
                               <label htmlFor="fbTestEventCode" className="block text-sm font-medium text-gray-700">
                                 Código de Evento de Prueba (opcional)
                               </label>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Este código solo se usa temporalmente para verificar que los eventos API lleguen correctamente al pixel. <span className="font-bold text-red-600">DEBE QUITARSE antes de empezar a vender</span>.
+                              </p>
                               <input
                                 type="text"
                                 id="fbTestEventCode"
