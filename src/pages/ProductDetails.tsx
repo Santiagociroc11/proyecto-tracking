@@ -122,6 +122,27 @@ export default function ProductDetails() {
     setError('');
 
     try {
+      // Primero eliminamos los datos de tracking_events
+      const { error: trackingEventsError } = await supabase
+        .from('tracking_events')
+        .delete()
+        .eq('product_id', id);
+
+      if (trackingEventsError) {
+        console.error('Error deleting tracking events:', trackingEventsError);
+      }
+
+      // Eliminamos los datos de hotmart_clicks
+      const { error: hotmartClicksError } = await supabase
+        .from('hotmart_clicks')
+        .delete()
+        .eq('product_id', id);
+
+      if (hotmartClicksError) {
+        console.error('Error deleting hotmart clicks:', hotmartClicksError);
+      }
+
+      // Ahora podemos eliminar el producto
       const { error } = await supabase
         .from('products')
         .delete()
@@ -133,7 +154,16 @@ export default function ProductDetails() {
       navigate('/');
     } catch (err) {
       console.error('Error deleting product:', err);
-      setError('Error al eliminar el producto');
+      let errorMessage = 'Error al eliminar el producto';
+      if (err instanceof Error) {
+        // Intentamos dar un mensaje más descriptivo para los errores comunes
+        if (err.message.includes('foreign key constraint')) {
+          errorMessage = 'No se puede eliminar el producto porque tiene datos asociados. Contacte al soporte técnico.';
+        } else {
+          errorMessage = err.message;
+        }
+      }
+      setError(errorMessage);
       setSaving(false);
     }
   }
@@ -313,7 +343,7 @@ fbq('track', 'PageView');
               ¿Estás seguro de que quieres eliminar este producto?
             </h3>
             <p className="text-sm text-gray-500 mb-6">
-              Esta acción no se puede deshacer. Se eliminarán todos los datos asociados al producto.
+              Esta acción no se puede deshacer. Se eliminarán todos los datos asociados al producto (eventos de tracking, clicks de Hotmart, etc.).
             </p>
             <div className="flex justify-end space-x-4">
               <button
