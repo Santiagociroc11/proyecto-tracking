@@ -267,25 +267,33 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month' | 'quarter') => {
     const now = new Date();
     let start: Date;
+    const end = new Date();
+    
     switch (newTimeframe) {
       case 'day':
-        start = new Date(now.setHours(0, 0, 0, 0));
+        // Set to start of current day in local time
+        start = new Date(now);
+        start.setHours(0, 0, 0, 0);
         break;
       case 'week':
-        start = new Date(now.setDate(now.getDate() - 7));
+        start = new Date(now);
+        start.setDate(now.getDate() - 7);
         break;
       case 'month':
-        start = new Date(now.setMonth(now.getMonth() - 1));
+        start = new Date(now);
+        start.setMonth(now.getMonth() - 1);
         break;
       case 'quarter':
-        start = new Date(now.setMonth(now.getMonth() - 3));
+        start = new Date(now);
+        start.setMonth(now.getMonth() - 3);
         break;
       default:
         return;
     }
+    
     setTimeframe(newTimeframe);
     setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(new Date().toISOString().split('T')[0]);
+    setEndDate(end.toISOString().split('T')[0]);
     setDateError('');
   };
 
