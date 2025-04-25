@@ -482,11 +482,9 @@ fbq('track', 'PageView');
 
                             <div>
                               <label htmlFor="fbTestEventCode" className="block text-sm font-medium text-gray-700">
-                                Código de Evento de Prueba (opcional)
+                                Código de TEST EVENT (opcional)
                               </label>
-                              <p className="mt-1 text-xs text-gray-500">
-                                Este código solo se usa temporalmente para verificar que los eventos API lleguen correctamente al pixel. <span className="font-bold text-red-600">DEBE QUITARSE antes de empezar a vender</span>.
-                              </p>
+                              
                               <input
                                 type="text"
                                 id="fbTestEventCode"
@@ -495,6 +493,17 @@ fbq('track', 'PageView');
                                 className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                                 placeholder="Ej: TEST123"
                               />
+                              <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                <div className="flex items-center text-yellow-800">
+                                  <AlertTriangle className="h-5 w-5 mr-2 text-yellow-600" />
+                                  <p className="text-xs">
+                                    Este TEST EVENT es temporal y sirve únicamente para verificar la correcta llegada de eventos API al pixel.
+                                    <span className="ml-1 font-bold text-red-600">
+                                      Debes eliminarlo antes de comenzar a recibir ventas reales.
+                                    </span>
+                                  </p>
+                                </div>
+                              </div>
                             </div>
 
                             <div className="flex justify-end pt-4">
@@ -532,8 +541,12 @@ fbq('track', 'PageView');
                               <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">2</span>
                               <div className="text-gray-700">
                                 Debes instalar este script en el <code className="bg-gray-100 px-2 py-0.5 rounded text-indigo-600 font-mono">&lt;/HEAD&gt;</code> de la página
-                                <div className="mt-1 bg-amber-50 border-l-4 border-amber-500 p-2 text-amber-700 text-xs">
-                                  <span className="font-semibold">IMPORTANTE:</span> ASEGÚRATE DE BORRAR CUALQUIER SCRIPT DE TRACKEO ANTERIOR QUE TENGA QUE VER CON HOTMART, TAMBIEN QUITA EL PIXEL DE FACEBOOK DE LA PAGINA, EL SCRIPT NUESTRO LO DISPARA.
+                                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800">
+                                  <div className="flex items-center">
+                                    <AlertTriangle className="h-5 w-5 mr-2 text-amber-500" />
+                                    <span className="font-semibold">IMPORTANTE</span>
+                                  </div>
+                                  <p className="mt-1">Asegúrate de borrar cualquier script de trackeo anterior relacionado con Hotmart. También quita el pixel de Facebook de la página, nuestro script lo dispara automáticamente.</p>
                                 </div>
                               </div>
                             </li>
@@ -541,9 +554,12 @@ fbq('track', 'PageView');
                               <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">3</span>
                               <div className="text-gray-700">
                                 Pega el siguiente código justo antes de esa etiqueta
-                                <div className="mt-1 flex items-start bg-red-50 border-l-4 border-red-500 p-2 text-red-700 text-xs">
-                                  <AlertTriangle className="h-4 w-4 mr-1 flex-shrink-0 mt-0.5" />
-                                  <span><span className="font-semibold">¡CUIDADO!</span> Si cambias el pixel por algún motivo, deberás volver a esta pantalla, copiar e ir a instalar nuevamente en tu página de venta.</span>
+                                <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
+                                  <div className="flex items-center">
+                                    <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
+                                    <span className="font-semibold">¡ATENCIÓN!</span>
+                                  </div>
+                                  <p className="mt-1">Si cambias el pixel por algún motivo, deberás volver a esta pantalla, copiar e instalar nuevamente EL SCRIPT COMPLETO en tu página de venta.</p>
                                 </div>
                               </div>
                             </li>
@@ -604,10 +620,19 @@ fbq('track', 'PageView');
                             <li>Ve a la configuración de tu producto</li>
                             <li>Busca la sección de "Notificaciones" o "Webhooks"</li>
                             <li>Agrega esta URL como nuevo webhook:
-                            <div className="mt-1 flex items-start bg-red-50 border-l-4 border-red-500 p-2 text-red-700 text-xs">
-                                  <AlertTriangle className="h-4 w-4 mr-1 flex-shrink-0 mt-0.5" />
-                                  <span><span className="font-semibold">¡AVISO!</span> Elimina el pixel del producto en hotmart, nuestro sistema lo dispara automaticamente en PAGOS INICIADOS Y COMPRAS</span>
+                              <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-4">
+                                <div className="flex">
+                                  <div className="flex-shrink-0">
+                                    <AlertTriangle className="h-5 w-5 text-red-400" />
+                                  </div>
+                                  <div className="ml-3">
+                                    <h3 className="text-sm font-medium text-red-800">¡Aviso Importante!</h3>
+                                    <div className="mt-2 text-sm text-red-700">
+                                      Elimina el pixel del producto en Hotmart. Nuestro sistema lo dispara automáticamente en pagos iniciados y compras.
+                                    </div>
+                                  </div>
                                 </div>
+                              </div>
                             </li>
                           </ol>
                         </div>
