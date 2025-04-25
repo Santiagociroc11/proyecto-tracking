@@ -167,14 +167,21 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('day');
-  const [startDate, setStartDate] = useState<string>(
-    new Date().toISOString().split('T')[0]
-  );
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  
+  // Helper function to format date in user's timezone
+  const formatLocalDate = (date: Date) => {
+    return formatDateToTimezone(date, timezone);
+  };
+  
+  const today = new Date();
+  const todayFormatted = formatLocalDate(today);
+  
+  const [startDate, setStartDate] = useState<string>(todayFormatted);
+  const [endDate, setEndDate] = useState<string>(todayFormatted);
   const [dateError, setDateError] = useState<string>('');
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-  const [error, setError] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
   const [columnWidths, setColumnWidths] = useState<ColumnWidth>(() => {
     const storedWidths = localStorage.getItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY);
     return storedWidths
@@ -208,6 +215,16 @@ export default function AnalyticsDashboard({ productId }: Props) {
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
   }, [columnWidths]);
+
+  // Initialize to today's date in user's timezone when component mounts
+  useEffect(() => {
+    // Set to today when component first loads
+    const today = new Date();
+    const todayFormatted = formatLocalDate(today);
+    console.log(`Initializing dates to today: ${todayFormatted} in timezone: ${timezone}`);
+    setStartDate(todayFormatted);
+    setEndDate(todayFormatted);
+  }, [timezone]);
 
   const toggleRowExpansion = (index: number) => {
     const newExpandedRows = new Set(expandedRows);
@@ -265,51 +282,80 @@ export default function AnalyticsDashboard({ productId }: Props) {
   };
 
   const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month' | 'quarter') => {
-    const now = new Date();
+    // Get current date in user's timezone
+    const today = new Date();
     let start: Date;
-    const end = new Date();
+    
+    const todayFormatted = formatLocalDate(today);
+    console.log(`Setting preset timeframe: ${newTimeframe}, today: ${todayFormatted}`);
     
     switch (newTimeframe) {
       case 'day':
-        // Set to start of current day in local time
-        start = new Date(now);
-        start.setHours(0, 0, 0, 0);
+        setStartDate(todayFormatted);
+        setEndDate(todayFormatted);
         break;
       case 'week':
-        start = new Date(now);
-        start.setDate(now.getDate() - 7);
+        start = new Date(today);
+        start.setDate(today.getDate() - 7);
+        setStartDate(formatLocalDate(start));
+        setEndDate(todayFormatted);
         break;
       case 'month':
-        start = new Date(now);
-        start.setMonth(now.getMonth() - 1);
+        start = new Date(today);
+        start.setMonth(today.getMonth() - 1);
+        setStartDate(formatLocalDate(start));
+        setEndDate(todayFormatted);
         break;
       case 'quarter':
-        start = new Date(now);
-        start.setMonth(now.getMonth() - 3);
+        start = new Date(today);
+        start.setMonth(today.getMonth() - 3);
+        setStartDate(formatLocalDate(start));
+        setEndDate(todayFormatted);
         break;
-      default:
-        return;
     }
     
     setTimeframe(newTimeframe);
-    setStartDate(start.toISOString().split('T')[0]);
-    setEndDate(end.toISOString().split('T')[0]);
-    setDateError('');
   };
 
   const resetDateFilter = () => {
-    setPresetTimeframe('day');
+    const today = new Date();
+    const formattedToday = formatLocalDate(today);
+    setStartDate(formattedToday);
+    setEndDate(formattedToday);
+    setTimeframe('day');
   };
 
   async function loadAnalytics() {
     try {
       setLoading(true);
-      setError('');
+      setError(null);
 
       if (!user) {
-        setError('Usuario no autenticado');
+        setError('Debes iniciar sesión para ver las estadísticas.');
+        setLoading(false);
         return;
       }
+
+      // Validate date format first
+      if (!startDate.match(/^\d{4}-\d{2}-\d{2}$/) || !endDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        setError('Formato de fecha inválido. Se espera YYYY-MM-DD');
+        setLoading(false);
+        return;
+      }
+
+      // Parse the date parts
+      const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+      const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+      
+      // Create Date objects with time at start/end of day in local timezone
+      const startLocalDate = new Date(startYear, startMonth - 1, startDay, 0, 0, 0);
+      const endLocalDate = new Date(endYear, endMonth - 1, endDay, 23, 59, 59, 999);
+      
+      // Convert to UTC ISO strings for database query
+      const startUTC = startLocalDate.toISOString();
+      const endUTC = endLocalDate.toISOString();
+      
+      console.log(`Querying database from ${startUTC} to ${endUTC} (local date range: ${startDate} to ${endDate})`);
 
       // Verificar acceso al producto
       const { data: userData } = await supabase
@@ -329,55 +375,100 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
-      const { start, end } = getStartEndDatesInUTC(startDate, endDate, timezone);
-
       const { data: events, error: eventsError } = await supabase
         .from('tracking_events')
         .select(`
           id,
           event_type,
-          event_data,
-          created_at,
           visitor_id,
+          session_id,
+          created_at,
+          event_data,
           url
         `)
         .eq('product_id', productId)
-        .gte('created_at', start)
-        .lte('created_at', end)
+        .gte('created_at', startUTC)
+        .lte('created_at', endUTC)
         .order('created_at', { ascending: true });
 
-      if (eventsError) throw eventsError;
+      if (eventsError) {
+        console.error('Error fetching events:', eventsError);
+        setError(`Error cargando eventos: ${eventsError.message}`);
+        setLoading(false);
+        return;
+      }
+
+      if (!events || events.length === 0) {
+        console.log('No events found for the selected date range');
+        setData({
+          total_visits: 0,
+          unique_visits: 0,
+          total_clicks: 0,
+          unique_clicks: 0,
+          total_purchases: 0,
+          conversion_rate: 0,
+          unique_conversion_rate: 0,
+          persuasion_rate: 0,
+          unique_persuasion_rate: 0,
+          utm_stats: [],
+          daily_stats: [],
+          top_sources: [],
+        });
+        setLoading(false);
+        return;
+      }
+
+      console.log(`Processing ${events.length} events. First event timestamp: ${events[0].created_at}, in local time: ${formatDateToTimezone(events[0].created_at, timezone)}`);
 
       // Inicializamos mapas y sets para estadísticas
-      const utmStats = new Map();
-      const dailyStats = new Map();
+      const uniqueVisitors = new Set<string>();
+      const uniqueClicks = new Set<string>();
       let totalVisits = 0;
       let totalClicks = 0;
       let totalPurchases = 0;
-      const uniqueVisitors = new Set();
-      const uniqueClicks = new Set();
-      const dailyUniqueVisitors = new Map<string, Set<any>>();
-      const dailyUniqueClicks = new Map<string, Set<any>>();
+
+      // Para estadísticas por UTM
+      const utmStats = new Map<string, any>();
+
+      // Para estadísticas diarias
+      const dailyStats = new Map<string, any>();
+      const dailyUniqueVisitors = new Map<string, Set<string>>();
+      const dailyUniqueClicks = new Map<string, Set<string>>();
 
       events.forEach((event) => {
-        const date = getDateInTimezone(event.created_at, timezone);
-
-        // Inicializar estadísticas diarias
-        if (!dailyStats.has(date)) {
-          dailyStats.set(date, {
-            date,
+        // Get date in user's timezone
+        const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
+        console.log(`Processing event: ${event.event_type}, created_at: ${event.created_at}, local date: ${localDate}`);
+        
+        // Inicializar estadísticas diarias si no existen
+        if (!dailyStats.has(localDate)) {
+          dailyStats.set(localDate, {
+            date: localDate,
             visits: 0,
             unique_visits: 0,
             clicks: 0,
             unique_clicks: 0,
-            purchases: 0,
+            purchases: 0
           });
-          dailyUniqueVisitors.set(date, new Set());
-          dailyUniqueClicks.set(date, new Set());
         }
-        const dayStats = dailyStats.get(date);
-        const dayUniqueVisitors = dailyUniqueVisitors.get(date);
-        const dayUniqueClicks = dailyUniqueClicks.get(date);
+
+        // Inicializar sets de visitas y clics únicos por día
+        if (!dailyUniqueVisitors.has(localDate)) {
+          dailyUniqueVisitors.set(localDate, new Set());
+        }
+        if (!dailyUniqueClicks.has(localDate)) {
+          dailyUniqueClicks.set(localDate, new Set());
+        }
+        
+        const dayStats = dailyStats.get(localDate);
+        const dayUniqueVisitors = dailyUniqueVisitors.get(localDate);
+        const dayUniqueClicks = dailyUniqueClicks.get(localDate);
+        
+        // Safety check
+        if (!dayStats || !dayUniqueVisitors || !dayUniqueClicks) {
+          console.error(`Missing daily stats for date ${localDate}`);
+          return;
+        }
 
         const utmData = event.event_data?.utm_data || {};
         const utmKey = JSON.stringify({
@@ -435,7 +526,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         stats.unique_visits = stats.visitorSet.size;
         stats.unique_clicks = stats.clickSet.size;
         utmStats.set(utmKey, stats);
-        dailyStats.set(date, dayStats);
+        dailyStats.set(localDate, dayStats);
       });
 
       const utmStatsArray = Array.from(utmStats.values())
@@ -782,7 +873,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   id="end-date"
                   value={endDate}
                   min={startDate}
-                  max={new Date().toISOString().split('T')[0]}
+                  max={formatLocalDate(new Date())}
                   onChange={(e) => handleDateChange('end', e.target.value)}
                   className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                 />

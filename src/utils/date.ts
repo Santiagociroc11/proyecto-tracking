@@ -1,18 +1,15 @@
 export function formatDateToTimezone(date: Date | string, timezone: string): string {
   try {
     const d = typeof date === 'string' ? new Date(date) : date;
-    return new Intl.DateTimeFormat('es-ES', {
+    return new Intl.DateTimeFormat('en-CA', {
       timeZone: timezone,
       year: 'numeric',
       month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false
-    }).format(d);
+      day: '2-digit'
+    }).format(d); // Returns YYYY-MM-DD format
   } catch (error) {
     console.error('Error formatting date:', error);
-    return new Date(date).toISOString();
+    return new Date(date).toISOString().split('T')[0];
   }
 }
 
@@ -33,15 +30,32 @@ export function getDateInTimezone(date: Date | string, timezone: string): string
 }
 
 export function getStartEndDatesInUTC(startDate: string, endDate: string, timezone: string): { start: string, end: string } {
-  // Create dates at start and end of the day in the specified timezone
-  const startDateTime = new Date(`${startDate}T00:00:00`);
-  const endDateTime = new Date(`${endDate}T23:59:59.999`);
-
-  // Convert to UTC strings
-  const start = new Date(startDateTime.toLocaleString('en-US', { timeZone: timezone })).toISOString();
-  const end = new Date(endDateTime.toLocaleString('en-US', { timeZone: timezone })).toISOString();
-
-  return { start, end };
+  try {
+    // Make sure we have valid format dates
+    if (!startDate.match(/^\d{4}-\d{2}-\d{2}$/) || !endDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      throw new Error('Invalid date format. Expected YYYY-MM-DD');
+    }
+    
+    // Parse the date parts
+    const [startYear, startMonth, startDay] = startDate.split('-').map(Number);
+    const [endYear, endMonth, endDay] = endDate.split('-').map(Number);
+    
+    // Ensure valid month values (JavaScript months are 0-indexed)
+    const startMonthIndex = startMonth - 1;
+    const endMonthIndex = endMonth - 1;
+    
+    // Create Date objects for start and end of day in UTC
+    const startUTC = new Date(Date.UTC(startYear, startMonthIndex, startDay, 0, 0, 0));
+    const endUTC = new Date(Date.UTC(endYear, endMonthIndex, endDay, 23, 59, 59, 999));
+    
+    return {
+      start: startUTC.toISOString(),
+      end: endUTC.toISOString()
+    };
+  } catch (error) {
+    console.error('Error in getStartEndDatesInUTC:', error);
+    throw error; // Re-throw to make debugging easier
+  }
 }
 
 export function parseUTCToTimezone(utcDate: string, timezone: string): string {
