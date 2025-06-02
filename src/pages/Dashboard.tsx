@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { diagnostics } from '../lib/diagnostics';
-import { Plus, LogOut, Activity, AlertTriangle, Package, Settings, BarChart } from 'lucide-react';
+import { Plus, LogOut, Activity, AlertTriangle, Package, Settings, BarChart, Users, DollarSign, TrendingUp, Eye } from 'lucide-react';
 
 interface Product {
   id: string;
@@ -20,18 +20,180 @@ interface UsageStats {
   maxProducts: number;
 }
 
+interface TrackingMetrics {
+  totalVisits: number;
+  uniqueVisits: number;
+  totalClicks: number;
+  uniqueClicks: number;
+  totalPurchases: number;
+  conversionRate: number;
+  uniqueConversionRate: number;
+  persuasionRate: number;
+  uniquePersuasionRate: number;
+}
+
 export default function Dashboard() {
   const { user, signOut } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [usage, setUsage] = useState<UsageStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // New states for tracking metrics
+  const [trackingMetrics, setTrackingMetrics] = useState<TrackingMetrics | null>(null);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState<'today' | '3days' | '7days'>('today');
+  const [showUnique, setShowUnique] = useState(false);
 
   useEffect(() => {
     if (user?.id) {
       loadData();
+      loadTrackingMetrics();
     }
-  }, [user?.id]);
+  }, [user?.id, selectedPeriod]);
+
+  async function loadTrackingMetrics() {
+    try {
+      setMetricsLoading(true);
+      
+      if (!user?.id) {
+        return;
+      }
+
+      // Calculate date range based on selected period
+      const now = new Date();
+      let startDate: Date;
+      
+      switch (selectedPeriod) {
+        case 'today':
+          startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+          break;
+        case '3days':
+          startDate = new Date(now);
+          startDate.setDate(now.getDate() - 3);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+        case '7days':
+          startDate = new Date(now);
+          startDate.setDate(now.getDate() - 7);
+          startDate.setHours(0, 0, 0, 0);
+          break;
+      }
+
+      const endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      
+      // Check user role to determine which products to include
+      const { data: userData } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+
+      // Get user's products or all products if admin
+      let productIds: string[] = [];
+      if (userData?.role === 'admin') {
+        const { data: allProducts } = await supabase
+          .from('products')
+          .select('id');
+        productIds = allProducts?.map(p => p.id) || [];
+      } else {
+        const { data: userProducts } = await supabase
+          .from('products')
+          .select('id')
+          .eq('user_id', user.id);
+        productIds = userProducts?.map(p => p.id) || [];
+      }
+
+      if (productIds.length === 0) {
+        setTrackingMetrics({
+          totalVisits: 0,
+          uniqueVisits: 0,
+          totalClicks: 0,
+          uniqueClicks: 0,
+          totalPurchases: 0,
+          conversionRate: 0,
+          uniqueConversionRate: 0,
+          persuasionRate: 0,
+          uniquePersuasionRate: 0,
+        });
+        return;
+      }
+
+      // Fetch tracking events for the date range and user's products
+      const { data: events, error: eventsError } = await supabase
+        .from('tracking_events')
+        .select('id, event_type, visitor_id, session_id, created_at, product_id')
+        .in('product_id', productIds)
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: true });
+
+      if (eventsError) {
+        console.error('Error fetching tracking events:', eventsError);
+        return;
+      }
+
+      if (!events || events.length === 0) {
+        setTrackingMetrics({
+          totalVisits: 0,
+          uniqueVisits: 0,
+          totalClicks: 0,
+          uniqueClicks: 0,
+          totalPurchases: 0,
+          conversionRate: 0,
+          uniqueConversionRate: 0,
+          persuasionRate: 0,
+          uniquePersuasionRate: 0,
+        });
+        return;
+      }
+
+      // Process events to calculate metrics
+      const uniqueVisitors = new Set<string>();
+      const uniqueClicks = new Set<string>();
+      let totalVisits = 0;
+      let totalClicks = 0;
+      let totalPurchases = 0;
+
+      events.forEach((event) => {
+        switch (event.event_type) {
+          case 'pageview':
+            totalVisits++;
+            uniqueVisitors.add(event.visitor_id);
+            break;
+          case 'hotmart_click':
+            totalClicks++;
+            uniqueClicks.add(event.visitor_id);
+            break;
+          case 'compra_hotmart':
+            totalPurchases++;
+            break;
+        }
+      });
+
+      const conversionRate = totalVisits > 0 ? (totalPurchases / totalVisits) * 100 : 0;
+      const uniqueConversionRate = uniqueVisitors.size > 0 ? (totalPurchases / uniqueVisitors.size) * 100 : 0;
+      const persuasionRate = totalVisits > 0 ? (totalClicks / totalVisits) * 100 : 0;
+      const uniquePersuasionRate = uniqueVisitors.size > 0 ? (uniqueClicks.size / uniqueVisitors.size) * 100 : 0;
+
+      setTrackingMetrics({
+        totalVisits,
+        uniqueVisits: uniqueVisitors.size,
+        totalClicks,
+        uniqueClicks: uniqueClicks.size,
+        totalPurchases,
+        conversionRate,
+        uniqueConversionRate,
+        persuasionRate,
+        uniquePersuasionRate,
+      });
+
+    } catch (error) {
+      console.error('Error loading tracking metrics:', error);
+    } finally {
+      setMetricsLoading(false);
+    }
+  }
 
   async function loadData() {
     try {
@@ -97,6 +259,15 @@ export default function Dashboard() {
     }
   }
 
+  const getPeriodLabel = (period: string) => {
+    switch (period) {
+      case 'today': return 'Hoy';
+      case '3days': return 'Últimos 3 días';
+      case '7days': return 'Últimos 7 días';
+      default: return 'Hoy';
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -154,6 +325,128 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      {/* Tracking Metrics Section */}
+      <div className="mb-8">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900">Métricas de Tracking</h2>
+          <div className="flex items-center gap-4">
+            {/* Period Filter */}
+            <div className="flex space-x-2">
+              {(['today', '3days', '7days'] as const).map((period) => (
+                <button
+                  key={period}
+                  onClick={() => setSelectedPeriod(period)}
+                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                    selectedPeriod === period
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
+                  }`}
+                >
+                  {getPeriodLabel(period)}
+                </button>
+              ))}
+            </div>
+            
+            {/* Unique/Total Switch */}
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showUnique}
+                onChange={() => setShowUnique(!showUnique)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 
+                peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] 
+                after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 
+                after:border after:rounded-full after:h-5 after:w-5 after:transition-all 
+                peer-checked:bg-indigo-600"></div>
+              <span className="ml-3 text-sm font-medium text-gray-900">
+                {showUnique ? 'Únicos' : 'Totales'}
+              </span>
+            </label>
+          </div>
+        </div>
+
+        {/* Tracking Metrics Cards */}
+        {metricsLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[...Array(3)].map((_, index) => (
+              <div key={index} className="bg-white rounded-lg shadow p-6">
+                <div className="animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-1/2 mb-2"></div>
+                  <div className="h-8 bg-gray-200 rounded w-3/4 mb-2"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : trackingMetrics ? (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Visitas Card */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-100 rounded">
+                  <Eye className="h-6 w-6 text-blue-600" />
+                </div>
+                <div className="ml-4 flex-1">
+                  <p className="text-sm font-medium text-gray-500">
+                    Visitas {showUnique ? 'Únicas' : 'Totales'}
+                  </p>
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    {showUnique ? trackingMetrics.uniqueVisits.toLocaleString() : trackingMetrics.totalVisits.toLocaleString()}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Tasa base de tráfico
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Pagos Iniciados Card */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-green-100 rounded">
+                  <TrendingUp className="h-6 w-6 text-green-600" />
+                </div>
+                <div className="ml-4 flex-1">
+                  <p className="text-sm font-medium text-gray-500">
+                    Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}
+                  </p>
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    {showUnique ? trackingMetrics.uniqueClicks.toLocaleString() : trackingMetrics.totalClicks.toLocaleString()}
+                  </h3>
+                  <p className="text-xs text-green-600 mt-1 font-medium">
+                    {(showUnique ? trackingMetrics.uniquePersuasionRate : trackingMetrics.persuasionRate).toFixed(2)}% tasa de persuasión
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Compras Card */}
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="flex items-center">
+                <div className="p-2 bg-purple-100 rounded">
+                  <DollarSign className="h-6 w-6 text-purple-600" />
+                </div>
+                <div className="ml-4 flex-1">
+                  <p className="text-sm font-medium text-gray-500">Compras Completadas</p>
+                  <h3 className="text-2xl font-bold text-gray-900">
+                    {trackingMetrics.totalPurchases.toLocaleString()}
+                  </h3>
+                  <p className="text-xs text-purple-600 mt-1 font-medium">
+                    {(showUnique ? trackingMetrics.uniqueConversionRate : trackingMetrics.conversionRate).toFixed(2)}% tasa de conversión
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="bg-gray-50 rounded-lg p-8 text-center">
+            <p className="text-gray-500">No hay datos de tracking disponibles para el período seleccionado</p>
+          </div>
+        )}
+      </div>
+
       {/* Usage Stats */}
       {usage && (
         <div className="mb-8 grid grid-cols-1 md:grid-cols-2 gap-6">
