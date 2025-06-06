@@ -63,12 +63,119 @@ interface TrackingEventWithProduct {
   page_view_id: string;
 }
 
+interface GeolocationData {
+  city?: string;
+  region?: string; // state/province
+  country?: string;
+  country_code?: string;
+  error?: boolean;
+}
+
 function hashSHA256(value: string): string {
   return crypto.SHA256(value).toString(crypto.enc.Hex);
 }
 
+/**
+ * Obtiene datos de geolocalización por IP usando una API gratuita
+ * @param ip - Dirección IP a consultar
+ * @returns Datos de geolocalización o null si hay error
+ */
+async function getGeolocationByIP(ip: string): Promise<GeolocationData | null> {
+  try {
+    console.log(`Obteniendo geolocalización para IP: ${ip}`);
+    
+    // Usar ipapi.co (1000 requests/day gratis)
+    const response = await fetch(`https://ipapi.co/${ip}/json/`, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Hotmart-Tracking/1.0'
+      },
+      // Timeout de 5 segundos para no bloquear el flujo principal
+      signal: AbortSignal.timeout(5000)
+    });
 
+    if (!response.ok) {
+      console.warn(`Error en API de geolocalización: ${response.status}`);
+      return null;
+    }
 
+    const data = await response.json();
+    
+    // Verificar si hay error en la respuesta
+    if (data.error) {
+      console.warn(`Error en datos de geolocalización: ${data.reason}`);
+      return null;
+    }
+
+    console.log(`Geolocalización obtenida:`, {
+      city: data.city,
+      region: data.region,
+      country: data.country_name,
+      country_code: data.country_code
+    });
+
+    return {
+      city: data.city || undefined,
+      region: data.region || undefined,
+      country: data.country_name || undefined,
+      country_code: data.country_code || undefined
+    };
+
+  } catch (error) {
+    console.warn(`Error obteniendo geolocalización por IP: ${error}`);
+    return null;
+  }
+}
+
+/**
+ * Completa los datos de dirección faltantes usando geolocalización por IP
+ * @param address - Dirección original de Hotmart
+ * @param ip - IP del comprador
+ * @returns Dirección completada con datos de geolocalización si es necesario
+ */
+async function enhanceAddressWithGeolocation(
+  address: HotmartEvent['data']['buyer']['address'], 
+  ip: string
+): Promise<HotmartEvent['data']['buyer']['address']> {
+  // Si ya tenemos city y state, no necesitamos hacer la consulta
+  if (address.city && address.state) {
+    console.log('City y state ya están presentes, no se necesita geolocalización');
+    return address;
+  }
+
+  console.log(`Faltan datos de dirección. City: ${address.city}, State: ${address.state}`);
+  
+  const geoData = await getGeolocationByIP(ip);
+  
+  if (!geoData) {
+    console.log('No se pudo obtener datos de geolocalización, usando datos originales');
+    return address;
+  }
+
+  // Crear una copia de la dirección original
+  const enhancedAddress = { ...address };
+
+  // Completar city si falta
+  if (!enhancedAddress.city && geoData.city) {
+    enhancedAddress.city = geoData.city;
+    console.log(`City completada desde geolocalización: ${geoData.city}`);
+  }
+
+  // Completar state si falta
+  if (!enhancedAddress.state && geoData.region) {
+    enhancedAddress.state = geoData.region;
+    console.log(`State completado desde geolocalización: ${geoData.region}`);
+  }
+
+  // Verificar que el país coincida (por seguridad)
+  if (geoData.country_code && 
+      enhancedAddress.country_iso && 
+      geoData.country_code.toLowerCase() !== enhancedAddress.country_iso.toLowerCase()) {
+    console.warn(`País no coincide. Hotmart: ${enhancedAddress.country_iso}, Geolocalización: ${geoData.country_code}`);
+  }
+
+  return enhancedAddress;
+}
 
 async function sendFacebookConversion(
   product: Product,
@@ -82,20 +189,31 @@ async function sendFacebookConversion(
 
   const buyer = event.data.buyer;
   const price = event.data.purchase.price;
-  const address = buyer.address;
+  const buyerIP = event.data.purchase.buyer_ip;
+  const xcod = event.data.purchase.origin.xcod; // Este es nuestro visitor_id
+  
+  // Completar datos de dirección con geolocalización si es necesario
+  const enhancedAddress = await enhanceAddressWithGeolocation(buyer.address, buyerIP);
+  
+  console.log('Datos de dirección finales para Facebook:', {
+    original: buyer.address,
+    enhanced: enhancedAddress
+  });
 
   const encryptedData = {
     em: [hashSHA256(buyer.email)],
     ph: [hashSHA256(buyer.checkout_phone)],
     fn: [hashSHA256(buyer.name)],
-    country: [hashSHA256(address.country)],
-    zp: address.zip ? [hashSHA256(address.zip)] : [],
-    ct: address.city ? [hashSHA256(address.city)] : [],
-    st: address.state ? [hashSHA256(address.state)] : [],
-    client_ip_address: event.data.purchase.buyer_ip,
+    country: [hashSHA256(enhancedAddress.country)],
+    zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip)] : [],
+    ct: enhancedAddress.city ? [hashSHA256(enhancedAddress.city)] : [],
+    st: enhancedAddress.state ? [hashSHA256(enhancedAddress.state)] : [],
+    client_ip_address: buyerIP,
     client_user_agent: trackingEvent?.event_data?.browser_info?.userAgent || null,
     fbc: trackingEvent?.event_data?.fbc || null,
     fbp: trackingEvent?.event_data?.fbp || null,
+    // Añadir external_id usando el xcod para mejor matching con el InitiateCheckout
+    external_id: (xcod && typeof xcod === 'string' && xcod.length > 0) ? [xcod] : null
   };
 
   const eventPayload: any = {
@@ -124,6 +242,13 @@ async function sendFacebookConversion(
   const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
 
   try {
+    console.log('Enviando evento Purchase a Facebook con external_id:', {
+      external_id: xcod,
+      event_name: 'Purchase',
+      value: price.value,
+      currency: price.currency_value
+    });
+
     const fbResponse = await fetch(fbUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

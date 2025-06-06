@@ -221,7 +221,8 @@ async function sendFacebookConversion(
           client_ip_address: data.event_data?.ip || null,
           client_user_agent: data.user_agent || data.event_data?.browser_info?.userAgent || null,
           fbc: data.event_data?.fbc || null,
-          fbp: data.event_data?.fbp || null
+          fbp: data.event_data?.fbp || null,
+          external_id: (data.visitor_id && typeof data.visitor_id === 'string' && data.visitor_id.length > 0) ? [data.visitor_id] : null
         }
       }]
     };
@@ -231,7 +232,11 @@ async function sendFacebookConversion(
     }
 
     const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
-    log('Facebook', 'Enviando evento de conversión', { url: fbUrl, payload: eventPayload });
+    log('Facebook', 'Enviando evento de conversión con external_id', { 
+      url: fbUrl, 
+      payload: eventPayload,
+      visitor_id: data.visitor_id 
+    });
 
     const response = await fetch(fbUrl, {
       method: 'POST',
