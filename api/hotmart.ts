@@ -84,8 +84,9 @@ async function getGeolocationByIP(ip: string): Promise<GeolocationData | null> {
   try {
     console.log(`Obteniendo geolocalización para IP: ${ip}`);
     
-    // Usar ipapi.co (1000 requests/day gratis)
-    const response = await fetch(`https://ipapi.co/${ip}/json/`, {
+    // Usar ip-api.com (1000 requests/month gratis, más confiable)
+    // Nota: No necesitamos especificar fields, devuelve todo por defecto
+    const response = await fetch(`http://ip-api.com/json/${ip}`, {
       method: 'GET',
       headers: {
         'User-Agent': 'Hotmart-Tracking/1.0'
@@ -102,23 +103,25 @@ async function getGeolocationByIP(ip: string): Promise<GeolocationData | null> {
     const data = await response.json();
     
     // Verificar si hay error en la respuesta
-    if (data.error) {
-      console.warn(`Error en datos de geolocalización: ${data.reason}`);
+    if (data.status === 'fail') {
+      console.warn(`Error en datos de geolocalización: ${data.message}`);
       return null;
     }
 
     console.log(`Geolocalización obtenida:`, {
       city: data.city,
-      region: data.region,
-      country: data.country_name,
-      country_code: data.country_code
+      region: data.regionName || data.region, // Usar regionName para nombre completo
+      country: data.country,
+      country_code: data.countryCode,
+      zip: data.zip,
+      timezone: data.timezone
     });
 
     return {
       city: data.city || undefined,
-      region: data.region || undefined,
-      country: data.country_name || undefined,
-      country_code: data.country_code || undefined
+      region: data.regionName || data.region || undefined, // Preferir regionName
+      country: data.country || undefined,
+      country_code: data.countryCode || undefined
     };
 
   } catch (error) {
