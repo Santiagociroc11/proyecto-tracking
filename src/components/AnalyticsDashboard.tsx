@@ -205,6 +205,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [selectedSummaryMetric, setSelectedSummaryMetric] = useState<'conversion' | 'persuasion'>('conversion');
   // Estado para seleccionar la categoría de UTM a analizar
   const [selectedUtmCategory, setSelectedUtmCategory] = useState<'campaign' | 'medium' | 'content'>('campaign');
+  // Estado para el modo de análisis
+  const [analysisMode, setAnalysisMode] = useState<'pure' | 'combined'>('combined');
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -657,7 +659,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
   // Agrupación por categoría seleccionada
   const groupedUtmSummary = useMemo(() => {
     if (!data) return [];
-    const groupField = selectedUtmCategory;
     const grouped: Record<string, {
       category: string;
       visits: number;
@@ -665,10 +666,27 @@ export default function AnalyticsDashboard({ productId }: Props) {
       clicks: number;
       unique_clicks: number;
       purchases: number;
+      conversion_rate?: number;
+      unique_conversion_rate?: number;
+      persuasion_rate?: number;
+      unique_persuasion_rate?: number;
     }> = {};
 
     data.utm_stats.forEach((utm) => {
-      const key = utm[groupField] || 'none';
+      let key: string;
+      
+      if (analysisMode === 'pure') {
+        // Modo puro: solo la categoría seleccionada
+        key = utm[selectedUtmCategory] || 'none';
+      } else {
+        // Modo combinado: campaña + categoría seleccionada
+        if (selectedUtmCategory === 'campaign') {
+          key = utm.campaign || 'none';
+        } else {
+          key = `${utm.campaign} → ${utm[selectedUtmCategory] || 'none'}`;
+        }
+      }
+      
       if (!grouped[key]) {
         grouped[key] = {
           category: key,
@@ -699,7 +717,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
         : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate';
     return result.sort((a, b) => b[metricKey] - a[metricKey]);
-  }, [data, selectedUtmCategory, selectedSummaryMetric, showUnique]);
+  }, [data, selectedUtmCategory, selectedSummaryMetric, showUnique, analysisMode]);
 
   if (loading) {
     return (
@@ -1010,27 +1028,153 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
 
         {activeTab === 'resumen' ? (
-          <div className="p-4 space-y-6">
-            {/* Resumen General */}
-            <div className="bg-white p-4 rounded-lg shadow">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Resumen General</h3>
-              <p>
-                En el período seleccionado se registraron {data.total_visits} visitas, {data.total_clicks} pagos iniciados y {data.total_purchases} compras. La tasa de conversión global es{' '}
-                {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}% y la tasa de persuasión es{' '}
-                {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%.
-              </p>
+          <div className="p-6 space-y-8">
+            {/* Resumen Ejecutivo */}
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200">
+              <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
+                <TrendingUp className="h-6 w-6 text-blue-600 mr-2" />
+                Resumen Ejecutivo
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="bg-white p-4 rounded-lg border border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Rendimiento Global</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-500">Tasa de Conversión</p>
+                    </div>
+                    <div className="p-3 bg-green-100 rounded-full">
+                      <DollarSign className="h-6 w-6 text-green-600" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Eficiencia</p>
+                      <p className="text-2xl font-bold text-gray-900">
+                        {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-gray-500">Tasa de Persuasión</p>
+                    </div>
+                    <div className="p-3 bg-blue-100 rounded-full">
+                      <BarChartIcon className="h-6 w-6 text-blue-600" />
+                    </div>
+                  </div>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-blue-100">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-gray-600">Volumen Total</p>
+                      <p className="text-2xl font-bold text-gray-900">{data.total_purchases}</p>
+                      <p className="text-xs text-gray-500">Conversiones</p>
+                    </div>
+                    <div className="p-3 bg-purple-100 rounded-full">
+                      <Users className="h-6 w-6 text-purple-600" />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            {/* Sección avanzada de análisis por categoría */}
-            <div className="mt-6">
-              <h3 className="text-lg font-medium text-gray-900 mb-4">Análisis Avanzado por Categoría de UTM</h3>
-              <div className="flex flex-wrap gap-4 items-center mb-4">
+            {/* Insights Accionables */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Mejores Performers */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <ArrowUpRight className="h-5 w-5 text-green-600 mr-2" />
+                  🏆 Top Performers
+                </h4>
+                {data.utm_stats.slice(0, 3).map((utm, index) => (
+                  <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-900 truncate">{utm.campaign}</p>
+                      <p className="text-sm text-gray-500">{utm.medium} • {utm.content}</p>
+                    </div>
+                    <div className="text-right ml-4">
+                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        {(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}% conv.
+                      </span>
+                      <p className="text-xs text-gray-500 mt-1">{utm.visits} visitas</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Oportunidades de Mejora */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <ArrowDownRight className="h-5 w-5 text-red-600 mr-2" />
+                  ⚠️ Necesitan Atención
+                </h4>
+                {data.utm_stats
+                  .filter(utm => (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < (showUnique ? data.unique_conversion_rate : data.conversion_rate) * 0.5)
+                  .slice(0, 3)
+                  .map((utm, index) => (
+                    <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
+                      <div className="flex-1">
+                        <p className="font-medium text-gray-900 truncate">{utm.campaign}</p>
+                        <p className="text-sm text-gray-500">{utm.medium} • {utm.content}</p>
+                      </div>
+                      <div className="text-right ml-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          {(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}% conv.
+                        </span>
+                        <p className="text-xs text-gray-500 mt-1">{utm.visits} visitas</p>
+                      </div>
+                    </div>
+                  ))}
+                {data.utm_stats.filter(utm => (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < (showUnique ? data.unique_conversion_rate : data.conversion_rate) * 0.5).length === 0 && (
+                  <div className="text-center py-4">
+                    <p className="text-gray-500 text-sm">🎉 ¡Todas las campañas están funcionando bien!</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Análisis Avanzado */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+                <BarChartIcon className="h-5 w-5 text-indigo-600 mr-2" />
+                Análisis Avanzado por Categoría
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Categoría</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Modo de Análisis</label>
+                  <div className="flex space-x-4">
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="analysisMode"
+                        value="combined"
+                        checked={analysisMode === 'combined'}
+                        onChange={() => setAnalysisMode('combined')}
+                        className="form-radio text-indigo-600"
+                      />
+                      <span className="ml-2 text-sm">Combinado</span>
+                    </label>
+                    <label className="inline-flex items-center">
+                      <input
+                        type="radio"
+                        name="analysisMode"
+                        value="pure"
+                        checked={analysisMode === 'pure'}
+                        onChange={() => setAnalysisMode('pure')}
+                        className="form-radio text-indigo-600"
+                      />
+                      <span className="ml-2 text-sm">Puro</span>
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
                   <select
                     value={selectedUtmCategory}
                     onChange={(e) => setSelectedUtmCategory(e.target.value as 'campaign' | 'medium' | 'content')}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                   >
                     <option value="campaign">Campaña</option>
                     <option value="medium">Segmentación</option>
@@ -1038,8 +1182,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">Métrica</label>
-                  <div className="flex space-x-4 mt-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Métrica</label>
+                  <div className="flex space-x-4">
                     <label className="inline-flex items-center">
                       <input
                         type="radio"
@@ -1047,9 +1191,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
                         value="conversion"
                         checked={selectedSummaryMetric === 'conversion'}
                         onChange={() => setSelectedSummaryMetric('conversion')}
-                        className="form-radio"
+                        className="form-radio text-indigo-600"
                       />
-                      <span className="ml-2">Conversión</span>
+                      <span className="ml-2 text-sm">Conversión</span>
                     </label>
                     <label className="inline-flex items-center">
                       <input
@@ -1058,57 +1202,102 @@ export default function AnalyticsDashboard({ productId }: Props) {
                         value="persuasion"
                         checked={selectedSummaryMetric === 'persuasion'}
                         onChange={() => setSelectedSummaryMetric('persuasion')}
-                        className="form-radio"
+                        className="form-radio text-indigo-600"
                       />
-                      <span className="ml-2">Persuasión</span>
+                      <span className="ml-2 text-sm">Persuasión</span>
                     </label>
                   </div>
                 </div>
               </div>
-              <div className="bg-gray-50 p-4 rounded-lg shadow">
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={groupedUtmSummary.slice(0, 5)}>
+
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <ResponsiveContainer width="100%" height={350}>
+                  <BarChart data={groupedUtmSummary.slice(0, 8)}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="category" />
-                    <YAxis tickFormatter={(tick) => `${tick.toFixed(0)}`} />
-                    <Tooltip
-                      formatter={(value: number) =>
-                        selectedSummaryMetric === 'conversion'
-                          ? `${value.toFixed(2)}%`
-                          : `${value.toFixed(2)}%`
-                      }
+                    <XAxis 
+                      dataKey="category" 
+                      angle={-45}
+                      textAnchor="end"
+                      height={100}
+                      fontSize={12}
                     />
-                    <Legend />
+                    <YAxis tickFormatter={(tick) => `${tick.toFixed(0)}%`} />
+                    <Tooltip
+                      formatter={(value: number) => [`${value.toFixed(2)}%`, selectedSummaryMetric === 'conversion' ? 'Conversión' : 'Persuasión']}
+                      labelStyle={{ fontSize: '12px' }}
+                    />
                     <Bar
                       dataKey={
                         selectedSummaryMetric === 'conversion'
                           ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
                           : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate'
                       }
-                      fill="#8884d8"
+                      fill="#4F46E5"
+                      radius={[4, 4, 0, 0]}
                     />
                   </BarChart>
                 </ResponsiveContainer>
-                <div className="mt-4">
-                  <h4 className="text-md font-medium text-gray-900">Top 5 por {selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : 'Anuncio'}</h4>
-                  <ul className="divide-y divide-gray-200">
-                    {groupedUtmSummary.slice(0, 5).map((item, index) => (
-                      <li key={index} className="py-2 flex justify-between items-center">
-                        <span className="font-medium text-gray-700">{item.category}</span>
-                        <div className="text-right">
-                          <div className="text-sm text-gray-500">
-                            {item.visits} visitas, {item.purchases} compras, {item.clicks} clics
-                          </div>
-                          <div className="text-sm text-gray-900 font-semibold">
-                            {selectedSummaryMetric === 'conversion'
-                              ? (showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)
-                              : (showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}
-                            %
-                          </div>
+              </div>
+
+              {/* Lista mejorada del Top */}
+              <div className="mt-6">
+                <h4 className="text-md font-semibold text-gray-900 mb-4">
+                  Top 8 {analysisMode === 'combined' ? 'Combinaciones' : `por ${selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : 'Anuncio'}`}
+                </h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {groupedUtmSummary.slice(0, 8).map((item, index) => (
+                    <div key={index} className="bg-white p-4 rounded-lg border border-gray-200 hover:shadow-md transition-shadow">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center">
+                          <div className={`w-3 h-3 rounded-full mr-3 ${index < 3 ? 'bg-green-400' : index < 6 ? 'bg-yellow-400' : 'bg-red-400'}`}></div>
+                          <span className="font-medium text-gray-900 text-sm truncate max-w-[200px]" title={item.category}>
+                            {item.category}
+                          </span>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
+                        <span className={`text-lg font-bold ${index < 3 ? 'text-green-600' : index < 6 ? 'text-yellow-600' : 'text-red-600'}`}>
+                          #{index + 1}
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-600">
+                            {selectedSummaryMetric === 'conversion' ? 'Conversión:' : 'Persuasión:'}
+                          </span>
+                          <span className="font-semibold text-gray-900">
+                            {selectedSummaryMetric === 'conversion'
+                              ? (showUnique ? item.unique_conversion_rate : item.conversion_rate)?.toFixed(2)
+                              : (showUnique ? item.unique_persuasion_rate : item.persuasion_rate)?.toFixed(2)}%
+                          </span>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>{item.visits} visitas</span>
+                          <span>{item.purchases} compras</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Recomendaciones */}
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border border-green-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <LineChartIcon className="h-5 w-5 text-green-600 mr-2" />
+                💡 Recomendaciones Inteligentes
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-white p-4 rounded-lg border border-green-100">
+                  <h4 className="font-medium text-gray-900 mb-2">🚀 Escalar</h4>
+                  <p className="text-sm text-gray-600">
+                    Las campañas con +{((showUnique ? data.unique_conversion_rate : data.conversion_rate) * 1.5).toFixed(1)}% de conversión son candidatas perfectas para aumentar presupuesto.
+                  </p>
+                </div>
+                <div className="bg-white p-4 rounded-lg border border-green-100">
+                  <h4 className="font-medium text-gray-900 mb-2">🔧 Optimizar</h4>
+                  <p className="text-sm text-gray-600">
+                    Campañas con alta persuasión pero baja conversión necesitan mejorar la página de destino o la oferta.
+                  </p>
                 </div>
               </div>
             </div>
