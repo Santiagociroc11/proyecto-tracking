@@ -46,11 +46,9 @@ interface AnalyticsData {
   persuasion_rate: number;
   unique_persuasion_rate: number;
   utm_stats: {
-    source: string;
     medium: string;
     campaign: string;
     content: string;
-    term: string;
     visits: number;
     unique_visits: number;
     clicks: number;
@@ -84,9 +82,8 @@ interface Props {
 
 type SortField =
   | 'campaign'
-  | 'medium'
+  | 'medium' 
   | 'content'
-  | 'source'
   | 'visits'
   | 'clicks'
   | 'purchases'
@@ -144,7 +141,6 @@ interface ColumnWidth {
   campaign: number;
   medium: number;
   content: number;
-  source: number;
   visits: number;
   clicks: number;
   purchases: number;
@@ -190,7 +186,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           campaign: 200,
           medium: 150,
           content: 200,
-          source: 150,
           visits: 100,
           clicks: 120,
           purchases: 120,
@@ -198,11 +193,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
         };
   });
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
-  const [utmFilters, setUtmFilters] = useState<{ campaign: string; medium: string; content: string; source: string }>({
+  const [utmFilters, setUtmFilters] = useState<{ campaign: string; medium: string; content: string }>({
     campaign: '',
     medium: '',
     content: '',
-    source: '',
   });
   const [showUnique, setShowUnique] = useState(false);
   // Estado para controlar la pestaña activa: "resumen" o "detalle"
@@ -210,7 +204,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   // Estado para seleccionar la métrica del resumen
   const [selectedSummaryMetric, setSelectedSummaryMetric] = useState<'conversion' | 'persuasion'>('conversion');
   // Estado para seleccionar la categoría de UTM a analizar
-  const [selectedUtmCategory, setSelectedUtmCategory] = useState<'campaign' | 'medium' | 'content' | 'source'>('campaign');
+  const [selectedUtmCategory, setSelectedUtmCategory] = useState<'campaign' | 'medium' | 'content'>('campaign');
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -472,20 +466,16 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
         const utmData = event.event_data?.utm_data || {};
         const utmKey = JSON.stringify({
-          source: utmData.utm_source || 'direct',
           medium: utmData.utm_medium || 'none',
           campaign: utmData.utm_campaign || 'none',
           content: utmData.utm_content || 'none',
-          term: utmData.utm_term || 'none',
         });
 
         if (!utmStats.has(utmKey)) {
           utmStats.set(utmKey, {
-            source: utmData.utm_source || 'direct',
             medium: utmData.utm_medium || 'none',
             campaign: utmData.utm_campaign || 'none',
             content: utmData.utm_content || 'none',
-            term: utmData.utm_term || 'none',
             visits: 0,
             unique_visits: 0,
             clicks: 0,
@@ -543,27 +533,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         a.date.localeCompare(b.date)
       );
 
-      const sourceStatsArray = Object.values(
-        Array.from(utmStats.values()).reduce((acc, curr) => {
-          const source = curr.source;
-          if (!acc[source]) {
-            acc[source] = {
-              source,
-              visits: 0,
-              unique_visits: 0,
-              clicks: 0,
-              unique_clicks: 0,
-            };
-          }
-          acc[source].visits += curr.visits;
-          acc[source].unique_visits = Math.max(acc[source].unique_visits, curr.unique_visits);
-          acc[source].clicks += curr.clicks;
-          acc[source].unique_clicks = Math.max(acc[source].unique_clicks, curr.unique_clicks);
-          return acc;
-        }, {} as Record<string, any>)
-      )
-        .sort((a, b) => b.visits - a.visits)
-        .slice(0, 5);
+      const sourceStatsArray: { source: string; visits: number; unique_visits: number; clicks: number; unique_clicks: number; }[] = [];
 
       setData({
         total_visits: totalVisits,
@@ -595,7 +565,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Campaña': utm.campaign,
       'Segmentación': utm.medium,
       'Anuncio': utm.content,
-      'Fuente': utm.source,
       'Visitas': showUnique ? utm.unique_visits : utm.visits,
       'Pagos Iniciados': showUnique ? utm.unique_clicks : utm.clicks,
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
@@ -628,13 +597,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const getSortedUtmStats = useMemo(() => {
     if (!data) return [];
     return [...data.utm_stats]
-      .filter(
-        (utm) =>
-          utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
-          utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
-          utm.content.toLowerCase().includes(utmFilters.content.toLowerCase()) &&
-          utm.source.toLowerCase().includes(utmFilters.source.toLowerCase())
-      )
+              .filter(
+          (utm) =>
+            utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
+            utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
+            utm.content.toLowerCase().includes(utmFilters.content.toLowerCase())
+        )
       .sort((a, b) => {
         const multiplier = sortDirection === 'asc' ? 1 : -1;
         if (sortField === 'conversion_rate') {
@@ -800,7 +768,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    {['Campaña', 'Segmentación', 'Anuncio', 'Fuente', 'Visitas', 'Pagos Iniciados', 'Compras', 'Conversión', 'Persuasión'].map(
+                    {['Campaña', 'Segmentación', 'Anuncio', 'Visitas', 'Pagos Iniciados', 'Compras', 'Conversión', 'Persuasión'].map(
                       (header, index) => (
                         <th key={index} scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           <Skeleton width={header.length * 8} />
@@ -812,7 +780,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {Array.from({ length: 5 }).map((_, index) => (
                     <tr key={index}>
-                      {Array.from({ length: 9 }).map((_, i) => (
+                      {Array.from({ length: 8 }).map((_, i) => (
                         <td key={i} className="px-6 py-4 whitespace-nowrap">
                           <Skeleton />
                         </td>
@@ -906,6 +874,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={exportToExcel}
+              className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Exportar
+            </button>
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" checked={showUnique} onChange={() => setShowUnique(!showUnique)} className="sr-only peer" />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 
@@ -1054,13 +1029,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   <label className="block text-sm font-medium text-gray-700">Categoría</label>
                   <select
                     value={selectedUtmCategory}
-                    onChange={(e) => setSelectedUtmCategory(e.target.value as 'campaign' | 'medium' | 'content' | 'source')}
+                    onChange={(e) => setSelectedUtmCategory(e.target.value as 'campaign' | 'medium' | 'content')}
                     className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
                   >
                     <option value="campaign">Campaña</option>
                     <option value="medium">Segmentación</option>
                     <option value="content">Anuncio</option>
-                    <option value="source">Fuente</option>
                   </select>
                 </div>
                 <div>
@@ -1116,7 +1090,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-4">
-                  <h4 className="text-md font-medium text-gray-900">Top 5 por {selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : selectedUtmCategory === 'content' ? 'Anuncio' : 'Fuente'}</h4>
+                  <h4 className="text-md font-medium text-gray-900">Top 5 por {selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : 'Anuncio'}</h4>
                   <ul className="divide-y divide-gray-200">
                     {groupedUtmSummary.slice(0, 5).map((item, index) => (
                       <li key={index} className="py-2 flex justify-between items-center">
@@ -1146,86 +1120,56 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left relative">
-                      <ResizableHeader width={columnWidths.campaign} onResize={(w) => handleColumnResize('campaign', w)}>
-                        <div className="flex items-center justify-between">
-                          <SortButton field="campaign" label="Campaña" />
-                        </div>
-                      </ResizableHeader>
-                      <input
-                        type="text"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                        placeholder="Filtrar"
-                        value={utmFilters.campaign}
-                        onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
-                      />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left relative">
-                      <ResizableHeader width={columnWidths.medium} onResize={(w) => handleColumnResize('medium', w)}>
-                        <div className="flex items-center justify-between">
-                          <SortButton field="medium" label="Segmentación" />
-                        </div>
-                      </ResizableHeader>
-                      <input
-                        type="text"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                        placeholder="Filtrar"
-                        value={utmFilters.medium}
-                        onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
-                      />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left relative">
-                      <ResizableHeader width={columnWidths.content} onResize={(w) => handleColumnResize('content', w)}>
-                        <div className="flex items-center justify-between">
-                          <SortButton field="content" label="Anuncio" />
-                        </div>
-                      </ResizableHeader>
-                      <input
-                        type="text"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                        placeholder="Filtrar"
-                        value={utmFilters.content}
-                        onChange={(e) => handleUtmFilterChange('content', e.target.value)}
-                      />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left relative">
-                      <ResizableHeader width={columnWidths.source} onResize={(w) => handleColumnResize('source', w)}>
-                        <div className="flex items-center justify-between">
-                          <SortButton field="source" label="Fuente" />
-                        </div>
-                      </ResizableHeader>
-                      <input
-                        type="text"
-                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                        placeholder="Filtrar"
-                        value={utmFilters.source}
-                        onChange={(e) => handleUtmFilterChange('source', e.target.value)}
-                      />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right relative">
-                      <ResizableHeader width={columnWidths.visits} onResize={(w) => handleColumnResize('visits', w)}>
-                        <SortButton field="visits" label="Visitas" />
-                      </ResizableHeader>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right relative">
-                      <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('clicks', w)}>
-                        <SortButton field="clicks" label="Pagos Iniciados" />
-                      </ResizableHeader>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right relative">
-                      <ResizableHeader width={columnWidths.clicks} onResize={(w) => handleColumnResize('purchases', w)}>
-                        <SortButton field="purchases" label="Compras" />
-                      </ResizableHeader>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right relative">
-                      <ResizableHeader width={columnWidths.conversion} onResize={(w) => handleColumnResize('conversion', w)}>
-                        <SortButton field="conversion_rate" label="Conversión" />
-                      </ResizableHeader>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right relative">
-                      <div className="flex items-center justify-end">
-                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">Persuasión</span>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <div className="space-y-2">
+                        <SortButton field="campaign" label="Campaña" />
+                        <input
+                          type="text"
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
+                          placeholder="Filtrar"
+                          value={utmFilters.campaign}
+                          onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
+                        />
                       </div>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <div className="space-y-2">
+                        <SortButton field="medium" label="Segmentación" />
+                        <input
+                          type="text"
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
+                          placeholder="Filtrar"
+                          value={utmFilters.medium}
+                          onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
+                        />
+                      </div>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <div className="space-y-2">
+                        <SortButton field="content" label="Anuncio" />
+                        <input
+                          type="text"
+                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
+                          placeholder="Filtrar"
+                          value={utmFilters.content}
+                          onChange={(e) => handleUtmFilterChange('content', e.target.value)}
+                        />
+                      </div>
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <SortButton field="visits" label="Visitas" />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <SortButton field="clicks" label="Pagos Iniciados" />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <SortButton field="purchases" label="Compras" />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <SortButton field="conversion_rate" label="Conversión" />
+                    </th>
+                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      <SortButton field="persuasion_rate" label="Persuasión" />
                     </th>
                   </tr>
                 </thead>
@@ -1238,40 +1182,33 @@ export default function AnalyticsDashboard({ productId }: Props) {
                     const isExpanded = expandedRows.has(index);
                     return (
                       <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center cursor-pointer" onClick={() => toggleRowExpansion(index)}>
-                            <div style={{ width: columnWidths.campaign - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                              {utm.campaign}
-                            </div>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <div className={`cursor-pointer ${isExpanded ? '' : 'truncate max-w-xs'}`} onClick={() => toggleRowExpansion(index)}>
+                            {utm.campaign}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div style={{ width: columnWidths.medium - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <div className={`${isExpanded ? '' : 'truncate max-w-xs'}`}>
                             {utm.medium}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div style={{ width: columnWidths.content - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <div className={`${isExpanded ? '' : 'truncate max-w-xs'}`}>
                             {utm.content}
                           </div>
                         </td>
-                        <td className="px-6 py-4">
-                          <div style={{ width: columnWidths.source - 40 }} className={`${isExpanded ? '' : 'truncate'}`}>
-                            {utm.source}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           {showUnique ? utm.unique_visits : utm.visits}
                         </td>
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           {showUnique ? utm.unique_clicks : utm.clicks}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
                           {utm.purchases}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                           <div className="flex items-center justify-end space-x-1">
-                            <span className={`text-sm ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                            <span className={`${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                               {(currentConversion ?? 0).toFixed(2)}%
                             </span>
                             {isPositive ? (
@@ -1281,8 +1218,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
                             )}
                           </div>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right">
-                          <span className="text-sm text-gray-900">{currentPersuasion.toFixed(2)}%</span>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                          {currentPersuasion.toFixed(2)}%
                         </td>
                       </tr>
                     );
