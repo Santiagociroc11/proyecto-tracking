@@ -118,35 +118,128 @@ async function startBot() {
     console.error('Bot error:', error);
   });
 
+  // Helper function to get chat information
+  function getChatInfo(msg) {
+    const chatId = msg.chat.id;
+    const messageThreadId = msg.message_thread_id;
+    const chatType = msg.chat.type;
+    const isTopicMessage = messageThreadId !== undefined;
+    
+    let info = {
+      chatId,
+      chatType,
+      isPrivate: chatType === 'private',
+      isGroup: chatType === 'group' || chatType === 'supergroup',
+      isChannel: chatType === 'channel',
+      messageThreadId,
+      isTopicMessage,
+      chatTitle: msg.chat.title,
+      username: msg.from?.username
+    };
+    
+    return info;
+  }
+
   // Handle /start command
   bot.onText(/\/start/, async (msg) => {
-    const chatId = msg.chat.id;
-    const username = msg.from.username;
+    const info = getChatInfo(msg);
+    
+    await saveUser(info.chatId, info.username);
 
-    await saveUser(chatId, username);
+    let message = `¡Hola! 👋\n\n`;
+    
+    if (info.isPrivate) {
+      message += `📱 <b>Chat Privado Detectado</b>\n\n` +
+        `Tu Chat ID es: <code>${info.chatId}</code>\n\n` +
+        `Copia este ID y pégalo en la configuración de tu cuenta para recibir notificaciones de ventas.`;
+    } else if (info.isGroup) {
+      message += `👥 <b>Grupo Detectado</b>\n` +
+        `Nombre: ${info.chatTitle}\n\n` +
+        `Chat ID del Grupo: <code>${info.chatId}</code>\n`;
+      
+      if (info.isTopicMessage) {
+        message += `📋 <b>Tema Detectado</b>\n` +
+          `Thread ID: <code>${info.messageThreadId}</code>\n\n` +
+          `Para notificaciones en este tema específico:\n` +
+          `• Chat ID: <code>${info.chatId}</code>\n` +
+          `• Thread ID: <code>${info.messageThreadId}</code>`;
+      } else {
+        message += `\n💡 <i>Para notificaciones en un tema específico, usa /info dentro del tema.</i>`;
+      }
+    }
 
-    const message = `¡Hola! 👋\n\n` +
-      `Tu Chat ID es: <code>${chatId}</code>\n\n` +
-      `Copia este ID y pégalo en la configuración de tu cuenta para recibir notificaciones de ventas.`;
+    bot.sendMessage(info.chatId, message, { 
+      parse_mode: 'HTML',
+      message_thread_id: info.messageThreadId
+    });
+  });
 
-    bot.sendMessage(chatId, message, { parse_mode: 'HTML' });
+  // Handle /info command - detailed information about current chat
+  bot.onText(/\/info/, async (msg) => {
+    const info = getChatInfo(msg);
+    
+    let message = `ℹ️ <b>Información del Chat</b>\n\n`;
+    
+    if (info.isPrivate) {
+      message += `📱 <b>Tipo:</b> Chat Privado\n` +
+        `👤 <b>Usuario:</b> @${info.username || 'Sin username'}\n` +
+        `🆔 <b>Chat ID:</b> <code>${info.chatId}</code>\n\n` +
+        `✅ <b>Para configurar notificaciones:</b>\n` +
+        `Copia el Chat ID y pégalo en la configuración de tu cuenta.`;
+    } else if (info.isGroup) {
+      message += `👥 <b>Tipo:</b> ${info.chatType === 'supergroup' ? 'Supergrupo' : 'Grupo'}\n` +
+        `📝 <b>Nombre:</b> ${info.chatTitle}\n` +
+        `🆔 <b>Chat ID:</b> <code>${info.chatId}</code>\n`;
+      
+      if (info.isTopicMessage) {
+        message += `📋 <b>Tema:</b> Sí\n` +
+          `🧵 <b>Thread ID:</b> <code>${info.messageThreadId}</code>\n\n` +
+          `✅ <b>Para notificaciones en este tema:</b>\n` +
+          `• Chat ID: <code>${info.chatId}</code>\n` +
+          `• Thread ID: <code>${info.messageThreadId}</code>\n\n` +
+          `💡 <i>Necesitarás ambos IDs para configurar notificaciones específicas del tema.</i>`;
+      } else {
+        message += `📋 <b>Tema:</b> No (mensaje general del grupo)\n\n` +
+          `✅ <b>Para notificaciones generales del grupo:</b>\n` +
+          `Usa solo el Chat ID: <code>${info.chatId}</code>\n\n` +
+          `💡 <i>Para tema específico, envía /info desde dentro del tema.</i>`;
+      }
+    } else if (info.isChannel) {
+      message += `📢 <b>Tipo:</b> Canal\n` +
+        `📝 <b>Nombre:</b> ${info.chatTitle}\n` +
+        `🆔 <b>Chat ID:</b> <code>${info.chatId}</code>`;
+    }
+    
+    message += `\n\n🔧 <b>Uso:</b> Copia los IDs mostrados arriba para configurar las notificaciones en tu cuenta.`;
+
+    bot.sendMessage(info.chatId, message, { 
+      parse_mode: 'HTML',
+      message_thread_id: info.messageThreadId
+    });
   });
 
   // Handle /help command
   bot.onText(/\/help/, (msg) => {
-    const chatId = msg.chat.id;
-    const message = `🤖 *Comandos disponibles:*\n\n` +
-      `• /start - Obtener tu Chat ID\n` +
+    const info = getChatInfo(msg);
+    const message = `🤖 <b>Comandos disponibles:</b>\n\n` +
+      `• /start - Información básica y Chat ID\n` +
+      `• /info - Información detallada del chat actual\n` +
       `• /help - Ver esta ayuda\n` +
-      `• /status - Verificar si el bot está activo`;
+      `• /status - Verificar si el bot está activo\n\n` +
+      `💡 <b>Tip:</b> Usa /info para obtener información completa sobre grupos y temas.`;
 
-    bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+    bot.sendMessage(info.chatId, message, { 
+      parse_mode: 'HTML',
+      message_thread_id: info.messageThreadId
+    });
   });
 
   // Handle /status command
   bot.onText(/\/status/, (msg) => {
-    const chatId = msg.chat.id;
-    bot.sendMessage(chatId, '✅ ¡El bot está activo y funcionando correctamente!');
+    const info = getChatInfo(msg);
+    bot.sendMessage(info.chatId, '✅ ¡El bot está activo y funcionando correctamente!', {
+      message_thread_id: info.messageThreadId
+    });
   });
 
   console.log('Bot started successfully!');
