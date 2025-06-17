@@ -1,6 +1,7 @@
 import express from 'express';
 import { handleTrackingEvent } from './api/track.js';
 import { handleHotmartWebhook } from './api/hotmart.js';
+import { sendTestNotification } from './api/telegram.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -80,6 +81,42 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
   } catch (error) {
     log('Hotmart', 'Error procesando webhook', error);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  }
+});
+
+apiRouter.post('/telegram/test', async (req, res) => {
+  log('Telegram', 'Recibiendo prueba de notificación', { body: req.body });
+  try {
+    const { chatId, userId } = req.body;
+
+    if (!chatId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Chat ID es requerido' 
+      });
+    }
+
+    const result = await sendTestNotification(chatId, userId);
+    log('Telegram', 'Prueba de notificación procesada', result);
+
+    if (result.success) {
+      return res.status(200).json({ 
+        success: true, 
+        message: 'Notificación de prueba enviada exitosamente' 
+      });
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        error: result.error || 'Error desconocido' 
+      });
+    }
+
+  } catch (error) {
+    log('Telegram', 'Error en prueba de notificación', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor' 
+    });
   }
 });
 
