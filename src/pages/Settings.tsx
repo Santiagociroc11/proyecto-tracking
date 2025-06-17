@@ -17,6 +17,9 @@ export default function Settings() {
   const [telegramChatId, setTelegramChatId] = useState('');
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [testingTelegram, setTestingTelegram] = useState(false);
+  const [testSuccess, setTestSuccess] = useState(false);
+  const [testError, setTestError] = useState('');
   const navigate = useNavigate(); // Initialize useNavigate
 
   useEffect(() => {
@@ -83,6 +86,46 @@ export default function Settings() {
   const handleGoBack = () => {
     navigate('/dashboard'); // Navigate to the dashboard route
   };
+
+  async function testTelegramNotification() {
+    if (!telegramChatId.trim()) {
+      setTestError('Por favor ingresa un Chat ID válido antes de probar');
+      return;
+    }
+
+    setTestingTelegram(true);
+    setTestSuccess(false);
+    setTestError('');
+
+    try {
+      const response = await fetch('/api/telegram/test', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          chatId: telegramChatId,
+          userId: user?.id
+        })
+      });
+
+      const result = await response.json();
+
+      if (response.ok && result.success) {
+        setTestSuccess(true);
+        setTestError('');
+      } else {
+        setTestError(result.error || 'Error al enviar la notificación de prueba');
+        setTestSuccess(false);
+      }
+    } catch (err) {
+      console.error('Error testing Telegram notification:', err);
+      setTestError('Error de conexión al probar la notificación');
+      setTestSuccess(false);
+    } finally {
+      setTestingTelegram(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -208,14 +251,71 @@ export default function Settings() {
                   <label htmlFor="telegram-chat-id" className="block text-sm font-medium text-gray-700">
                     Chat ID de Telegram
                   </label>
-                  <input
-                    type="text"
-                    id="telegram-chat-id"
-                    value={telegramChatId}
-                    onChange={(e) => setTelegramChatId(e.target.value)}
-                    placeholder="Ej: 123456789"
-                    className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                  />
+                  <div className="mt-1 flex rounded-md shadow-sm">
+                    <input
+                      type="text"
+                      id="telegram-chat-id"
+                      value={telegramChatId}
+                      onChange={(e) => {
+                        setTelegramChatId(e.target.value);
+                        setTestSuccess(false);
+                        setTestError('');
+                      }}
+                      placeholder="Ej: 123456789"
+                      className="flex-1 block w-full border-gray-300 rounded-l-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={testTelegramNotification}
+                      disabled={testingTelegram || !telegramChatId.trim()}
+                      className="inline-flex items-center px-4 py-2 border border-l-0 border-gray-300 rounded-r-md bg-gray-50 text-gray-700 text-sm font-medium hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {testingTelegram ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2"></div>
+                          Probando...
+                        </>
+                      ) : (
+                        <>
+                          <BellRing className="h-4 w-4 mr-2" />
+                          Probar
+                        </>
+                      )}
+                    </button>
+                  </div>
+                  
+                  {testSuccess && (
+                    <div className="mt-2 bg-green-50 border-l-4 border-green-400 p-2">
+                      <div className="flex">
+                        <div className="flex-shrink-0">
+                          <svg className="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-2">
+                          <p className="text-sm text-green-700">
+                            ✅ ¡Notificación enviada con éxito! Revisa tu Telegram.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {testError && (
+                    <div className="mt-2 bg-red-50 border-l-4 border-red-400 p-2">
+                      <div className="flex">
+                        <div className="flex-shrink-0">
+                          <svg className="h-4 w-4 text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+                          </svg>
+                        </div>
+                        <div className="ml-2">
+                          <p className="text-sm text-red-700">❌ {testError}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   <p className="mt-2 text-sm text-gray-500">
                     Ingresa el Chat ID proporcionado por el bot para recibir notificaciones de ventas en tiempo real.
                   </p>

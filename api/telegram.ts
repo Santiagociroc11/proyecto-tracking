@@ -41,6 +41,68 @@ export async function sendTelegramMessage(chatId: string, message: string): Prom
   }
 }
 
+export async function sendTestNotification(chatId: string, userId?: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (!TELEGRAM_BOT_TOKEN) {
+      return { success: false, error: 'Bot de Telegram no configurado en el servidor' };
+    }
+
+    if (!chatId || !chatId.trim()) {
+      return { success: false, error: 'Chat ID requerido' };
+    }
+
+    // Get current time in user's timezone if available
+    let formattedTime = new Date().toLocaleString('es-ES');
+    
+    if (userId) {
+      try {
+        const { data: settings } = await supabase
+          .from('user_settings')
+          .select('timezone')
+          .eq('user_id', userId)
+          .single();
+
+        if (settings?.timezone) {
+          formattedTime = formatDateToTimezone(new Date(), settings.timezone);
+        }
+      } catch (err) {
+        // Continue with default time if user settings not found
+        console.log('Could not fetch user timezone for test notification');
+      }
+    }
+
+    const testMessage = `🧪 <b>Notificación de Prueba</b>\n\n` +
+      `✅ ¡Tu configuración de Telegram está funcionando correctamente!\n\n` +
+      `📅 Fecha de prueba: ${formattedTime}\n` +
+      `🔔 Ahora recibirás notificaciones automáticas cuando tengas ventas.\n\n` +
+      `💡 <i>Este es un mensaje de prueba generado desde la configuración de tu cuenta.</i>`;
+
+    const success = await sendTelegramMessage(chatId, testMessage);
+
+    if (success) {
+      // Log test notification
+      if (userId) {
+        await supabase
+          .from('telegram_notifications')
+          .insert([{
+            user_id: userId,
+            message: testMessage,
+            status: 'sent',
+            error_message: null
+          }]);
+      }
+      
+      return { success: true };
+    } else {
+      return { success: false, error: 'No se pudo enviar el mensaje. Verifica que el Chat ID sea correcto y que hayas iniciado una conversación con el bot.' };
+    }
+
+  } catch (error) {
+    console.error('Error sending test notification:', error);
+    return { success: false, error: 'Error interno del servidor al enviar la notificación' };
+  }
+}
+
 export async function notifyPurchase(userId: string, purchaseData: any): Promise<void> {
   try {
     // Get user's settings for timezone and telegram chat ID

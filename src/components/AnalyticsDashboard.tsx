@@ -82,7 +82,7 @@ interface Props {
 
 type SortField =
   | 'campaign'
-  | 'medium' 
+  | 'medium'
   | 'content'
   | 'visits'
   | 'clicks'
@@ -599,12 +599,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const getSortedUtmStats = useMemo(() => {
     if (!data) return [];
     return [...data.utm_stats]
-              .filter(
-          (utm) =>
-            utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
-            utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
+      .filter(
+        (utm) =>
+          utm.campaign.toLowerCase().includes(utmFilters.campaign.toLowerCase()) &&
+          utm.medium.toLowerCase().includes(utmFilters.medium.toLowerCase()) &&
             utm.content.toLowerCase().includes(utmFilters.content.toLowerCase())
-        )
+      )
       .sort((a, b) => {
         const multiplier = sortDirection === 'asc' ? 1 : -1;
         if (sortField === 'conversion_rate') {
@@ -1237,7 +1237,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                     />
                   </BarChart>
                 </ResponsiveContainer>
-              </div>
+                          </div>
 
               {/* Lista mejorada del Top */}
               <div className="mt-6">
@@ -1268,7 +1268,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                               ? (showUnique ? item.unique_conversion_rate : item.conversion_rate)?.toFixed(2)
                               : (showUnique ? item.unique_persuasion_rate : item.persuasion_rate)?.toFixed(2)}%
                           </span>
-                        </div>
+                          </div>
                         <div className="flex justify-between text-xs text-gray-500">
                           <span>{item.visits} visitas</span>
                           <span>{item.purchases} compras</span>
@@ -1311,51 +1311,51 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   <tr>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <div className="space-y-2">
-                        <SortButton field="campaign" label="Campaña" />
-                        <input
-                          type="text"
+                          <SortButton field="campaign" label="Campaña" />
+                      <input
+                        type="text"
                           className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                          placeholder="Filtrar"
-                          value={utmFilters.campaign}
-                          onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
-                        />
+                        placeholder="Filtrar"
+                        value={utmFilters.campaign}
+                        onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
+                      />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <div className="space-y-2">
-                        <SortButton field="medium" label="Segmentación" />
-                        <input
-                          type="text"
+                          <SortButton field="medium" label="Segmentación" />
+                      <input
+                        type="text"
                           className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                          placeholder="Filtrar"
-                          value={utmFilters.medium}
-                          onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
-                        />
+                        placeholder="Filtrar"
+                        value={utmFilters.medium}
+                        onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
+                      />
                       </div>
                     </th>
                     <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <div className="space-y-2">
-                        <SortButton field="content" label="Anuncio" />
-                        <input
-                          type="text"
+                          <SortButton field="content" label="Anuncio" />
+                      <input
+                        type="text"
                           className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                          placeholder="Filtrar"
-                          value={utmFilters.content}
-                          onChange={(e) => handleUtmFilterChange('content', e.target.value)}
-                        />
-                      </div>
+                        placeholder="Filtrar"
+                        value={utmFilters.content}
+                        onChange={(e) => handleUtmFilterChange('content', e.target.value)}
+                      />
+                        </div>
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <SortButton field="visits" label="Visitas" />
+                        <SortButton field="visits" label="Visitas" />
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <SortButton field="clicks" label="Pagos Iniciados" />
+                        <SortButton field="clicks" label="Pagos Iniciados" />
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <SortButton field="purchases" label="Compras" />
+                        <SortButton field="purchases" label="Compras" />
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <SortButton field="conversion_rate" label="Conversión" />
+                        <SortButton field="conversion_rate" label="Conversión" />
                     </th>
                     <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <SortButton field="persuasion_rate" label="Persuasión" />
@@ -1373,7 +1373,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <tr key={index} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                           <div className={`cursor-pointer ${isExpanded ? '' : 'truncate max-w-xs'}`} onClick={() => toggleRowExpansion(index)}>
-                            {utm.campaign}
+                              {utm.campaign}
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
