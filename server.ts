@@ -87,7 +87,7 @@ apiRouter.post('/hotmart/webhook', async (req, res) => {
 apiRouter.post('/telegram/test', async (req, res) => {
   log('Telegram', 'Recibiendo prueba de notificación', { body: req.body });
   try {
-    const { chatId, userId } = req.body;
+    const { chatId, threadId, userId } = req.body;
 
     if (!chatId) {
       return res.status(400).json({ 
@@ -96,7 +96,7 @@ apiRouter.post('/telegram/test', async (req, res) => {
       });
     }
 
-    const result = await sendTestNotification(chatId, userId);
+    const result = await sendTestNotification(chatId, userId, threadId);
     log('Telegram', 'Prueba de notificación procesada', result);
 
     if (result.success) {

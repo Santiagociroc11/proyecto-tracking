@@ -7,9 +7,10 @@ interface TelegramMessage {
   chat_id: string;
   text: string;
   parse_mode?: 'HTML' | 'Markdown';
+  message_thread_id?: string;
 }
 
-export async function sendTelegramMessage(chatId: string, message: string): Promise<boolean> {
+export async function sendTelegramMessage(chatId: string, message: string, threadId?: string): Promise<boolean> {
   try {
     if (!TELEGRAM_BOT_TOKEN) {
       throw new Error('Telegram bot token not configured');
@@ -20,6 +21,10 @@ export async function sendTelegramMessage(chatId: string, message: string): Prom
       text: message,
       parse_mode: 'HTML'
     };
+
+    if (threadId) {
+      telegramMessage.message_thread_id = threadId;
+    }
 
     const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
@@ -41,7 +46,7 @@ export async function sendTelegramMessage(chatId: string, message: string): Prom
   }
 }
 
-export async function sendTestNotification(chatId: string, userId?: string): Promise<{ success: boolean; error?: string }> {
+export async function sendTestNotification(chatId: string, userId?: string, threadId?: string): Promise<{ success: boolean; error?: string }> {
   try {
     if (!TELEGRAM_BOT_TOKEN) {
       return { success: false, error: 'Bot de Telegram no configurado en el servidor' };
@@ -77,7 +82,7 @@ export async function sendTestNotification(chatId: string, userId?: string): Pro
       `🔔 Ahora recibirás notificaciones automáticas cuando tengas ventas.\n\n` +
       `💡 <i>Este es un mensaje de prueba generado desde la configuración de tu cuenta.</i>`;
 
-    const success = await sendTelegramMessage(chatId, testMessage);
+    const success = await sendTelegramMessage(chatId, testMessage, threadId);
 
     if (success) {
       // Log test notification
@@ -108,7 +113,7 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
     // Get user's settings for timezone and telegram chat ID
     const { data: settings, error: settingsError } = await supabase
       .from('user_settings')
-      .select('telegram_chat_id, timezone')
+      .select('telegram_chat_id, telegram_thread_id, timezone')
       .eq('user_id', userId)
       .single();
 
@@ -157,7 +162,7 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
       `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`;
 
     // Send notification
-    const success = await sendTelegramMessage(settings.telegram_chat_id, message);
+    const success = await sendTelegramMessage(settings.telegram_chat_id, message, settings.telegram_thread_id);
 
     // Log notification attempt
     await supabase
