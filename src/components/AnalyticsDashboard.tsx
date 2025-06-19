@@ -106,7 +106,7 @@ type SortField =
   | 'conversion_rate'
   | 'persuasion_rate';
 type SortDirection = 'asc' | 'desc';
-type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate' | 'persuasion_rate';
+type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate';
 
 interface ResizableHeaderProps {
   width: number;
@@ -572,6 +572,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
           persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
           unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
+          checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
+          unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
         }))
         .sort((a, b) => b.visits - a.visits);
 
@@ -841,7 +843,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
       conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
       unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
       persuasion_rate: stat.clicks > 0 ? (stat.clicks / stat.visits) * 100 : 0,
-      unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0
+      unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
+      checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
+      unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
     }));
   }, []);
 
@@ -1417,9 +1421,62 @@ interface UtmDetailTableProps {
   onSelectionChange: (selection: Set<string>) => void;
 }
 
+const getHeatmapPill = (value: number, min: number, max: number): string => {
+  if (max === min || !isFinite(value)) {
+    return 'bg-gray-100 text-gray-800';
+  }
+  const normalized = (value - min) / (max - min);
+
+  if (normalized < 0.15) return 'bg-red-100 text-red-800';
+  if (normalized < 0.75) return 'bg-amber-100 text-amber-800';
+  return 'bg-green-100 text-green-800';
+};
+
+const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', val: string) => void; onClear: () => void; }) => {
+  const [operator, setOperator] = useState<'>' | '<' | '='>('>');
+  const [value, setValue] = useState('');
+
+  const handleApply = () => {
+    if (value) {
+      onApply(operator, value);
+    }
+  };
+
+  return (
+    <div className="absolute top-full mt-2 right-0 bg-white p-4 rounded-lg shadow-2xl border z-10 w-56 space-y-3">
+      <h4 className="text-sm font-bold text-gray-800">Filtrar Métrica</h4>
+      <div className="flex items-center space-x-2">
+        <select
+          value={operator}
+          onChange={(e) => setOperator(e.target.value as any)}
+          className="block w-1/3 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        >
+          <option value=">">&gt;</option>
+          <option value="<">&lt;</option>
+          <option value="=">=</option>
+        </select>
+        <input
+          type="number"
+          placeholder="Valor"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          className="block w-2/3 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+        />
+      </div>
+      <div className="flex justify-between">
+        <button onClick={() => { onClear(); setValue(''); }} className="text-xs text-gray-500 hover:text-gray-700">Limpiar</button>
+        <button onClick={handleApply} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded-md hover:bg-indigo-700">Aplicar</button>
+      </div>
+    </div>
+  );
+};
+
 function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
   const [sortField, setSortField] = useState<UtmSortField>('visits');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [nameFilter, setNameFilter] = useState('');
+  const [metricFilters, setMetricFilters] = useState<Partial<Record<UtmSortField, { op: string; val: number }>>>({});
+  const [activePopover, setActivePopover] = useState<UtmSortField | null>(null);
 
   const handleSort = (field: UtmSortField) => {
     if (field === sortField) {
@@ -1430,18 +1487,45 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
     }
   };
 
-  const sortedData = useMemo(() => {
-    const sortableData = [...data];
-
+  const { tableData: filteredAndSortedData, minMaxValues } = useMemo(() => {
     const getSortableValue = (item: any, field: UtmSortField) => {
       switch (field) {
         case 'visits': return showUnique ? item.unique_visits : item.visits;
         case 'clicks': return showUnique ? item.unique_clicks : item.clicks;
+        case 'purchases': return item.purchases;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
         case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
+        case 'checkout_conversion_rate': return showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate;
         default: return item[field];
       }
     };
+    
+    const filteredData = data.filter(item => {
+      if (nameFilter && !item.name.toLowerCase().includes(nameFilter.toLowerCase())) {
+        return false;
+      }
+      for (const field in metricFilters) {
+        const filter = metricFilters[field as UtmSortField];
+        if (!filter) continue;
+        const itemValue = getSortableValue(item, field as UtmSortField);
+        if (filter.op === '>' && !(itemValue > filter.val)) return false;
+        if (filter.op === '<' && !(itemValue < filter.val)) return false;
+        if (filter.op === '=' && !(itemValue == filter.val)) return false;
+      }
+      return true;
+    });
+
+    const metricsToScale: UtmSortField[] = ['persuasion_rate', 'conversion_rate', 'checkout_conversion_rate'];
+    const minMaxValues = metricsToScale.reduce((acc, field) => {
+      const values = filteredData.map(item => getSortableValue(item, field)).filter(v => typeof v === 'number' && isFinite(v));
+      acc[field] = {
+        min: values.length > 0 ? Math.min(...values) : 0,
+        max: values.length > 0 ? Math.max(...values) : 0,
+      };
+      return acc;
+    }, {} as Record<UtmSortField, { min: number; max: number }>);
+
+    const sortableData = [...filteredData];
     
     sortableData.sort((a, b) => {
       const aValue = getSortableValue(a, sortField);
@@ -1454,8 +1538,8 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
       return String(aValue).localeCompare(String(bValue)) * multiplier;
     });
 
-    return sortableData;
-  }, [data, sortField, sortDirection, showUnique]);
+    return { tableData: sortableData, minMaxValues };
+  }, [data, sortField, sortDirection, showUnique, nameFilter, metricFilters]);
 
   const handleRowClick = (itemName: string) => {
     const newSelection = new Set(selectedItems);
@@ -1467,46 +1551,89 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
     onSelectionChange(newSelection);
   };
 
+  const handleSetFilter = (field: UtmSortField, op: string, val: string) => {
+    const numVal = parseFloat(val);
+    if (!isNaN(numVal)) {
+      setMetricFilters(prev => ({ ...prev, [field]: { op, val: numVal } }));
+    }
+    setActivePopover(null);
+  };
+
+  const handleClearFilter = (field: UtmSortField) => {
+    setMetricFilters(prev => {
+      const newFilters = { ...prev };
+      delete newFilters[field];
+      return newFilters;
+    });
+    setActivePopover(null);
+  };
+
   const handleSelectAll = () => {
-    if (selectedItems.size === sortedData.length) {
+    if (selectedItems.size === filteredAndSortedData.length) {
       onSelectionChange(new Set());
     } else {
-      onSelectionChange(new Set(sortedData.map(item => item.name)));
+      onSelectionChange(new Set(filteredAndSortedData.map(item => item.name)));
     }
   };
 
-  const SortableHeader = ({ field, label, align = 'right' }: { field: UtmSortField; label: string, align?: 'left' | 'right' }) => (
-    <th scope="col" className={`px-6 py-3 text-${align} text-xs font-medium text-gray-500 uppercase tracking-wider`}>
-      <button onClick={() => handleSort(field)} className="group inline-flex items-center space-x-1 hover:text-gray-900">
-        <span>{label}</span>
-        <ArrowUpDown className={`h-4 w-4 ${sortField === field ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'}`} />
-      </button>
-    </th>
-  );
-
+  const SortableHeader = ({ field, label, align = 'right' }: { field: UtmSortField; label: string, align?: 'left' | 'right' }) => {
+    const isFiltered = !!metricFilters[field];
+    return (
+      <th scope="col" className={`px-3 py-3 text-${align} text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+        <div className="flex items-center gap-2" style={{ justifyContent: align }}>
+          <button onClick={() => handleSort(field)} className="group inline-flex items-center space-x-1 hover:text-gray-900">
+            <span className={isFiltered ? 'text-indigo-600' : ''}>{label}</span>
+            <ArrowUpDown className={`h-4 w-4 ${sortField === field ? 'text-gray-900' : isFiltered ? 'text-indigo-400' : 'text-gray-400 group-hover:text-gray-500'}`} />
+          </button>
+          <div className="relative">
+            <button onClick={() => setActivePopover(activePopover === field ? null : field)}>
+              <Filter className={`h-4 w-4 ${isFiltered ? 'text-indigo-600' : 'text-gray-400 hover:text-gray-700'}`} />
+            </button>
+            {activePopover === field && <FilterPopover onApply={(op, val) => handleSetFilter(field, op, val)} onClear={() => handleClearFilter(field)} />}
+          </div>
+        </div>
+      </th>
+    );
+  };
+  
   return (
     <div className="overflow-x-auto">
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
-            <th scope="col" className="px-6 py-3 text-left">
+            <th scope="col" className="pl-4 pr-3 py-3 text-left">
               <input
                 type="checkbox"
                 className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                checked={sortedData.length > 0 && selectedItems.size === sortedData.length}
+                checked={filteredAndSortedData.length > 0 && selectedItems.size === filteredAndSortedData.length}
                 onChange={handleSelectAll}
               />
             </th>
-            <SortableHeader field="name" label={title} align="left" />
+            <th scope="col" className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              <div className="flex items-center gap-2">
+                <button onClick={() => handleSort('name')} className="group inline-flex items-center space-x-1 hover:text-gray-900">
+                  <span>{title}</span>
+                  <ArrowUpDown className={`h-4 w-4 ${sortField === 'name' ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'}`} />
+                </button>
+                <input
+                  type="text"
+                  placeholder="Buscar..."
+                  value={nameFilter}
+                  onChange={e => setNameFilter(e.target.value)}
+                  className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm text-xs p-1.5"
+                />
+              </div>
+            </th>
             <SortableHeader field="visits" label="Visitas" />
             <SortableHeader field="clicks" label="Pagos Iniciados" />
+            <SortableHeader field="persuasion_rate" label="Persuasión" />
             <SortableHeader field="purchases" label="Compras" />
             <SortableHeader field="conversion_rate" label="Conversión" />
-            <SortableHeader field="persuasion_rate" label="Persuasión" />
+            <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
-          {sortedData.map((item, index) => (
+          {filteredAndSortedData.map((item, index) => (
             <tr
               key={index}
               className={`hover:bg-gray-100 cursor-pointer ${selectedItems.has(item.name) ? 'bg-indigo-50' : ''}`}
@@ -1521,14 +1648,23 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 />
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.name}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{showUnique ? item.unique_visits : item.visits}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{showUnique ? item.unique_clicks : item.clicks}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{item.purchases}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}%
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_visits : item.visits}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_clicks : item.clicks}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_persuasion_rate : item.persuasion_rate, minMaxValues.persuasion_rate.min, minMaxValues.persuasion_rate.max)}`}>
+                  {(showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}%
+                </span>
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                {(showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}%
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{item.purchases}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
+                  {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}%
+                </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate, minMaxValues.checkout_conversion_rate.min, minMaxValues.checkout_conversion_rate.max)}`}>
+                  {(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate).toFixed(2)}%
+                </span>
               </td>
             </tr>
           ))}
