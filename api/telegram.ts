@@ -108,7 +108,7 @@ export async function sendTestNotification(chatId: string, userId?: string, thre
   }
 }
 
-export async function notifyPurchase(userId: string, purchaseData: any): Promise<void> {
+export async function notifyPurchase(userId: string, purchaseData: any, producerPrice?: { value: number; currency_value: string }): Promise<void> {
   try {
     // Get user's settings for timezone and telegram chat ID
     const { data: settings, error: settingsError } = await supabase
@@ -146,10 +146,13 @@ export async function notifyPurchase(userId: string, purchaseData: any): Promise
     // Get UTM data from tracking event
     const utmData = trackingEvent?.event_data?.utm_data || {};
 
+    // Use producer price if available, otherwise fallback to original offer price
+    const priceToShow = producerPrice || purchaseData.purchase.original_offer_price;
+    
     // Format purchase message with detailed information
     const message = `🎉 <b>¡VENTA CONFIRMADA!</b>\n\n` +
       `📦 Producto: ${purchaseData.product.name}\n` +
-      `💰 Valor: ${purchaseData.purchase.original_offer_price.currency_value} ${purchaseData.purchase.original_offer_price.value}\n` +
+      `💰 Valor: ${priceToShow.currency_value} ${priceToShow.value}\n` +
       `📅 Fecha: ${approvedDate}\n\n` +
       `👤 <b>Datos del comprador:</b>\n` +
       `• Nombre: ${purchaseData.buyer.name}\n` +

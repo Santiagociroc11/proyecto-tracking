@@ -32,6 +32,16 @@ interface HotmartEvent {
         state?: string;
       };
     };
+    commissions: Array<{
+      value: number;
+      source: string;
+      currency_value: string;
+      currency_conversion?: {
+        converted_value: number;
+        converted_to_currency: string;
+        conversion_rate: number;
+      };
+    }>;
   };
   event: string;
   creation_date: number;
@@ -73,6 +83,33 @@ interface GeolocationData {
 
 function hashSHA256(value: string): string {
   return crypto.SHA256(value).toString(crypto.enc.Hex);
+}
+
+/**
+ * Obtiene el precio de la comisión del productor
+ * @param event - Evento de Hotmart
+ * @returns Objeto con value y currency_value de la comisión del productor
+ */
+function getProducerCommissionPrice(event: HotmartEvent): { value: number; currency_value: string } {
+  const producerCommission = event.data.commissions?.find(commission => commission.source === 'PRODUCER');
+  
+  if (producerCommission) {
+    console.log('Usando precio de comisión del productor:', {
+      value: producerCommission.value,
+      currency: producerCommission.currency_value
+    });
+    return {
+      value: producerCommission.value,
+      currency_value: producerCommission.currency_value
+    };
+  }
+  
+  // Fallback al precio original si no se encuentra la comisión del productor
+  console.log('No se encontró comisión del productor, usando precio original:', {
+    value: event.data.purchase.price.value,
+    currency: event.data.purchase.price.currency_value
+  });
+  return event.data.purchase.price;
 }
 
 /**
@@ -191,7 +228,7 @@ async function sendFacebookConversion(
   }
 
   const buyer = event.data.buyer;
-  const price = event.data.purchase.price;
+  const price = getProducerCommissionPrice(event); // Usar precio de comisión del productor
   const buyerIP = event.data.purchase.buyer_ip;
   const xcod = event.data.purchase.origin.xcod; // Este es nuestro visitor_id
   
@@ -371,7 +408,8 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       await sendFacebookConversion(product, event, trackingEvent);
       console.log('Conversión enviada a Facebook.');
        // Send Telegram notification
-       await notifyPurchase(product.user_id, event.data);
+       const producerPrice = getProducerCommissionPrice(event);
+       await notifyPurchase(product.user_id, event.data, producerPrice);
     } else {
       console.log('Evento no es PURCHASE_APPROVED. No se enviará la conversión a Facebook.');
     }
