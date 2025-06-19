@@ -12,6 +12,12 @@ import {
   RefreshCw,
   ArrowUpDown,
   TrendingUp,
+  Filter,
+  Lightbulb,
+  Rocket,
+  Gem,
+  AlertTriangle,
+  Zap,
 } from 'lucide-react';
 import {
   BarChart,
@@ -24,6 +30,8 @@ import {
   ResponsiveContainer,
   LineChart,
   Line,
+  ComposedChart,
+  Area,
 } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone, getDateInTimezone, getStartEndDatesInUTC } from '../utils/date';
@@ -76,6 +84,14 @@ interface AnalyticsData {
   }[];
 }
 
+const decodeName = (name: string) => {
+  try {
+    return decodeURIComponent(name.replace(/\+/g, ' '));
+  } catch (e) {
+    return name;
+  }
+};
+
 interface Props {
   productId: string;
 }
@@ -90,6 +106,7 @@ type SortField =
   | 'conversion_rate'
   | 'persuasion_rate';
 type SortDirection = 'asc' | 'desc';
+type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate' | 'persuasion_rate';
 
 interface ResizableHeaderProps {
   width: number;
@@ -157,6 +174,37 @@ const TIMEFRAME_OPTIONS = [
 
 const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
 
+const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
+  if (active && payload && payload.length) {
+      const data = payload[0].payload;
+      return (
+          <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200">
+              <p className="font-bold text-gray-800">{label}</p>
+              <div className="mt-2 space-y-1 text-sm">
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}:</span>
+                      <span className="font-medium text-blue-600 ml-4">{showUnique ? data.unique_visits : data.visits}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}:</span>
+                      <span className="font-medium text-green-600 ml-4">{showUnique ? data.unique_clicks : data.clicks}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Compras:</span>
+                      <span className="font-medium text-purple-600 ml-4">{data.purchases}</span>
+                  </p>
+                  <p className="flex justify-between mt-2 pt-2 border-t">
+                      <span className="text-gray-500">Tasa de Conversión:</span>
+                      <span className="font-bold text-amber-600 ml-4">{data.conversion_rate.toFixed(2)}%</span>
+                  </p>
+              </div>
+          </div>
+      );
+  }
+
+  return null;
+};
+
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
   const { timezone } = useTimezone();
@@ -207,6 +255,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [selectedUtmCategory, setSelectedUtmCategory] = useState<'campaign' | 'medium' | 'content'>('campaign');
   // Estado para el modo de análisis
   const [analysisMode, setAnalysisMode] = useState<'pure' | 'combined'>('combined');
+  // Estado para la pestaña de UTM activa en la vista de detalle
+  const [utmDetailTab, setUtmDetailTab] = useState<'campaign' | 'medium' | 'content'>('campaign');
+  // Estados para el filtrado jerárquico
+  const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
+  const [selectedMediums, setSelectedMediums] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -423,32 +476,21 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalClicks = 0;
       let totalPurchases = 0;
 
-      // Para estadísticas por UTM
+      // Para estadísticas por UTM (solo datos limpios)
       const utmStats = new Map<string, any>();
 
-      // Para estadísticas diarias
+      // Para estadísticas diarias (todos los datos)
       const dailyStats = new Map<string, any>();
       const dailyUniqueVisitors = new Map<string, Set<string>>();
       const dailyUniqueClicks = new Map<string, Set<string>>();
 
       events.forEach((event) => {
-        // Get date in user's timezone
+        // --- Procesamiento para todos los eventos (cifras totales y diarias) ---
         const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
-        console.log(`Processing event: ${event.event_type}, created_at: ${event.created_at}, local date: ${localDate}`);
         
-        // Inicializar estadísticas diarias si no existen
         if (!dailyStats.has(localDate)) {
-          dailyStats.set(localDate, {
-            date: localDate,
-            visits: 0,
-            unique_visits: 0,
-            clicks: 0,
-            unique_clicks: 0,
-            purchases: 0
-          });
+          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0 });
         }
-
-        // Inicializar sets de visitas y clics únicos por día
         if (!dailyUniqueVisitors.has(localDate)) {
           dailyUniqueVisitors.set(localDate, new Set());
         }
@@ -459,71 +501,73 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const dayStats = dailyStats.get(localDate);
         const dayUniqueVisitors = dailyUniqueVisitors.get(localDate);
         const dayUniqueClicks = dailyUniqueClicks.get(localDate);
-        
-        // Safety check
-        if (!dayStats || !dayUniqueVisitors || !dayUniqueClicks) {
-          console.error(`Missing daily stats for date ${localDate}`);
-          return;
-        }
 
-        const utmData = event.event_data?.utm_data || {};
-        const utmKey = JSON.stringify({
-          medium: utmData.utm_medium || 'none',
-          campaign: utmData.utm_campaign || 'none',
-          content: utmData.utm_content || 'none',
-        });
+        if (!dayStats || !dayUniqueVisitors || !dayUniqueClicks) return;
 
-        if (!utmStats.has(utmKey)) {
-          utmStats.set(utmKey, {
-            medium: utmData.utm_medium || 'none',
-            campaign: utmData.utm_campaign || 'none',
-            content: utmData.utm_content || 'none',
-            visits: 0,
-            unique_visits: 0,
-            clicks: 0,
-            unique_clicks: 0,
-            purchases: 0,
-            visitorSet: new Set(),
-            clickSet: new Set(),
-          });
-        }
-        const stats = utmStats.get(utmKey);
+        uniqueVisitors.add(event.visitor_id);
+        dayUniqueVisitors.add(event.visitor_id);
 
-        switch (event.event_type) {
-          case 'pageview':
-            stats.visits++;
-            dayStats.visits++;
-            uniqueVisitors.add(event.visitor_id);
-            dayUniqueVisitors.add(event.visitor_id);
-            stats.visitorSet.add(event.visitor_id);
-            totalVisits++;
-            break;
-          case 'hotmart_click':
-            stats.clicks++;
-            dayStats.clicks++;
-            uniqueClicks.add(event.visitor_id);
-            dayUniqueClicks.add(event.visitor_id);
-            stats.clickSet.add(event.visitor_id);
-            totalClicks++;
-            break;
-          case 'compra_hotmart':
-            stats.purchases++;
-            dayStats.purchases++;
-            totalPurchases++;
-            break;
+        if (event.event_type === 'pageview') {
+          totalVisits++;
+          dayStats.visits++;
+        } else if (event.event_type === 'hotmart_click') {
+          totalClicks++;
+          dayStats.clicks++;
+          uniqueClicks.add(event.visitor_id);
+          dayUniqueClicks.add(event.visitor_id);
+        } else if (event.event_type === 'compra_hotmart') {
+          totalPurchases++;
+          dayStats.purchases++;
         }
 
         dayStats.unique_visits = dayUniqueVisitors.size;
         dayStats.unique_clicks = dayUniqueClicks.size;
-        stats.unique_visits = stats.visitorSet.size;
-        stats.unique_clicks = stats.clickSet.size;
-        utmStats.set(utmKey, stats);
         dailyStats.set(localDate, dayStats);
+
+        // --- Procesamiento solo para eventos con UTMs válidos (análisis de atribución) ---
+        const utmData = event.event_data?.utm_data;
+        if (utmData) {
+          const campaign = utmData.utm_campaign || '';
+          const medium = utmData.utm_medium || '';
+          const content = utmData.utm_content || '';
+          const isInvalidUtm = campaign.includes('{{') || medium.includes('{{') || content.includes('{{');
+
+          if (!isInvalidUtm) {
+            const utmKey = JSON.stringify({ medium: medium || 'none', campaign: campaign || 'none', content: content || 'none' });
+
+            if (!utmStats.has(utmKey)) {
+              utmStats.set(utmKey, {
+                medium: medium || 'none', campaign: campaign || 'none', content: content || 'none',
+                visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0,
+                visitorSet: new Set(), clickSet: new Set(),
+              });
+            }
+            
+            const stats = utmStats.get(utmKey);
+            stats.visitorSet.add(event.visitor_id);
+
+            if (event.event_type === 'pageview') {
+              stats.visits++;
+            } else if (event.event_type === 'hotmart_click') {
+              stats.clicks++;
+              stats.clickSet.add(event.visitor_id);
+            } else if (event.event_type === 'compra_hotmart') {
+              stats.purchases++;
+            }
+
+            stats.unique_visits = stats.visitorSet.size;
+            stats.unique_clicks = stats.clickSet.size;
+            utmStats.set(utmKey, stats);
+          }
+        }
       });
 
       const utmStatsArray = Array.from(utmStats.values())
         .map((stat) => ({
           ...stat,
+          campaign: decodeName(stat.campaign),
+          medium: decodeName(stat.medium),
+          content: decodeName(stat.content),
           conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
           unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
           persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
@@ -716,8 +760,121 @@ export default function AnalyticsDashboard({ productId }: Props) {
       selectedSummaryMetric === 'conversion'
         ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
         : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate';
-    return result.sort((a, b) => b[metricKey] - a[metricKey]);
+    return result.sort((a, b) => (b[metricKey] ?? 0) - (a[metricKey] ?? 0));
   }, [data, selectedUtmCategory, selectedSummaryMetric, showUnique, analysisMode]);
+
+  // Insights para el nuevo dashboard de trafficker
+  const insights = useMemo(() => {
+    if (!data || data.utm_stats.length === 0) {
+      return {
+        moneyMachines: [],
+        hiddenGems: [],
+        leakyFaucets: [],
+        wastedAdSpend: [],
+        avgVisits: 0,
+        avgConversionRate: 0,
+      };
+    }
+  
+    const totalUtms = data.utm_stats.length;
+    const avgVisits = data.utm_stats.reduce((acc, utm) => acc + utm.visits, 0) / totalUtms;
+    const avgConversionRate = (data.total_purchases / data.total_visits) * 100;
+  
+    const moneyMachines = data.utm_stats
+      .filter(utm => utm.visits > avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) > avgConversionRate)
+      .sort((a, b) => b.purchases - a.purchases);
+  
+    const hiddenGems = data.utm_stats
+      .filter(utm => utm.visits < avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) > avgConversionRate * 1.5)
+      .sort((a, b) => (showUnique ? b.unique_conversion_rate : b.conversion_rate) - (showUnique ? a.unique_conversion_rate : a.conversion_rate));
+  
+    const leakyFaucets = data.utm_stats
+      .filter(utm => utm.visits > avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < avgConversionRate)
+      .sort((a, b) => a.conversion_rate - b.conversion_rate);
+  
+    const wastedAdSpend = data.utm_stats
+      .filter(utm => utm.visits > avgVisits * 0.5 && utm.purchases === 0)
+      .sort((a, b) => b.visits - a.visits);
+  
+    return { moneyMachines, hiddenGems, leakyFaucets, wastedAdSpend, avgVisits, avgConversionRate };
+  }, [data, showUnique]);
+
+  const handleCampaignSelection = (selection: Set<string>) => {
+    setSelectedCampaigns(selection);
+    // Al cambiar la selección de campañas, reseteamos la de segmentaciones
+    setSelectedMediums(new Set());
+  };
+
+  const clearSelection = () => {
+    setSelectedCampaigns(new Set());
+    setSelectedMediums(new Set());
+  };
+
+  const aggregateStats = useCallback((key: 'campaign' | 'medium' | 'content', sourceData?: any[]) => {
+    if (!sourceData) return [];
+    
+    const grouped = new Map<string, any>();
+
+    sourceData.forEach(utm => {
+      const groupKey = utm[key] || 'none';
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, {
+          name: groupKey,
+          visits: 0,
+          unique_visits: 0,
+          clicks: 0,
+          unique_clicks: 0,
+          purchases: 0
+        });
+      }
+      
+      const stats = grouped.get(groupKey);
+      stats.visits += utm.visits;
+      stats.unique_visits += utm.unique_visits;
+      stats.clicks += utm.clicks;
+      stats.unique_clicks += utm.unique_clicks;
+      stats.purchases += utm.purchases;
+    });
+
+    return Array.from(grouped.values()).map(stat => ({
+      ...stat,
+      conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
+      unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
+      persuasion_rate: stat.clicks > 0 ? (stat.clicks / stat.visits) * 100 : 0,
+      unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0
+    }));
+  }, []);
+
+  // Filtramos los datos basados en las selecciones
+  const campaignData = useMemo(() => aggregateStats('campaign', data?.utm_stats), [aggregateStats, data]);
+
+  const mediumData = useMemo(() => {
+    if (!data) return [];
+    const filteredUtms = selectedCampaigns.size > 0
+      ? data.utm_stats.filter(utm => selectedCampaigns.has(utm.campaign || 'none'))
+      : data.utm_stats;
+    return aggregateStats('medium', filteredUtms);
+  }, [aggregateStats, data, selectedCampaigns]);
+
+  const contentData = useMemo(() => {
+    if (!data) return [];
+    let filteredUtms = data.utm_stats;
+    if (selectedCampaigns.size > 0) {
+      filteredUtms = filteredUtms.filter(utm => selectedCampaigns.has(utm.campaign || 'none'));
+    }
+    if (selectedMediums.size > 0) {
+      filteredUtms = filteredUtms.filter(utm => selectedMediums.has(utm.medium || 'none'));
+    }
+    return aggregateStats('content', filteredUtms);
+  }, [aggregateStats, data, selectedCampaigns, selectedMediums]);
+
+  const chartData = useMemo(() => {
+    if (!data?.daily_stats) return [];
+    return data.daily_stats.map(day => ({
+        ...day,
+        conversion_rate: (showUnique ? day.unique_visits : day.visits) > 0 ? (day.purchases / (showUnique ? day.unique_visits : day.visits)) * 100 : 0,
+    }));
+  }, [data?.daily_stats, showUnique]);
 
   if (loading) {
     return (
@@ -976,30 +1133,31 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* Gráfica de Tendencias Diarias */}
-      <div className="bg-white p-4 rounded-lg shadow">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Tendencias Diarias</h3>
-        <div className="h-80">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+        <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+          <TrendingUp className="h-6 w-6 text-indigo-600 mr-3" />
+          Rendimiento a lo largo del tiempo
+        </h3>
+        <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data.daily_stats}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
+            <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+              <defs>
+                <linearGradient id="colorVisits" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0.1}/>
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="left" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${value.toFixed(1)}%`} />
+              <Tooltip content={<CustomTooltip showUnique={showUnique} />} />
               <Legend />
-              <Line
-                type="monotone"
-                dataKey={showUnique ? 'unique_visits' : 'visits'}
-                stroke="#3B82F6"
-                name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`}
-              />
-              <Line
-                type="monotone"
-                dataKey={showUnique ? 'unique_clicks' : 'clicks'}
-                stroke="#10B981"
-                name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`}
-              />
-              <Line type="monotone" dataKey="purchases" stroke="#8B5CF6" name="Compras" />
-            </LineChart>
+              <Area yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_visits' : 'visits'} name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`} fill="url(#colorVisits)" stroke="#3B82F6" strokeWidth={2} />
+              <Line yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_clicks' : 'clicks'} name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`} stroke="#10B981" strokeWidth={2} dot={false} />
+              <Line yAxisId="left" type="monotone" dataKey="purchases" name="Compras" stroke="#8B5CF6" strokeWidth={2.5} />
+              <Line yAxisId="right" type="monotone" dataKey="conversion_rate" name="Tasa de Conversión" stroke="#F59E0B" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       </div>
@@ -1028,397 +1186,355 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
 
         {activeTab === 'resumen' ? (
-          <div className="p-6 space-y-8">
-            {/* Resumen Ejecutivo */}
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-6 rounded-xl border border-blue-200">
-              <h3 className="text-xl font-bold text-gray-900 mb-4 flex items-center">
-                <TrendingUp className="h-6 w-6 text-blue-600 mr-2" />
-                Resumen Ejecutivo
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-4 rounded-lg border border-blue-100">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-gray-600">Rendimiento Global</p>
-                      <p className="text-2xl font-bold text-gray-900">
-                        {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(1)}%
-                      </p>
-                      <p className="text-xs text-gray-500">Tasa de Conversión</p>
+          <div className="p-6 space-y-8 bg-gray-50">
+            {/* Fila 1: Funnel de Conversión y Resumen Global */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              {/* Funnel */}
+              <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+                <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                  <Filter className="h-6 w-6 text-indigo-600 mr-3" />
+                  Funnel de Conversión
+                </h3>
+                <div className="space-y-4">
+                  {/* Etapa 1: Visitas */}
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-blue-100 rounded-lg w-16 h-16 flex items-center justify-center">
+                      <Users className="w-8 h-8 text-blue-600" />
                     </div>
-                    <div className="p-3 bg-green-100 rounded-full">
-                      <DollarSign className="h-6 w-6 text-green-600" />
+                    <div className="ml-4">
+                      <p className="text-lg font-bold text-gray-900">{showUnique ? data.unique_visits : data.total_visits}</p>
+                      <p className="text-sm text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}</p>
+                    </div>
+                  </div>
+                  {/* Conector */}
+                  <div className="ml-8 pl-1 flex items-center" style={{ minHeight: '40px' }}>
+                    <div className="w-px h-full bg-gray-300 mr-4"></div>
+                    <div className="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded-full">
+                      {( (showUnique ? data.unique_clicks : data.total_clicks) / (showUnique ? data.unique_visits : data.total_visits) * 100 ).toFixed(1)}%
+                    </div>
+                  </div>
+                  {/* Etapa 2: Pagos Iniciados */}
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-green-100 rounded-lg w-16 h-16 flex items-center justify-center">
+                      <BarChartIcon className="w-8 h-8 text-green-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-lg font-bold text-gray-900">{showUnique ? data.unique_clicks : data.total_clicks}</p>
+                      <p className="text-sm text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}</p>
+                    </div>
+                  </div>
+                  {/* Conector */}
+                  <div className="ml-8 pl-1 flex items-center" style={{ minHeight: '40px' }}>
+                    <div className="w-px h-full bg-gray-300 mr-4"></div>
+                    <div className="text-xs text-green-600 font-semibold bg-green-50 px-2 py-1 rounded-full">
+                      {( (data.total_purchases) / (showUnique ? data.unique_clicks : data.total_clicks) * 100 ).toFixed(1)}%
+                    </div>
+                  </div>
+                   {/* Etapa 3: Compras */}
+                   <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-purple-100 rounded-lg w-16 h-16 flex items-center justify-center">
+                      <DollarSign className="w-8 h-8 text-purple-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-lg font-bold text-gray-900">{data.total_purchases}</p>
+                      <p className="text-sm text-gray-500">Compras</p>
                     </div>
                   </div>
                 </div>
-                <div className="bg-white p-4 rounded-lg border border-blue-100">
-                  <div className="flex items-center justify-between">
+              </div>
+
+              {/* Resumen Global */}
+              <div className="bg-white p-6 rounded-xl shadow-sm border space-y-6">
+                <h3 className="text-xl font-bold text-gray-900">Métricas Clave</h3>
+                <div className="space-y-4">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Eficiencia</p>
-                      <p className="text-2xl font-bold text-gray-900">
-                        {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(1)}%
-                      </p>
-                      <p className="text-xs text-gray-500">Tasa de Persuasión</p>
+                      <p className="text-sm font-medium text-gray-500">Conversión General</p>
+                      <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%</p>
                     </div>
-                    <div className="p-3 bg-blue-100 rounded-full">
-                      <BarChartIcon className="h-6 w-6 text-blue-600" />
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-white p-4 rounded-lg border border-blue-100">
-                  <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium text-gray-600">Volumen Total</p>
-                      <p className="text-2xl font-bold text-gray-900">{data.total_purchases}</p>
-                      <p className="text-xs text-gray-500">Conversiones</p>
+                      <p className="text-sm font-medium text-gray-500">Persuasión General</p>
+                      <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%</p>
                     </div>
-                    <div className="p-3 bg-purple-100 rounded-full">
-                      <Users className="h-6 w-6 text-purple-600" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Total Compras</p>
+                      <p className="text-3xl font-bold text-indigo-600">{data.total_purchases}</p>
                     </div>
-                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Insights Accionables */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              {/* Mejores Performers */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <ArrowUpRight className="h-5 w-5 text-green-600 mr-2" />
-                  🏆 Top Performers
-                </h4>
-                {data.utm_stats.slice(0, 3).map((utm, index) => (
-                  <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900 truncate">{utm.campaign}</p>
-                      <p className="text-sm text-gray-500">{utm.medium} • {utm.content}</p>
-                    </div>
-                    <div className="text-right ml-4">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}% conv.
-                      </span>
-                      <p className="text-xs text-gray-500 mt-1">{utm.visits} visitas</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Oportunidades de Mejora */}
-              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-                <h4 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                  <ArrowDownRight className="h-5 w-5 text-red-600 mr-2" />
-                  ⚠️ Necesitan Atención
-                </h4>
-                {data.utm_stats
-                  .filter(utm => (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < (showUnique ? data.unique_conversion_rate : data.conversion_rate) * 0.5)
-                  .slice(0, 3)
-                  .map((utm, index) => (
-                    <div key={index} className="flex items-center justify-between py-3 border-b border-gray-100 last:border-b-0">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-900 truncate">{utm.campaign}</p>
-                        <p className="text-sm text-gray-500">{utm.medium} • {utm.content}</p>
-                      </div>
-                      <div className="text-right ml-4">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
-                          {(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}% conv.
-                        </span>
-                        <p className="text-xs text-gray-500 mt-1">{utm.visits} visitas</p>
-                      </div>
-                    </div>
-                  ))}
-                {data.utm_stats.filter(utm => (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < (showUnique ? data.unique_conversion_rate : data.conversion_rate) * 0.5).length === 0 && (
-                  <div className="text-center py-4">
-                    <p className="text-gray-500 text-sm">🎉 ¡Todas las campañas están funcionando bien!</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Análisis Avanzado */}
+            {/* Fila 2: Motor de Insights */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-                <BarChartIcon className="h-5 w-5 text-indigo-600 mr-2" />
-                Análisis Avanzado por Categoría
+              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                <Lightbulb className="h-6 w-6 text-yellow-500 mr-3" />
+                Inteligencia de Campañas
               </h3>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Modo de Análisis</label>
-                  <div className="flex space-x-4">
-                    <label className="inline-flex items-center">
-                      <input
-                        type="radio"
-                        name="analysisMode"
-                        value="combined"
-                        checked={analysisMode === 'combined'}
-                        onChange={() => setAnalysisMode('combined')}
-                        className="form-radio text-indigo-600"
-                      />
-                      <span className="ml-2 text-sm">Combinado</span>
-                    </label>
-                    <label className="inline-flex items-center">
-                      <input
-                        type="radio"
-                        name="analysisMode"
-                        value="pure"
-                        checked={analysisMode === 'pure'}
-                        onChange={() => setAnalysisMode('pure')}
-                        className="form-radio text-indigo-600"
-                      />
-                      <span className="ml-2 text-sm">Puro</span>
-                    </label>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Categoría</label>
-                  <select
-                    value={selectedUtmCategory}
-                    onChange={(e) => setSelectedUtmCategory(e.target.value as 'campaign' | 'medium' | 'content')}
-                    className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                  >
-                    <option value="campaign">Campaña</option>
-                    <option value="medium">Segmentación</option>
-                    <option value="content">Anuncio</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Métrica</label>
-                  <div className="flex space-x-4">
-                    <label className="inline-flex items-center">
-                      <input
-                        type="radio"
-                        name="summaryMetric"
-                        value="conversion"
-                        checked={selectedSummaryMetric === 'conversion'}
-                        onChange={() => setSelectedSummaryMetric('conversion')}
-                        className="form-radio text-indigo-600"
-                      />
-                      <span className="ml-2 text-sm">Conversión</span>
-                    </label>
-                    <label className="inline-flex items-center">
-                      <input
-                        type="radio"
-                        name="summaryMetric"
-                        value="persuasion"
-                        checked={selectedSummaryMetric === 'persuasion'}
-                        onChange={() => setSelectedSummaryMetric('persuasion')}
-                        className="form-radio text-indigo-600"
-                      />
-                      <span className="ml-2 text-sm">Persuasión</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={groupedUtmSummary.slice(0, 8)}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis 
-                      dataKey="category" 
-                      angle={-45}
-                      textAnchor="end"
-                      height={100}
-                      fontSize={12}
-                    />
-                    <YAxis tickFormatter={(tick) => `${tick.toFixed(0)}%`} />
-                    <Tooltip
-                      formatter={(value: number) => [`${value.toFixed(2)}%`, selectedSummaryMetric === 'conversion' ? 'Conversión' : 'Persuasión']}
-                      labelStyle={{ fontSize: '12px' }}
-                    />
-                    <Bar
-                      dataKey={
-                        selectedSummaryMetric === 'conversion'
-                          ? showUnique ? 'unique_conversion_rate' : 'conversion_rate'
-                          : showUnique ? 'unique_persuasion_rate' : 'persuasion_rate'
-                      }
-                      fill="#4F46E5"
-                      radius={[4, 4, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-                          </div>
-
-              {/* Lista mejorada del Top */}
-              <div className="mt-6">
-                <h4 className="text-md font-semibold text-gray-900 mb-4">
-                  Top 8 {analysisMode === 'combined' ? 'Combinaciones' : `por ${selectedUtmCategory === 'campaign' ? 'Campaña' : selectedUtmCategory === 'medium' ? 'Segmentación' : 'Anuncio'}`}
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {groupedUtmSummary.slice(0, 8).map((item, index) => (
-                    <div key={index} className="bg-white p-4 rounded-lg border border-gray-200 hover:shadow-md transition-shadow">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center">
-                          <div className={`w-3 h-3 rounded-full mr-3 ${index < 3 ? 'bg-green-400' : index < 6 ? 'bg-yellow-400' : 'bg-red-400'}`}></div>
-                          <span className="font-medium text-gray-900 text-sm truncate max-w-[200px]" title={item.category}>
-                            {item.category}
-                          </span>
-                        </div>
-                        <span className={`text-lg font-bold ${index < 3 ? 'text-green-600' : index < 6 ? 'text-yellow-600' : 'text-red-600'}`}>
-                          #{index + 1}
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-600">
-                            {selectedSummaryMetric === 'conversion' ? 'Conversión:' : 'Persuasión:'}
-                          </span>
-                          <span className="font-semibold text-gray-900">
-                            {selectedSummaryMetric === 'conversion'
-                              ? (showUnique ? item.unique_conversion_rate : item.conversion_rate)?.toFixed(2)
-                              : (showUnique ? item.unique_persuasion_rate : item.persuasion_rate)?.toFixed(2)}%
-                          </span>
-                          </div>
-                        <div className="flex justify-between text-xs text-gray-500">
-                          <span>{item.visits} visitas</span>
-                          <span>{item.purchases} compras</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Recomendaciones */}
-            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-xl border border-green-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <LineChartIcon className="h-5 w-5 text-green-600 mr-2" />
-                💡 Recomendaciones Inteligentes
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-white p-4 rounded-lg border border-green-100">
-                  <h4 className="font-medium text-gray-900 mb-2">🚀 Escalar</h4>
-                  <p className="text-sm text-gray-600">
-                    Las campañas con +{((showUnique ? data.unique_conversion_rate : data.conversion_rate) * 1.5).toFixed(1)}% de conversión son candidatas perfectas para aumentar presupuesto.
-                  </p>
-                </div>
-                <div className="bg-white p-4 rounded-lg border border-green-100">
-                  <h4 className="font-medium text-gray-900 mb-2">🔧 Optimizar</h4>
-                  <p className="text-sm text-gray-600">
-                    Campañas con alta persuasión pero baja conversión necesitan mejorar la página de destino o la oferta.
-                  </p>
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <InsightCard
+                  icon={<Rocket className="h-8 w-8 text-white" />}
+                  bgColor="bg-green-500"
+                  title="Máquinas de Dinero"
+                  description="Alto tráfico y alta conversión. ¡Escalar!"
+                  campaigns={insights.moneyMachines}
+                  showUnique={showUnique}
+                />
+                 <InsightCard
+                  icon={<Gem className="h-8 w-8 text-white" />}
+                  bgColor="bg-sky-500"
+                  title="Joyas Ocultas"
+                  description="Bajo tráfico, alta conversión. ¡Darle más visibilidad!"
+                  campaigns={insights.hiddenGems}
+                  showUnique={showUnique}
+                />
+                <InsightCard
+                  icon={<AlertTriangle className="h-8 w-8 text-white" />}
+                  bgColor="bg-amber-500"
+                  title="Gigantes Cansados"
+                  description="Mucho tráfico, baja conversión. ¡Optimizar o pausar!"
+                  campaigns={insights.leakyFaucets}
+                  showUnique={showUnique}
+                />
+                <InsightCard
+                  icon={<Zap className="h-8 w-8 text-white" />}
+                  bgColor="bg-red-500"
+                  title="Agujeros Negros"
+                  description="Visitas pero 0 compras. ¡Revisar urgentemente!"
+                  campaigns={insights.wastedAdSpend}
+                  showUnique={showUnique}
+                />
               </div>
             </div>
           </div>
         ) : (
           // Tabla de UTMs (detalle)
-          <div className="border-t border-gray-200">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <div className="space-y-2">
-                          <SortButton field="campaign" label="Campaña" />
-                      <input
-                        type="text"
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                        placeholder="Filtrar"
-                        value={utmFilters.campaign}
-                        onChange={(e) => handleUtmFilterChange('campaign', e.target.value)}
-                      />
-                      </div>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <div className="space-y-2">
-                          <SortButton field="medium" label="Segmentación" />
-                      <input
-                        type="text"
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                        placeholder="Filtrar"
-                        value={utmFilters.medium}
-                        onChange={(e) => handleUtmFilterChange('medium', e.target.value)}
-                      />
-                      </div>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <div className="space-y-2">
-                          <SortButton field="content" label="Anuncio" />
-                      <input
-                        type="text"
-                          className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 text-xs"
-                        placeholder="Filtrar"
-                        value={utmFilters.content}
-                        onChange={(e) => handleUtmFilterChange('content', e.target.value)}
-                      />
-                        </div>
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <SortButton field="visits" label="Visitas" />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <SortButton field="clicks" label="Pagos Iniciados" />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <SortButton field="purchases" label="Compras" />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        <SortButton field="conversion_rate" label="Conversión" />
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      <SortButton field="persuasion_rate" label="Persuasión" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {getSortedUtmStats.map((utm, index) => {
-                    const currentConversion = showUnique ? utm.unique_conversion_rate : utm.conversion_rate;
-                    const currentPersuasion = showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate;
-                    const globalConversion = showUnique ? data.unique_conversion_rate : data.conversion_rate;
-                    const isPositive = currentConversion > globalConversion;
-                    const isExpanded = expandedRows.has(index);
-                    return (
-                      <tr key={index} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <div className={`cursor-pointer ${isExpanded ? '' : 'truncate max-w-xs'}`} onClick={() => toggleRowExpansion(index)}>
-                              {utm.campaign}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <div className={`${isExpanded ? '' : 'truncate max-w-xs'}`}>
-                            {utm.medium}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <div className={`${isExpanded ? '' : 'truncate max-w-xs'}`}>
-                            {utm.content}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {showUnique ? utm.unique_visits : utm.visits}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {showUnique ? utm.unique_clicks : utm.clicks}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {utm.purchases}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                          <div className="flex items-center justify-end space-x-1">
-                            <span className={`${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                              {(currentConversion ?? 0).toFixed(2)}%
-                            </span>
-                            {isPositive ? (
-                              <ArrowUpRight className="h-4 w-4 text-green-600" />
-                            ) : (
-                              <ArrowDownRight className="h-4 w-4 text-red-600" />
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
-                          {currentPersuasion.toFixed(2)}%
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          <div className="border-t border-gray-200 p-6">
+            <div className="flex items-center space-x-2 border-b border-gray-200 mb-4">
+              <button
+                onClick={() => setUtmDetailTab('campaign')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                  utmDetailTab === 'campaign' ? 'bg-indigo-50 text-indigo-700 border-indigo-300 border-t border-l border-r' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Campañas {selectedCampaigns.size > 0 && <span className="text-xs opacity-80">({selectedCampaigns.size})</span>}
+              </button>
+              <button
+                onClick={() => setUtmDetailTab('medium')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                  utmDetailTab === 'medium' ? 'bg-indigo-50 text-indigo-700 border-indigo-300 border-t border-l border-r' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Segmentación {selectedMediums.size > 0 && <span className="text-xs opacity-80">({selectedMediums.size})</span>}
+              </button>
+              <button
+                onClick={() => setUtmDetailTab('content')}
+                className={`px-4 py-2 text-sm font-medium rounded-t-lg ${
+                  utmDetailTab === 'content' ? 'bg-indigo-50 text-indigo-700 border-indigo-300 border-t border-l border-r' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Anuncios
+              </button>
+              {(selectedCampaigns.size > 0 || selectedMediums.size > 0) && (
+                <button
+                  onClick={clearSelection}
+                  className="ml-auto text-sm font-medium text-indigo-600 hover:text-indigo-800 self-center pb-2 flex items-center gap-1"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  Limpiar filtros
+                </button>
+              )}
             </div>
+
+            {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} />}
+            {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} />}
+            {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} />}
           </div>
         )}
       </div>
     </div>
   );
 }
+
+interface InsightCardProps {
+  icon: React.ReactNode;
+  bgColor: string;
+  title: string;
+  description: string;
+  campaigns: any[];
+  showUnique: boolean;
+}
+
+const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, description, campaigns, showUnique }) => {
+  return (
+    <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 flex flex-col">
+      <div className="flex items-start justify-between">
+        <div className={`p-3 rounded-lg ${bgColor}`}>
+          {icon}
+        </div>
+        <span className="font-bold text-3xl text-gray-300">{campaigns.length}</span>
+      </div>
+      <div className="mt-4">
+        <h4 className="font-bold text-gray-800 text-lg">{title}</h4>
+        <p className="text-xs text-gray-500 h-8">{description}</p>
+      </div>
+      <div className="mt-4 space-y-3 flex-grow">
+        {campaigns.slice(0, 3).map((utm, index) => (
+          <div key={index} className="bg-white p-3 rounded-lg text-xs border border-gray-200">
+            <div className="space-y-1.5">
+              <div className="flex items-center">
+                <span className="inline-block w-20 text-center bg-blue-100 text-blue-800 text-[10px] font-semibold mr-2 px-2 py-0.5 rounded-full">CAMPAÑA</span>
+                <p className="font-medium text-gray-700 truncate" title={utm.campaign}>{utm.campaign}</p>
+              </div>
+              <div className="flex items-center">
+                <span className="inline-block w-20 text-center bg-green-100 text-green-800 text-[10px] font-semibold mr-2 px-2 py-0.5 rounded-full">CONJUNTO</span>
+                <p className="text-gray-600 truncate" title={utm.medium}>{utm.medium}</p>
+              </div>
+              <div className="flex items-center">
+                <span className="inline-block w-20 text-center bg-purple-100 text-purple-800 text-[10px] font-semibold mr-2 px-2 py-0.5 rounded-full">ANUNCIO</span>
+                <p className="text-gray-600 truncate" title={utm.content}>{utm.content}</p>
+              </div>
+            </div>
+            <div className="flex justify-between items-center text-gray-600 mt-2 pt-2 border-t border-gray-100">
+              <span className="font-medium text-sm">{showUnique ? utm.unique_visits : utm.visits} visitas</span>
+              <span className="font-bold text-base text-gray-800">{(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}%</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      {campaigns.length === 0 && (
+         <div className="flex-grow flex items-center justify-center">
+            <p className="text-sm text-gray-400">No hay campañas aquí.</p>
+         </div>
+      )}
+    </div>
+  );
+};
+
+interface UtmDetailTableProps {
+  data: any[];
+  title: string;
+  showUnique: boolean;
+  selectedItems: Set<string>;
+  onSelectionChange: (selection: Set<string>) => void;
+}
+
+function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
+  const [sortField, setSortField] = useState<UtmSortField>('visits');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: UtmSortField) => {
+    if (field === sortField) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  const sortedData = useMemo(() => {
+    const sortableData = [...data];
+
+    const getSortableValue = (item: any, field: UtmSortField) => {
+      switch (field) {
+        case 'visits': return showUnique ? item.unique_visits : item.visits;
+        case 'clicks': return showUnique ? item.unique_clicks : item.clicks;
+        case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
+        case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
+        default: return item[field];
+      }
+    };
+    
+    sortableData.sort((a, b) => {
+      const aValue = getSortableValue(a, sortField);
+      const bValue = getSortableValue(b, sortField);
+      const multiplier = sortDirection === 'asc' ? 1 : -1;
+
+      if (typeof aValue === 'number' && typeof bValue === 'number') {
+        return (aValue - bValue) * multiplier;
+      }
+      return String(aValue).localeCompare(String(bValue)) * multiplier;
+    });
+
+    return sortableData;
+  }, [data, sortField, sortDirection, showUnique]);
+
+  const handleRowClick = (itemName: string) => {
+    const newSelection = new Set(selectedItems);
+    if (newSelection.has(itemName)) {
+      newSelection.delete(itemName);
+    } else {
+      newSelection.add(itemName);
+    }
+    onSelectionChange(newSelection);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedItems.size === sortedData.length) {
+      onSelectionChange(new Set());
+    } else {
+      onSelectionChange(new Set(sortedData.map(item => item.name)));
+    }
+  };
+
+  const SortableHeader = ({ field, label, align = 'right' }: { field: UtmSortField; label: string, align?: 'left' | 'right' }) => (
+    <th scope="col" className={`px-6 py-3 text-${align} text-xs font-medium text-gray-500 uppercase tracking-wider`}>
+      <button onClick={() => handleSort(field)} className="group inline-flex items-center space-x-1 hover:text-gray-900">
+        <span>{label}</span>
+        <ArrowUpDown className={`h-4 w-4 ${sortField === field ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-500'}`} />
+      </button>
+    </th>
+  );
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        <thead className="bg-gray-50">
+          <tr>
+            <th scope="col" className="px-6 py-3 text-left">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                checked={sortedData.length > 0 && selectedItems.size === sortedData.length}
+                onChange={handleSelectAll}
+              />
+            </th>
+            <SortableHeader field="name" label={title} align="left" />
+            <SortableHeader field="visits" label="Visitas" />
+            <SortableHeader field="clicks" label="Pagos Iniciados" />
+            <SortableHeader field="purchases" label="Compras" />
+            <SortableHeader field="conversion_rate" label="Conversión" />
+            <SortableHeader field="persuasion_rate" label="Persuasión" />
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {sortedData.map((item, index) => (
+            <tr
+              key={index}
+              className={`hover:bg-gray-100 cursor-pointer ${selectedItems.has(item.name) ? 'bg-indigo-50' : ''}`}
+              onClick={() => handleRowClick(item.name)}
+            >
+              <td className="px-6 py-4">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={selectedItems.has(item.name)}
+                  readOnly // El click en la fila se encarga de la lógica
+                />
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.name}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{showUnique ? item.unique_visits : item.visits}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{showUnique ? item.unique_clicks : item.clicks}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">{item.purchases}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}%
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 text-right">
+                {(showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}%
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+

@@ -257,6 +257,30 @@ async function sendFacebookConversion(
   }
 }
 
+function decodeUtmParameters(eventData: TrackingEvent['event_data']): TrackingEvent['event_data'] {
+  if (!eventData.utm_data) {
+    return eventData;
+  }
+
+  const decodedUtmData: { [key: string]: string | undefined } = {};
+  for (const key in eventData.utm_data) {
+    const value = eventData.utm_data[key as keyof typeof eventData.utm_data];
+    if (typeof value === 'string') {
+      try {
+        decodedUtmData[key] = decodeURIComponent(value.replace(/\+/g, ' '));
+      } catch (e) {
+        // Si falla la decodificación, mantenemos el valor original
+        decodedUtmData[key] = value;
+      }
+    }
+  }
+
+  return {
+    ...eventData,
+    utm_data: decodedUtmData as TrackingEvent['event_data']['utm_data'],
+  };
+}
+
 export async function handleTrackingEvent(data: TrackingEvent): Promise<{ 
   success: boolean; 
   debugLogs: any[]; 
@@ -274,15 +298,20 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
     }
   };
 
-  log('Event', 'Iniciando handleTrackingEvent', { raw_event: data });
-
-  if (!data.tracking_id || !data.type || !data.visitor_id) {
-    const errorMsg = 'Datos del evento incompletos';
-    log('Event', errorMsg, { data });
-    return { success: false, debugLogs, error: errorMsg };
-  }
-
   try {
+    // Decodificar UTMs al inicio
+    if (data.event_data) {
+      data.event_data = decodeUtmParameters(data.event_data);
+    }
+
+    log('Start', 'Iniciando handleTrackingEvent', data);
+
+    if (!data || !data.tracking_id || !data.type) {
+      const errorMsg = 'Datos del evento incompletos';
+      log('Event', errorMsg, { data });
+      return { success: false, debugLogs, error: errorMsg };
+    }
+
     const { data: product, error: productError } = await supabase
       .from('products')
       .select<string, Product>(`
