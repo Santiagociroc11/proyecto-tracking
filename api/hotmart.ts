@@ -66,6 +66,8 @@ interface TrackingEventWithProduct {
   product_id: string;
   visitor_id: string;
   event_data: any;
+  event_type: string;
+  created_at: string;
   products: Product;
   utm_data?: {
     utm_source?: string;
@@ -344,13 +346,15 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     result.xcod = xcod;
     console.log('xcod obtenido:', xcod);
 
-    console.log('Consultando tracking_events en Supabase...');
+    console.log('🔍 [Hotmart] Consultando tracking_events en Supabase para visitor_id:', xcod);
     const { data: trackingEvent, error: trackingError } = await supabase
       .from('tracking_events')
       .select<string, TrackingEventWithProduct>(`
         product_id,
         visitor_id,
         event_data,
+        event_type,
+        created_at,
         products (
           id,
           active,
@@ -367,6 +371,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
+
+    console.log('🔍 [Hotmart] Resultado consulta tracking_events:', { 
+      found: !!trackingEvent, 
+      error: trackingError,
+      event_type: trackingEvent?.event_type,
+      created_at: trackingEvent?.created_at,
+      utm_data: trackingEvent?.event_data?.utm_data 
+    });
 
     if (trackingError) {
       const error = `Error buscando tracking event: ${trackingError.message}`;

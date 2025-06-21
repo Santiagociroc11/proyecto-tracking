@@ -123,15 +123,18 @@ export async function notifyPurchase(userId: string, purchaseData: any, producer
     }
 
     // Get the latest non-purchase tracking event for this visitor
-    const { data: trackingEvent } = await supabase
+    console.log('🔍 Buscando tracking event para visitor_id:', purchaseData.purchase.origin.xcod);
+    const { data: trackingEvent, error: trackingEventError } = await supabase
       .from('tracking_events')
-      .select('event_data')
+      .select('event_data, event_type, created_at')
       .eq('visitor_id', purchaseData.purchase.origin.xcod)
       .neq('event_type', 'compra_hotmart') // Exclude purchase events
       .neq('event_type', 'compra_hotmart_orderbump') // Exclude order bump events
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
+
+    console.log('🔍 Resultado de búsqueda:', { trackingEvent, error: trackingEventError });
 
     // Check if this is an order bump
     const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump || false;
@@ -150,6 +153,7 @@ export async function notifyPurchase(userId: string, purchaseData: any, producer
 
     // Get UTM data from tracking event
     const utmData = trackingEvent?.event_data?.utm_data || {};
+    console.log('🎯 Datos UTM encontrados:', utmData);
 
     // Use producer price if available, otherwise fallback to original offer price
     const priceToShow = producerPrice || purchaseData.purchase.original_offer_price;
