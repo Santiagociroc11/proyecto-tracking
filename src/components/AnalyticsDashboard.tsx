@@ -49,10 +49,12 @@ interface AnalyticsData {
   total_clicks: number;
   unique_clicks: number;
   total_purchases: number;
+  total_order_bumps: number;
   conversion_rate: number;
   unique_conversion_rate: number;
   persuasion_rate: number;
   unique_persuasion_rate: number;
+  order_bump_rate: number; // Porcentaje de ventas que incluyen order bump
   utm_stats: {
     medium: string;
     campaign: string;
@@ -62,10 +64,12 @@ interface AnalyticsData {
     clicks: number;
     unique_clicks: number;
     purchases: number;
+    order_bumps: number;
     conversion_rate: number;
     unique_conversion_rate: number;
     persuasion_rate: number;
     unique_persuasion_rate: number;
+    order_bump_rate: number;
   }[];
   daily_stats: {
     date: string;
@@ -74,6 +78,7 @@ interface AnalyticsData {
     clicks: number;
     unique_clicks: number;
     purchases: number;
+    order_bumps: number;
   }[];
   top_sources: {
     source: string;
@@ -192,6 +197,10 @@ const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
                   <p className="flex justify-between">
                       <span className="text-gray-500">Compras:</span>
                       <span className="font-medium text-purple-600 ml-4">{data.purchases}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Order Bumps:</span>
+                      <span className="font-medium text-orange-600 ml-4">{data.order_bumps}</span>
                   </p>
                   <p className="flex justify-between mt-2 pt-2 border-t">
                       <span className="text-gray-500">Tasa de Conversión:</span>
@@ -455,10 +464,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
           total_clicks: 0,
           unique_clicks: 0,
           total_purchases: 0,
+          total_order_bumps: 0,
           conversion_rate: 0,
           unique_conversion_rate: 0,
           persuasion_rate: 0,
           unique_persuasion_rate: 0,
+          order_bump_rate: 0,
           utm_stats: [],
           daily_stats: [],
           top_sources: [],
@@ -475,6 +486,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalVisits = 0;
       let totalClicks = 0;
       let totalPurchases = 0;
+      let totalOrderBumps = 0;
 
       // Para estadísticas por UTM (solo datos limpios)
       const utmStats = new Map<string, any>();
@@ -489,7 +501,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
         
         if (!dailyStats.has(localDate)) {
-          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0 });
+          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0 });
         }
         if (!dailyUniqueVisitors.has(localDate)) {
           dailyUniqueVisitors.set(localDate, new Set());
@@ -518,6 +530,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
         } else if (event.event_type === 'compra_hotmart') {
           totalPurchases++;
           dayStats.purchases++;
+        } else if (event.event_type === 'compra_hotmart_orderbump') {
+          totalOrderBumps++;
+          dayStats.order_bumps++;
         }
 
         dayStats.unique_visits = dayUniqueVisitors.size;
@@ -538,7 +553,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
             if (!utmStats.has(utmKey)) {
               utmStats.set(utmKey, {
                 medium: medium || 'none', campaign: campaign || 'none', content: content || 'none',
-                visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0,
+                visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0,
                 visitorSet: new Set(), clickSet: new Set(),
               });
             }
@@ -553,6 +568,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               stats.clickSet.add(event.visitor_id);
             } else if (event.event_type === 'compra_hotmart') {
               stats.purchases++;
+            } else if (event.event_type === 'compra_hotmart_orderbump') {
+              stats.order_bumps++;
             }
 
             stats.unique_visits = stats.visitorSet.size;
@@ -574,6 +591,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
           checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
           unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
+          order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
         }))
         .sort((a, b) => b.visits - a.visits);
 
@@ -589,10 +607,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
         total_clicks: totalClicks,
         unique_clicks: uniqueClicks.size,
         total_purchases: totalPurchases,
+        total_order_bumps: totalOrderBumps,
         conversion_rate: totalVisits > 0 ? (totalPurchases / totalVisits) * 100 : 0,
         unique_conversion_rate: uniqueVisitors.size > 0 ? (totalPurchases / uniqueVisitors.size) * 100 : 0,
         persuasion_rate: totalVisits > 0 ? (totalClicks / totalVisits) * 100 : 0,
         unique_persuasion_rate: uniqueVisitors.size > 0 ? (uniqueClicks.size / uniqueVisitors.size) * 100 : 0,
+        order_bump_rate: totalPurchases > 0 ? (totalOrderBumps / totalPurchases) * 100 : 0,
         utm_stats: utmStatsArray,
         daily_stats: dailyStatsArray,
         top_sources: sourceStatsArray,
@@ -615,8 +635,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Anuncio': utm.content,
       'Visitas': showUnique ? utm.unique_visits : utm.visits,
       'Pagos Iniciados': showUnique ? utm.unique_clicks : utm.clicks,
+      'Compras': utm.purchases,
+      'Order Bumps': utm.order_bumps,
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
       'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
+      'Tasa Order Bump (%)': utm.order_bump_rate.toFixed(2),
     }));
     const utmSheet = XLSX.utils.json_to_sheet(utmData);
     XLSX.utils.book_append_sheet(workbook, utmSheet, 'UTMs');
@@ -626,6 +649,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Visitas': showUnique ? day.unique_visits : day.visits,
       'Pagos Iniciados': showUnique ? day.unique_clicks : day.clicks,
       'Compras': day.purchases,
+      'Order Bumps': day.order_bumps,
     }));
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
@@ -826,7 +850,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           unique_visits: 0,
           clicks: 0,
           unique_clicks: 0,
-          purchases: 0
+          purchases: 0,
+          order_bumps: 0
         });
       }
       
@@ -836,6 +861,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       stats.clicks += utm.clicks;
       stats.unique_clicks += utm.unique_clicks;
       stats.purchases += utm.purchases;
+      stats.order_bumps += utm.order_bumps;
     });
 
     return Array.from(grouped.values()).map(stat => ({
@@ -846,6 +872,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
       checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
       unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
+      order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
     }));
   }, []);
 
@@ -1074,7 +1101,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded">
@@ -1110,6 +1137,17 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
+            <div className="p-2 bg-orange-100 rounded">
+              <Rocket className="h-6 w-6 text-orange-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Order Bumps</p>
+              <h3 className="text-2xl font-bold text-gray-900">{data.total_order_bumps}</h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded">
               <LineChartIcon className="h-6 w-6 text-yellow-600" />
             </div>
@@ -1127,9 +1165,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <TrendingUp className="h-6 w-6 text-indigo-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Tasa de Persuasión</p>
+              <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
               <h3 className="text-2xl font-bold text-gray-900">
-                {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%
+                {data.order_bump_rate.toFixed(2)}%
               </h3>
             </div>
           </div>
@@ -1160,6 +1198,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <Area yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_visits' : 'visits'} name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`} fill="url(#colorVisits)" stroke="#3B82F6" strokeWidth={2} />
               <Line yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_clicks' : 'clicks'} name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`} stroke="#10B981" strokeWidth={2} dot={false} />
               <Line yAxisId="left" type="monotone" dataKey="purchases" name="Compras" stroke="#8B5CF6" strokeWidth={2.5} />
+              <Line yAxisId="left" type="monotone" dataKey="order_bumps" name="Order Bumps" stroke="#F97316" strokeWidth={2.5} />
               <Line yAxisId="right" type="monotone" dataKey="conversion_rate" name="Tasa de Conversión" stroke="#F59E0B" strokeWidth={2} strokeDasharray="5 5" dot={false} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -1262,6 +1301,14 @@ export default function AnalyticsDashboard({ productId }: Props) {
                     <div>
                       <p className="text-sm font-medium text-gray-500">Total Compras</p>
                       <p className="text-3xl font-bold text-indigo-600">{data.total_purchases}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Order Bumps</p>
+                      <p className="text-3xl font-bold text-orange-600">{data.total_order_bumps}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
+                      <p className="text-3xl font-bold text-orange-600">{data.order_bump_rate.toFixed(2)}%</p>
                     </div>
                 </div>
               </div>
