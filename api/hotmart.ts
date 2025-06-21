@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto-js'; 
 import { notifyPurchase } from './telegram.js';
+import { randomUUID } from 'crypto';
 
 interface HotmartEvent {
   data: {
@@ -316,37 +317,81 @@ async function sendFacebookConversion(
 }
 
 export async function handleHotmartWebhook(event: HotmartEvent) {
-  const result = {
+  const requestId = randomUUID();
+  const log = (step: string, data: Record<string, any> = {}) => {
+    console.log(JSON.stringify({
+      requestId,
+      timestamp: new Date().toISOString(),
+      flow: 'hotmart_webhook',
+      step,
+      ...data
+    }, null, 2));
+  };
+
+  log('start', { 
+    hotmart_event: event.event, 
+    transaction: event.data.purchase.transaction,
+    product_id: event.data.product.id
+  });
+
+  const result: any = {
+    requestId,
+    processing_started: new Date().toISOString(),
+    processing_ended: null as string | null,
     success: false,
-    xcod: null as string | null,
-    tracking_found: false,
-    product_found: false,
-    product_active: false,
-    event_stored: false,
-    facebook_sent: false,
-    telegram_sent: false,
-    producer_price: null as { value: number; currency_value: string } | null,
-    event_type: event.event,
-    is_order_bump: event.data.purchase.order_bump?.is_order_bump === true,
-    parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
+    final_status: 'started',
+    steps_completed: [] as string[],
+    event_info: {
+      type: event.event,
+      transaction: event.data.purchase.transaction,
+      product_id: event.data.product.id,
+      product_name: event.data.product.name,
+      xcod: null,
+    },
+    tracking_info: {
+        found: false,
+        visitor_id: null,
+        session_id: null,
+        original_event_type: null,
+        utm_data: null
+    },
+    product_info: {
+        found: false,
+        active: false,
+        id: null,
+        name: null,
+    },
+    purchase_info: {
+        is_order_bump: null,
+        parent_transaction: null,
+        event_stored: false,
+        producer_price: null,
+    },
+    notifications: {
+        facebook_sent: false,
+        telegram_sent: false,
+    },
     errors: [] as string[]
   };
 
   try {
-    console.log('Iniciando handleHotmartWebhook con evento:', event);
-
+    log('validation_start');
     if (!event.data.purchase.origin?.xcod) {
       const error = 'xcod no encontrado en el evento';
-      console.log(error);
+      log('validation_failed', { error, event_data: event.data });
       result.errors.push(error);
+      result.final_status = 'validation_failed';
+      result.processing_ended = new Date().toISOString();
       return result;
     }
+    log('validation_success');
 
     const xcod = event.data.purchase.origin.xcod;
-    result.xcod = xcod;
-    console.log('xcod obtenido:', xcod);
+    result.event_info.xcod = xcod;
+    result.steps_completed.push('xcod_extracted');
+    log('xcod_extracted', { xcod });
 
-    console.log('🔍 [Hotmart] Consultando tracking_events en Supabase para visitor_id:', xcod);
+    log('query_tracking_event_start', { visitor_id: xcod });
     const { data: trackingEvent, error: trackingError } = await supabase
       .from('tracking_events')
       .select<string, TrackingEventWithProduct>(`
@@ -372,64 +417,85 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       .limit(1)
       .single();
 
-    console.log('🔍 [Hotmart] Resultado consulta tracking_events:', { 
+    log('query_tracking_event_end', { 
       found: !!trackingEvent, 
-      error: trackingError,
+      has_error: !!trackingError,
+      error_details: trackingError?.message,
       event_type: trackingEvent?.event_type,
-      created_at: trackingEvent?.created_at,
       utm_data: trackingEvent?.event_data?.utm_data 
     });
 
     if (trackingError) {
       const error = `Error buscando tracking event: ${trackingError.message}`;
-      console.error(error, trackingError);
+      log('error', { context: 'Error al buscar tracking event en Supabase', details: trackingError });
       result.errors.push(error);
+      result.final_status = 'query_tracking_failed';
+      result.processing_ended = new Date().toISOString();
       return result;
     }
 
     if (!trackingEvent) {
-      const error = 'Tracking event no encontrado';
-      console.error(error);
+      const error = 'Tracking event no encontrado para el xcod proporcionado.';
+      log('error', { context: 'Tracking event no encontrado', xcod });
       result.errors.push(error);
+      result.final_status = 'tracking_not_found';
+      result.processing_ended = new Date().toISOString();
       return result;
     }
 
-    result.tracking_found = true;
-    console.log('Tracking event encontrado:', trackingEvent);
+    result.tracking_info = {
+      found: true,
+      visitor_id: trackingEvent.visitor_id,
+      session_id: trackingEvent.session_id,
+      original_event_type: trackingEvent.event_type,
+      utm_data: trackingEvent.event_data?.utm_data || null
+    };
+    result.steps_completed.push('tracking_event_found');
+    log('tracking_event_found', { visitor_id: trackingEvent.visitor_id, session_id: trackingEvent.session_id });
 
     const product = trackingEvent.products;
-    console.log('Producto obtenido del tracking event:', product);
+    log('product_validation_start', { product_id: product?.id, product_name: product?.name });
 
     if (!product) {
       const error = 'Producto no encontrado en el tracking event';
-      console.error(error);
+      log('error', { context: 'Producto no asociado al tracking event', tracking_event_id: trackingEvent.page_view_id });
       result.errors.push(error);
+      result.final_status = 'product_not_found';
+      result.processing_ended = new Date().toISOString();
       return result;
     }
-
-    result.product_found = true;
+    result.product_info.found = true;
+    result.product_info.id = product.id;
+    result.product_info.name = product.name;
+    result.steps_completed.push('product_found');
 
     if (!product.active) {
-      const error = 'Producto inactivo';
-      console.error(error);
+      const error = `El producto ID ${product.id} está inactivo`;
+      log('error', { context: 'Producto inactivo', product_id: product.id });
       result.errors.push(error);
+      result.final_status = 'product_inactive';
+      result.processing_ended = new Date().toISOString();
       return result;
     }
-
-    result.product_active = true;
+    result.product_info.active = true;
+    result.steps_completed.push('product_active');
+    log('product_validation_success');
 
     // Determine event type based on order bump status - more explicit check
     const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true;
     const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    result.purchase_info.is_order_bump = isOrderBump;
+    result.purchase_info.parent_transaction = event.data.purchase.order_bump?.parent_purchase_transaction || null;
+    result.steps_completed.push('order_bump_checked');
     
-    console.log(`🔍 [Order Bump Detection]`, {
+    log('order_bump_detection', {
       order_bump_field_exists: !!event.data.purchase.order_bump,
       is_order_bump_value: event.data.purchase.order_bump?.is_order_bump,
-      final_determination: isOrderBump,
+      is_order_bump_determined: isOrderBump,
       event_type_chosen: eventType
     });
     
-    console.log(`Insertando evento de compra en Supabase - Tipo: ${eventType}...`);
+    log('insert_purchase_event_start', { event_type: eventType });
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
     .insert([
@@ -458,51 +524,60 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
 
     if (insertError) {
       const error = `Error al insertar evento de compra: ${insertError.message}`;
-      console.error(error, insertError);
+      log('error', { context: 'Error al insertar evento en Supabase', details: insertError });
       result.errors.push(error);
     } else {
-      result.event_stored = true;
-      console.log('Evento de compra insertado en Supabase con éxito.');
-      console.log('Resultado de la inserción:', insertData);
+      result.purchase_info.event_stored = true;
+      result.steps_completed.push('purchase_event_stored');
+      log('insert_purchase_event_success', { inserted_data: insertData });
     }
 
     if (event.event === 'PURCHASE_APPROVED') {
-      console.log('Evento PURCHASE_APPROVED detectado. Enviando conversión a Facebook...');
+      log('purchase_approved_flow_start');
       
       // Get producer price for both Facebook and Telegram
       const producerPrice = getProducerCommissionPrice(event);
-      result.producer_price = producerPrice;
+      result.purchase_info.producer_price = producerPrice;
+      log('producer_price_calculated', { price: producerPrice });
       
       try {
+        log('facebook_conversion_start');
         await sendFacebookConversion(product, event, trackingEvent);
-        result.facebook_sent = true;
-        console.log('Conversión enviada a Facebook.');
+        result.notifications.facebook_sent = true;
+        result.steps_completed.push('facebook_notification_sent');
+        log('facebook_conversion_success');
       } catch (fbError) {
-        const error = `Error enviando a Facebook: ${fbError instanceof Error ? fbError.message : fbError}`;
-        console.error(error);
+        const error = `Error enviando a Facebook: ${fbError instanceof Error ? fbError.message : String(fbError)}`;
+        log('error', { context: 'Error en la API de conversiones de Facebook', details: error });
         result.errors.push(error);
       }
 
       try {
-        await notifyPurchase(product.user_id, event.data, producerPrice);
-        result.telegram_sent = true;
-        console.log('Notificación de Telegram enviada.');
+        log('telegram_notification_start');
+        await notifyPurchase(product.user_id, event.data, producerPrice, requestId);
+        result.notifications.telegram_sent = true;
+        result.steps_completed.push('telegram_notification_sent');
+        log('telegram_notification_success');
       } catch (telegramError) {
-        const error = `Error enviando a Telegram: ${telegramError instanceof Error ? telegramError.message : telegramError}`;
-        console.error(error);
+        const error = `Error enviando a Telegram: ${telegramError instanceof Error ? telegramError.message : String(telegramError)}`;
+        log('error', { context: 'Error al notificar por Telegram', details: error });
         result.errors.push(error);
       }
     } else {
-      console.log('Evento no es PURCHASE_APPROVED. No se enviará la conversión a Facebook.');
+      log('purchase_not_approved', { event_status: event.event });
     }
 
     result.success = true;
-    console.log('handleHotmartWebhook completado con éxito.');
+    result.final_status = 'success';
+    result.processing_ended = new Date().toISOString();
+    log('end', { result });
     return result;
   } catch (error) {
-    const errorMessage = `Error procesando webhook de Hotmart: ${error instanceof Error ? error.message : error}`;
-    console.error(errorMessage, error);
+    const errorMessage = `Error procesando webhook de Hotmart: ${error instanceof Error ? error.message : String(error)}`;
+    log('fatal_error', { details: errorMessage, stack: error instanceof Error ? error.stack : '' });
     result.errors.push(errorMessage);
+    result.final_status = 'fatal_error';
+    result.processing_ended = new Date().toISOString();
     return result;
   }
 }
