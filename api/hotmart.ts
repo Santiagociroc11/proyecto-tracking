@@ -89,6 +89,20 @@ interface GeolocationData {
   error?: boolean;
 }
 
+interface FacebookConversionResult {
+  success: boolean;
+  status: 'not_attempted' | 'success' | 'failed_config' | 'api_error';
+  fbtrace_id?: string | null;
+  error_message?: string | null;
+  payload_summary?: {
+    event_name: string;
+    value: number;
+    currency: string;
+    order_id: string;
+    test_event_code?: string;
+  } | null;
+}
+
 function hashSHA256(value: string): string {
   return crypto.SHA256(value).toString(crypto.enc.Hex);
 }
@@ -228,76 +242,89 @@ async function enhanceAddressWithGeolocation(
 async function sendFacebookConversion(
   product: Product,
   event: HotmartEvent,
-  trackingEvent: any
-): Promise<void> {
-  if (!product.fb_pixel_id || !product.fb_access_token) {
-    console.log('Facebook Pixel ID or Access Token not configured');
-    return;
-  }
-
-  const buyer = event.data.buyer;
-  const price = getProducerCommissionPrice(event); // Usar precio de comisión del productor
-  const buyerIP = event.data.purchase.buyer_ip;
-  const xcod = event.data.purchase.origin.xcod; // Este es nuestro visitor_id
-  
-  // Completar datos de dirección con geolocalización si es necesario
-  const enhancedAddress = await enhanceAddressWithGeolocation(buyer.address, buyerIP);
-  
-  console.log('Datos de dirección finales para Facebook:', {
-    original: buyer.address,
-    enhanced: enhancedAddress
-  });
-
-  const encryptedData = {
-    em: [hashSHA256(buyer.email)],
-    ph: [hashSHA256(buyer.checkout_phone)],
-    fn: [hashSHA256(buyer.name)],
-    country: [hashSHA256(enhancedAddress.country)],
-    zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip)] : [],
-    ct: enhancedAddress.city ? [hashSHA256(enhancedAddress.city)] : [],
-    st: enhancedAddress.state ? [hashSHA256(enhancedAddress.state)] : [],
-    client_ip_address: buyerIP,
-    client_user_agent: trackingEvent?.event_data?.browser_info?.userAgent || null,
-    fbc: trackingEvent?.event_data?.fbc || null,
-    fbp: trackingEvent?.event_data?.fbp || null,
-    // Añadir external_id usando el xcod para mejor matching con el InitiateCheckout
-    external_id: (xcod && typeof xcod === 'string' && xcod.length > 0) ? [xcod] : null
+  trackingEvent: any,
+  requestId: string
+): Promise<FacebookConversionResult> {
+  const log = (step: string, data: Record<string, any> = {}) => {
+    console.log(JSON.stringify({
+      requestId,
+      timestamp: new Date().toISOString(),
+      flow: 'facebook_conversion_api',
+      step,
+      ...data
+    }, null, 2));
   };
 
-  const eventPayload: any = {
-    data: [
-      {
-        event_name: 'Purchase',
-        event_time: Math.floor(Date.now() / 1000),
-        action_source: 'website',
-        original_event_data: {
-          event_name: 'Purchase',
-          event_time: Math.floor(Date.now() / 1000),
-        },
-        user_data: encryptedData,
-        custom_data: {
-          currency: price.currency_value,
-          value: price.value,
-        },
-      },
-    ],
-  };
-
-  if (product.fb_test_event_code) {
-    eventPayload.test_event_code = product.fb_test_event_code;
-  }
-
-  const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
+  log('start', { product_id: product.id, transaction_id: event.data.purchase.transaction });
 
   try {
-    console.log('Enviando evento Purchase a Facebook con external_id:', {
-      external_id: xcod,
+    if (!product.fb_pixel_id || !product.fb_access_token) {
+      const errorMsg = 'Facebook Pixel ID o Access Token no configurado';
+      log('config_missing', {
+        has_pixel_id: !!product.fb_pixel_id,
+        has_access_token: !!product.fb_access_token
+      });
+      return { success: false, status: 'failed_config', error_message: errorMsg, payload_summary: null };
+    }
+    log('config_validated');
+
+    log('geolocation_enhancement_start', { ip: event.data.purchase.buyer_ip });
+    const enhancedAddress = await enhanceAddressWithGeolocation(
+      event.data.buyer.address,
+      event.data.purchase.buyer_ip
+    );
+    log('geolocation_enhancement_end', { enhanced_address: enhancedAddress });
+    
+    const price = getProducerCommissionPrice(event);
+    const transactionId = event.data.purchase.transaction || '';
+
+    const eventPayload = {
+      data: [
+        {
+          event_name: 'Purchase',
+          event_time: Math.floor(event.creation_date / 1000),
+          event_source_url: trackingEvent?.event_data?.url,
+          user_data: {
+            em: [hashSHA256(event.data.buyer.email)],
+            ph: event.data.buyer.checkout_phone ? [hashSHA256(event.data.buyer.checkout_phone)] : [],
+            fn: [hashSHA256(event.data.buyer.name.split(' ')[0])],
+            ln: [hashSHA256(event.data.buyer.name.split(' ').slice(1).join(' '))],
+            client_ip_address: event.data.purchase.buyer_ip,
+            client_user_agent: trackingEvent?.event_data?.user_agent,
+            fbc: trackingEvent?.event_data?.fbc,
+            fbp: trackingEvent?.event_data?.fbp,
+            country: [hashSHA256(enhancedAddress.country_iso.toLowerCase())],
+            ct: enhancedAddress.city ? [hashSHA256(enhancedAddress.city.toLowerCase())] : [],
+            st: enhancedAddress.state ? [hashSHA256(enhancedAddress.state.toLowerCase())] : [],
+            zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip)] : [],
+          },
+          custom_data: {
+            currency: price.currency_value,
+            value: price.value,
+            content_name: event.data.product.name,
+            content_ids: [event.data.product.id.toString()],
+            content_type: 'product',
+            order_id: transactionId,
+          },
+          action_source: 'website',
+          event_id: transactionId,
+        },
+      ],
+      ...(product.fb_test_event_code && { test_event_code: product.fb_test_event_code }),
+    };
+    
+    const payloadSummary = {
       event_name: 'Purchase',
       value: price.value,
-      currency: price.currency_value
-    });
+      currency: price.currency_value,
+      order_id: transactionId,
+      ...(product.fb_test_event_code && { test_event_code: product.fb_test_event_code }),
+    };
+    
+    log('payload_created', { payload: eventPayload });
 
-    const fbResponse = await fetch(fbUrl, {
+    log('api_call_start', { pixel_id: product.fb_pixel_id });
+    const fbResponse = await fetch(`https://graph.facebook.com/v19.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(eventPayload),
@@ -305,14 +332,23 @@ async function sendFacebookConversion(
 
     if (!fbResponse.ok) {
       const errorData = await fbResponse.json();
-      console.error('Error en Facebook Conversions API:', errorData);
-      throw new Error(`Error en Facebook Conversions API: ${fbResponse.status}`);
+      const errorMsg = `Error en API de Facebook: ${fbResponse.status}`;
+      log('api_call_failed', { status: fbResponse.status, error_data: errorData });
+      return { success: false, status: 'api_error', error_message: errorMsg, payload_summary: null };
     }
 
     const fbResult = await fbResponse.json();
-    console.log('Facebook Conversions API response:', fbResult);
+    log('api_call_success', { result: fbResult });
+    return { 
+      success: true, 
+      status: 'success', 
+      fbtrace_id: fbResult.fbtrace_id, 
+      payload_summary: payloadSummary 
+    };
   } catch (error) {
-    console.error('Error enviando conversión a Facebook:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log('fatal_error', { details: errorMessage, stack: error instanceof Error ? error.stack : '' });
+    return { success: false, status: 'api_error', error_message: errorMessage, payload_summary: null };
   }
 }
 
@@ -368,8 +404,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         producer_price: null,
     },
     notifications: {
-        facebook_sent: false,
-        telegram_sent: false,
+      facebook: {
+        success: false,
+        status: 'not_attempted',
+      },
+      telegram_sent: false,
     },
     errors: [] as string[]
   };
@@ -542,14 +581,23 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       
       try {
         log('facebook_conversion_start');
-        await sendFacebookConversion(product, event, trackingEvent);
-        result.notifications.facebook_sent = true;
-        result.steps_completed.push('facebook_notification_sent');
-        log('facebook_conversion_success');
+        const fbResult = await sendFacebookConversion(product, event, trackingEvent, requestId);
+        result.notifications.facebook = fbResult;
+        
+        if (fbResult.success) {
+          result.steps_completed.push('facebook_notification_sent');
+          log('facebook_conversion_success');
+        } else {
+            const error = `Fallo en API de Facebook: ${fbResult.error_message}`;
+            log('error', { context: 'Error manejado desde sendFacebookConversion', details: error });
+            result.errors.push(error);
+        }
+
       } catch (fbError) {
         const error = `Error enviando a Facebook: ${fbError instanceof Error ? fbError.message : String(fbError)}`;
-        log('error', { context: 'Error en la API de conversiones de Facebook', details: error });
+        log('error', { context: 'Error inesperado al llamar sendFacebookConversion', details: error });
         result.errors.push(error);
+        result.notifications.facebook = { success: false, status: 'api_error', error_message: error };
       }
 
       try {
