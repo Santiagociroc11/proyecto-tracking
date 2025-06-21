@@ -19,6 +19,11 @@ interface HotmartEvent {
         value: number;
         currency_value: string;
       };
+      order_bump?: {
+        is_order_bump: boolean;
+        parent_purchase_transaction: string;
+      };
+      transaction?: string;
     };
     buyer: {
       name: string;
@@ -320,6 +325,8 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     telegram_sent: false,
     producer_price: null as { value: number; currency_value: string } | null,
     event_type: event.event,
+    is_order_bump: event.data.purchase.order_bump?.is_order_bump || false,
+    parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
     errors: [] as string[]
   };
 
@@ -398,19 +405,24 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
 
     result.product_active = true;
 
-    console.log('Insertando evento de compra en Supabase...');
+    // Determine event type based on order bump status
+    const eventType = event.data.purchase.order_bump?.is_order_bump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    
+    console.log(`Insertando evento de compra en Supabase - Tipo: ${eventType}...`);
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
     .insert([
       {
         product_id: product.id,
-        event_type: 'compra_hotmart',
+        event_type: eventType,
         visitor_id: xcod,
         session_id: trackingEvent.event_data.session_id,
         event_data: {
           type: 'hotmart_event',
           event: event.event,
           data: event.data,
+          is_order_bump: event.data.purchase.order_bump?.is_order_bump || false,
+          parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
           utm_data:{
             utm_term: trackingEvent.event_data.utm_data?.utm_term,
             utm_medium: trackingEvent.event_data.utm_data?.utm_medium,

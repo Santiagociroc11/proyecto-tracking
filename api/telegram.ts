@@ -128,9 +128,14 @@ export async function notifyPurchase(userId: string, purchaseData: any, producer
       .select('event_data')
       .eq('visitor_id', purchaseData.purchase.origin.xcod)
       .neq('event_type', 'compra_hotmart') // Exclude purchase events
+      .neq('event_type', 'compra_hotmart_orderbump') // Exclude order bump events
       .order('created_at', { ascending: false })
       .limit(1)
       .single();
+
+    // Check if this is an order bump
+    const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump || false;
+    const parentTransaction = purchaseData.purchase.order_bump?.parent_purchase_transaction || null;
 
     // Format dates according to user's timezone
     const orderDate = formatDateToTimezone(
@@ -149,20 +154,40 @@ export async function notifyPurchase(userId: string, purchaseData: any, producer
     // Use producer price if available, otherwise fallback to original offer price
     const priceToShow = producerPrice || purchaseData.purchase.original_offer_price;
     
-    // Format purchase message with detailed information
-    const message = `🎉 <b>¡VENTA CONFIRMADA!</b>\n\n` +
-      `📦 Producto: ${purchaseData.product.name}\n` +
-      `💰 Valor: ${priceToShow.currency_value} ${priceToShow.value}\n` +
-      `📅 Fecha: ${approvedDate}\n\n` +
-      `👤 <b>Datos del comprador:</b>\n` +
-      `• Nombre: ${purchaseData.buyer.name}\n` +
-      `• Email: ${purchaseData.buyer.email}\n` +
-      `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n\n` +
-      `📊 <b>Datos de campaña:</b>\n` +
-      `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
-      `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
-      `• Medio: ${utmData.utm_medium || 'Directo'}\n` +
-      `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`;
+    // Different message format for order bump vs regular purchase
+    let message: string;
+    
+    if (isOrderBump) {
+      message = `🚀 <b>¡ORDER BUMP VENDIDO!</b>\n\n` +
+        `📦 Producto: ${purchaseData.product.name}\n` +
+        `💰 Valor: ${priceToShow.currency_value} ${priceToShow.value}\n` +
+        `📅 Fecha: ${approvedDate}\n` +
+        `🔗 Transacción padre: ${parentTransaction}\n\n` +
+        `👤 <b>Datos del comprador:</b>\n` +
+        `• Nombre: ${purchaseData.buyer.name}\n` +
+        `• Email: ${purchaseData.buyer.email}\n` +
+        `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n\n` +
+        `📊 <b>Datos de campaña:</b>\n` +
+        `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
+        `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
+        `• Medio: ${utmData.utm_medium || 'Directo'}\n` +
+        `• Anuncio: ${utmData.utm_content || 'No especificado'}\n\n` +
+        `🎯 <i>¡Felicitaciones! Este es un ingreso adicional por order bump.</i>`;
+    } else {
+      message = `🎉 <b>¡VENTA CONFIRMADA!</b>\n\n` +
+        `📦 Producto: ${purchaseData.product.name}\n` +
+        `💰 Valor: ${priceToShow.currency_value} ${priceToShow.value}\n` +
+        `📅 Fecha: ${approvedDate}\n\n` +
+        `👤 <b>Datos del comprador:</b>\n` +
+        `• Nombre: ${purchaseData.buyer.name}\n` +
+        `• Email: ${purchaseData.buyer.email}\n` +
+        `• País: ${purchaseData.buyer.address.country} (${purchaseData.buyer.address.country_iso})\n\n` +
+        `📊 <b>Datos de campaña:</b>\n` +
+        `• Campaña: ${utmData.utm_campaign || 'Directo'}\n` +
+        `• Fuente: ${utmData.utm_source || 'Directo'}\n` +
+        `• Medio: ${utmData.utm_medium || 'Directo'}\n` +
+        `• Anuncio: ${utmData.utm_content || 'No especificado'}\n`;
+    }
 
     // Send notification
     const success = await sendTelegramMessage(settings.telegram_chat_id, message, settings.telegram_thread_id);
