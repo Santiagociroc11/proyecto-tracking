@@ -327,7 +327,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     telegram_sent: false,
     producer_price: null as { value: number; currency_value: string } | null,
     event_type: event.event,
-    is_order_bump: event.data.purchase.order_bump?.is_order_bump || false,
+    is_order_bump: event.data.purchase.order_bump?.is_order_bump === true,
     parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
     errors: [] as string[]
   };
@@ -442,7 +442,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           type: 'hotmart_event',
           event: event.event,
           data: event.data,
-          is_order_bump: event.data.purchase.order_bump?.is_order_bump || false,
+          is_order_bump: isOrderBump,
           parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
           utm_data:{
             utm_term: trackingEvent.event_data.utm_data?.utm_term,

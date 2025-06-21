@@ -168,6 +168,9 @@ export default function Dashboard() {
           case 'compra_hotmart':
             totalPurchases++;
             break;
+          case 'compra_hotmart_orderbump':
+            totalPurchases++;
+            break;
         }
       });
 

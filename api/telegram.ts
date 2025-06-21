@@ -136,8 +136,8 @@ export async function notifyPurchase(userId: string, purchaseData: any, producer
 
     console.log('🔍 Resultado de búsqueda:', { trackingEvent, error: trackingEventError });
 
-    // Check if this is an order bump
-    const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump || false;
+    // Check if this is an order bump - explicit boolean check
+    const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump === true;
     const parentTransaction = purchaseData.purchase.order_bump?.parent_purchase_transaction || null;
 
     // Format dates according to user's timezone
