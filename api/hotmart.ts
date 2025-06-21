@@ -418,8 +418,16 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
 
     result.product_active = true;
 
-    // Determine event type based on order bump status
-    const eventType = event.data.purchase.order_bump?.is_order_bump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    // Determine event type based on order bump status - more explicit check
+    const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true;
+    const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    
+    console.log(`🔍 [Order Bump Detection]`, {
+      order_bump_field_exists: !!event.data.purchase.order_bump,
+      is_order_bump_value: event.data.purchase.order_bump?.is_order_bump,
+      final_determination: isOrderBump,
+      event_type_chosen: eventType
+    });
     
     console.log(`Insertando evento de compra en Supabase - Tipo: ${eventType}...`);
     const { data: insertData, error: insertError } = await supabase
