@@ -224,7 +224,7 @@ async function sendFacebookConversion(
     }
 
     if (data.visitor_id && typeof data.visitor_id === 'string' && data.visitor_id.length > 0) {
-      user_data.external_id = [data.visitor_id];
+      user_data.external_id = [hashSHA256(data.visitor_id)];
     }
 
     const eventPayload: any = {

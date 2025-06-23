@@ -297,7 +297,7 @@ async function sendFacebookConversion(
     }
 
     if (event.data.purchase.origin?.xcod) {
-      user_data.external_id = [event.data.purchase.origin.xcod];
+      user_data.external_id = [hashSHA256(event.data.purchase.origin.xcod)];
     }
 
     const eventPayload = {
