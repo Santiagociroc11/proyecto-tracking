@@ -32,6 +32,7 @@ import {
   Line,
   ComposedChart,
   Area,
+  Label,
 } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone, getDateInTimezone, getStartEndDatesInUTC } from '../utils/date';
@@ -55,6 +56,10 @@ interface AnalyticsData {
   persuasion_rate: number;
   unique_persuasion_rate: number;
   order_bump_rate: number; // Porcentaje de ventas que incluyen order bump
+  total_main_product_revenue: number;
+  total_order_bump_revenue: number;
+  total_revenue: number;
+  revenue_today: number;
   utm_stats: {
     medium: string;
     campaign: string;
@@ -65,6 +70,7 @@ interface AnalyticsData {
     unique_clicks: number;
     purchases: number;
     order_bumps: number;
+    revenue: number;
     conversion_rate: number;
     unique_conversion_rate: number;
     persuasion_rate: number;
@@ -79,6 +85,7 @@ interface AnalyticsData {
     unique_clicks: number;
     purchases: number;
     order_bumps: number;
+    revenue: number;
   }[];
   top_sources: {
     source: string;
@@ -203,8 +210,10 @@ const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
                       <span className="font-medium text-orange-600 ml-4">{data.order_bumps}</span>
                   </p>
                   <p className="flex justify-between mt-2 pt-2 border-t">
-                      <span className="text-gray-500">Tasa de Conversión:</span>
-                      <span className="font-bold text-amber-600 ml-4">{data.conversion_rate.toFixed(2)}%</span>
+                      <span className="text-gray-500">Ingresos del Día:</span>
+                      <span className="font-bold text-emerald-600 ml-4">
+                        ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
                   </p>
               </div>
           </div>
@@ -455,6 +464,40 @@ export default function AnalyticsDashboard({ productId }: Props) {
         setLoading(false);
         return;
       }
+      
+      const getEventPrice = (event: any): number => {
+        const commissions = event.event_data?.data?.commissions;
+        const purchasePrice = event.event_data?.data?.purchase?.price;
+        if (!purchasePrice) return 0;
+      
+        const producerCommission = commissions?.find((c: any) => c.source === 'PRODUCER');
+        if (producerCommission) {
+          return producerCommission.value;
+        }
+        return purchasePrice.value;
+      };
+
+      const today = new Date();
+      const todayFormatted = formatLocalDate(today);
+      const [todayYear, todayMonth, todayDay] = todayFormatted.split('-').map(Number);
+      const todayStartLocalDate = new Date(todayYear, todayMonth - 1, todayDay, 0, 0, 0);
+      const todayEndLocalDate = new Date(todayYear, todayMonth - 1, todayDay, 23, 59, 59, 999);
+      const todayStartUTC = todayStartLocalDate.toISOString();
+      const todayEndUTC = todayEndLocalDate.toISOString();
+
+      const { data: todayEvents, error: todayEventsError } = await supabase
+        .from('tracking_events')
+        .select(`event_type, event_data`)
+        .eq('product_id', productId)
+        .in('event_type', ['compra_hotmart', 'compra_hotmart_orderbump'])
+        .gte('created_at', todayStartUTC)
+        .lte('created_at', todayEndUTC);
+
+      if (todayEventsError) {
+        console.error("Error fetching today's revenue events:", todayEventsError);
+      }
+      
+      const revenueToday = todayEvents?.reduce((acc, event) => acc + getEventPrice(event), 0) ?? 0;
 
       if (!events || events.length === 0) {
         console.log('No events found for the selected date range');
@@ -470,6 +513,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
           persuasion_rate: 0,
           unique_persuasion_rate: 0,
           order_bump_rate: 0,
+          total_main_product_revenue: 0,
+          total_order_bump_revenue: 0,
+          total_revenue: 0,
+          revenue_today: revenueToday,
           utm_stats: [],
           daily_stats: [],
           top_sources: [],
@@ -487,6 +534,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalClicks = 0;
       let totalPurchases = 0;
       let totalOrderBumps = 0;
+      let totalMainProductRevenue = 0;
+      let totalOrderBumpRevenue = 0;
 
       // Para estadísticas por UTM (solo datos limpios)
       const utmStats = new Map<string, any>();
@@ -501,7 +550,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
         
         if (!dailyStats.has(localDate)) {
-          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0 });
+          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0, revenue: 0 });
         }
         if (!dailyUniqueVisitors.has(localDate)) {
           dailyUniqueVisitors.set(localDate, new Set());
@@ -530,9 +579,15 @@ export default function AnalyticsDashboard({ productId }: Props) {
         } else if (event.event_type === 'compra_hotmart') {
           totalPurchases++;
           dayStats.purchases++;
+          const price = getEventPrice(event);
+          totalMainProductRevenue += price;
+          dayStats.revenue += price;
         } else if (event.event_type === 'compra_hotmart_orderbump') {
           totalOrderBumps++;
           dayStats.order_bumps++;
+          const price = getEventPrice(event);
+          totalOrderBumpRevenue += price;
+          dayStats.revenue += price;
         }
 
         dayStats.unique_visits = dayUniqueVisitors.size;
@@ -554,6 +609,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               utmStats.set(utmKey, {
                 medium: medium || 'none', campaign: campaign || 'none', content: content || 'none',
                 visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0,
+                revenue: 0,
                 visitorSet: new Set(), clickSet: new Set(),
               });
             }
@@ -568,8 +624,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
               stats.clickSet.add(event.visitor_id);
             } else if (event.event_type === 'compra_hotmart') {
               stats.purchases++;
+              stats.revenue += getEventPrice(event);
             } else if (event.event_type === 'compra_hotmart_orderbump') {
               stats.order_bumps++;
+              stats.revenue += getEventPrice(event);
             }
 
             stats.unique_visits = stats.visitorSet.size;
@@ -585,6 +643,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           campaign: decodeName(stat.campaign),
           medium: decodeName(stat.medium),
           content: decodeName(stat.content),
+          revenue: stat.revenue,
           conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
           unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
           persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
@@ -613,6 +672,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
         persuasion_rate: totalVisits > 0 ? (totalClicks / totalVisits) * 100 : 0,
         unique_persuasion_rate: uniqueVisitors.size > 0 ? (uniqueClicks.size / uniqueVisitors.size) * 100 : 0,
         order_bump_rate: totalPurchases > 0 ? (totalOrderBumps / totalPurchases) * 100 : 0,
+        total_main_product_revenue: totalMainProductRevenue,
+        total_order_bump_revenue: totalOrderBumpRevenue,
+        total_revenue: totalMainProductRevenue + totalOrderBumpRevenue,
+        revenue_today: revenueToday,
         utm_stats: utmStatsArray,
         daily_stats: dailyStatsArray,
         top_sources: sourceStatsArray,
@@ -797,33 +860,30 @@ export default function AnalyticsDashboard({ productId }: Props) {
         hiddenGems: [],
         leakyFaucets: [],
         wastedAdSpend: [],
-        avgVisits: 0,
-        avgConversionRate: 0,
       };
     }
   
-    const totalUtms = data.utm_stats.length;
-    const avgVisits = data.utm_stats.reduce((acc, utm) => acc + utm.visits, 0) / totalUtms;
-    const avgConversionRate = (data.total_purchases / data.total_visits) * 100;
+    const campaignsWithRevenue = data.utm_stats.filter(utm => utm.revenue > 0);
+    const campaignsWithClicks = data.utm_stats.filter(utm => utm.clicks > 0);
   
-    const moneyMachines = data.utm_stats
-      .filter(utm => utm.visits > avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) > avgConversionRate)
-      .sort((a, b) => b.purchases - a.purchases);
+    const moneyMachines = [...campaignsWithRevenue]
+      .sort((a, b) => b.revenue - a.revenue);
   
-    const hiddenGems = data.utm_stats
-      .filter(utm => utm.visits < avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) > avgConversionRate * 1.5)
-      .sort((a, b) => (showUnique ? b.unique_conversion_rate : b.conversion_rate) - (showUnique ? a.unique_conversion_rate : a.conversion_rate));
+    const hiddenGems = [...campaignsWithRevenue]
+      .filter(utm => utm.purchases > 0)
+      .map(utm => ({ ...utm, aov: utm.revenue / utm.purchases }))
+      .sort((a, b) => b.aov - a.aov);
   
-    const leakyFaucets = data.utm_stats
-      .filter(utm => utm.visits > avgVisits && (showUnique ? utm.unique_conversion_rate : utm.conversion_rate) < avgConversionRate)
-      .sort((a, b) => a.conversion_rate - b.conversion_rate);
+    const leakyFaucets = campaignsWithClicks
+      .filter(utm => utm.purchases === 0)
+      .sort((a, b) => b.clicks - a.clicks);
   
     const wastedAdSpend = data.utm_stats
-      .filter(utm => utm.visits > avgVisits * 0.5 && utm.purchases === 0)
+      .filter(utm => utm.visits > 0 && utm.clicks === 0)
       .sort((a, b) => b.visits - a.visits);
   
-    return { moneyMachines, hiddenGems, leakyFaucets, wastedAdSpend, avgVisits, avgConversionRate };
-  }, [data, showUnique]);
+    return { moneyMachines, hiddenGems, leakyFaucets, wastedAdSpend };
+  }, [data]);
 
   const handleCampaignSelection = (selection: Set<string>) => {
     setSelectedCampaigns(selection);
@@ -851,7 +911,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           clicks: 0,
           unique_clicks: 0,
           purchases: 0,
-          order_bumps: 0
+          order_bumps: 0,
+          revenue: 0
         });
       }
       
@@ -862,6 +923,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       stats.unique_clicks += utm.unique_clicks;
       stats.purchases += utm.purchases;
       stats.order_bumps += utm.order_bumps;
+      stats.revenue += utm.revenue;
     });
 
     return Array.from(grouped.values()).map(stat => ({
@@ -902,8 +964,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const chartData = useMemo(() => {
     if (!data?.daily_stats) return [];
     return data.daily_stats.map(day => ({
-        ...day,
-        conversion_rate: (showUnique ? day.unique_visits : day.visits) > 0 ? (day.purchases / (showUnique ? day.unique_visits : day.visits)) * 100 : 0,
+        ...day
     }));
   }, [data?.daily_stats, showUnique]);
 
@@ -1018,6 +1079,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
     );
   }
 
+  const aov = data.total_purchases > 0 ? data.total_revenue / data.total_purchases : 0;
+  const rpv = showUnique 
+    ? (data.unique_visits > 0 ? data.total_revenue / data.unique_visits : 0)
+    : (data.total_visits > 0 ? data.total_revenue / data.total_visits : 0);
+
   return (
     <div className="space-y-6">
       {/* Filtros y Exportación */}
@@ -1101,6 +1167,60 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-green-100 rounded-lg">
+              <DollarSign className="h-7 w-7 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Ingresos de Hoy</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.revenue_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-blue-100 rounded-lg">
+              <DollarSign className="h-7 w-7 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Ingresos Totales</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.total_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <DollarSign className="h-7 w-7 text-purple-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Ingresos Prod. Principal</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.total_main_product_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-orange-100 rounded-lg">
+              <DollarSign className="h-7 w-7 text-orange-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Ingresos Order Bump</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.total_order_bump_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
@@ -1182,24 +1302,46 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </h3>
         <div className="h-96">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
+            <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
               <defs>
                 <linearGradient id="colorVisits" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0.1}/>
+                </linearGradient>
+                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
                     <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0.1}/>
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="date" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis yAxisId="left" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} tickFormatter={(value) => `${value.toFixed(1)}%`} />
+              <YAxis 
+                yAxisId="right" 
+                orientation="right" 
+                tick={{ fontSize: 12 }} 
+                axisLine={false} tickLine={false} 
+                tickFormatter={(value) => `$${new Intl.NumberFormat('es-ES', { notation: "compact", compactDisplay: "short" }).format(value as number)}`} 
+              >
+                <Label value="Ingresos" angle={-90} position="insideRight" style={{ textAnchor: 'middle', fill: '#6b7280' }} />
+              </YAxis>
               <Tooltip content={<CustomTooltip showUnique={showUnique} />} />
-              <Legend />
+              <Legend verticalAlign="top" wrapperStyle={{ top: -10 }}/>
               <Area yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_visits' : 'visits'} name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`} fill="url(#colorVisits)" stroke="#3B82F6" strokeWidth={2} />
               <Line yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_clicks' : 'clicks'} name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`} stroke="#10B981" strokeWidth={2} dot={false} />
               <Line yAxisId="left" type="monotone" dataKey="purchases" name="Compras" stroke="#8B5CF6" strokeWidth={2.5} />
               <Line yAxisId="left" type="monotone" dataKey="order_bumps" name="Order Bumps" stroke="#F97316" strokeWidth={2.5} />
-              <Line yAxisId="right" type="monotone" dataKey="conversion_rate" name="Tasa de Conversión" stroke="#F59E0B" strokeWidth={2} strokeDasharray="5 5" dot={false} />
+              <Line 
+                yAxisId="right" 
+                type="monotone" 
+                dataKey="revenue" 
+                name="💰 Ingresos ($)" 
+                stroke="#059669" 
+                strokeWidth={4} 
+                dot={{ r: 6, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
+                activeDot={{ r: 8, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
+                strokeDasharray="none"
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -1283,13 +1425,30 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <p className="text-sm text-gray-500">Compras</p>
                     </div>
                   </div>
+                   {/* Conector a Ingresos */}
+                   <div className="ml-8 pl-1 flex items-center" style={{ minHeight: '40px' }}>
+                    <div className="w-px h-full bg-gray-300 mr-4"></div>
+                    <div className="text-xs text-emerald-600 font-semibold bg-emerald-50 px-2 py-1 rounded-full">
+                      ${(aov).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / compra
+                    </div>
+                  </div>
+                  {/* Etapa 4: Ingresos */}
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-emerald-100 rounded-lg w-16 h-16 flex items-center justify-center">
+                      <TrendingUp className="w-8 h-8 text-emerald-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-lg font-bold text-gray-900">${(data.total_revenue).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-sm text-gray-500">Ingresos Totales</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
               {/* Resumen Global */}
               <div className="bg-white p-6 rounded-xl shadow-sm border space-y-6">
                 <h3 className="text-xl font-bold text-gray-900">Métricas Clave</h3>
-                <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-6">
                     <div>
                       <p className="text-sm font-medium text-gray-500">Conversión General</p>
                       <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%</p>
@@ -1299,12 +1458,16 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-500">Total Compras</p>
-                      <p className="text-3xl font-bold text-indigo-600">{data.total_purchases}</p>
+                      <p className="text-sm font-medium text-gray-500">Ingreso / Visita (RPV)</p>
+                      <p className="text-3xl font-bold text-emerald-600">${rpv.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-500">Order Bumps</p>
-                      <p className="text-3xl font-bold text-orange-600">{data.total_order_bumps}</p>
+                      <p className="text-sm font-medium text-gray-500">Ingreso / Compra (AOV)</p>
+                      <p className="text-3xl font-bold text-emerald-600">${aov.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">Total Compras</p>
+                      <p className="text-3xl font-bold text-indigo-600">{data.total_purchases}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
@@ -1325,33 +1488,37 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   icon={<Rocket className="h-8 w-8 text-white" />}
                   bgColor="bg-green-500"
                   title="Máquinas de Dinero"
-                  description="Alto tráfico y alta conversión. ¡Escalar!"
+                  description="Campañas que más ingresos generan. ¡Escalar!"
                   campaigns={insights.moneyMachines}
                   showUnique={showUnique}
+                  metricType="revenue"
                 />
                  <InsightCard
                   icon={<Gem className="h-8 w-8 text-white" />}
                   bgColor="bg-sky-500"
                   title="Joyas Ocultas"
-                  description="Bajo tráfico, alta conversión. ¡Darle más visibilidad!"
+                  description="Campañas con el mayor valor por compra (AOV). ¡Analizar!"
                   campaigns={insights.hiddenGems}
                   showUnique={showUnique}
+                  metricType="aov"
                 />
                 <InsightCard
                   icon={<AlertTriangle className="h-8 w-8 text-white" />}
                   bgColor="bg-amber-500"
                   title="Gigantes Cansados"
-                  description="Mucho tráfico, baja conversión. ¡Optimizar o pausar!"
+                  description="Atraen clicks pero no convierten. ¡Optimizar landing/oferta!"
                   campaigns={insights.leakyFaucets}
                   showUnique={showUnique}
+                  metricType="clicks"
                 />
                 <InsightCard
                   icon={<Zap className="h-8 w-8 text-white" />}
                   bgColor="bg-red-500"
                   title="Agujeros Negros"
-                  description="Visitas pero 0 compras. ¡Revisar urgentemente!"
+                  description="Atraen visitas pero no convierten. ¡Revisar creativos!"
                   campaigns={insights.wastedAdSpend}
                   showUnique={showUnique}
+                  metricType="visits"
                 />
               </div>
             </div>
@@ -1412,9 +1579,25 @@ interface InsightCardProps {
   description: string;
   campaigns: any[];
   showUnique: boolean;
+  metricType: 'revenue' | 'aov' | 'clicks' | 'visits';
 }
 
-const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, description, campaigns, showUnique }) => {
+const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, description, campaigns, showUnique, metricType }) => {
+  const getMetric = (utm: any) => {
+    switch (metricType) {
+      case 'revenue':
+        return <span className="font-bold text-base text-green-700">${(utm.revenue || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })}</span>;
+      case 'aov':
+        return <span className="font-bold text-base text-sky-700">${(utm.aov || 0).toLocaleString('es-ES', { maximumFractionDigits: 0 })} AOV</span>;
+      case 'clicks':
+        return <span className="font-bold text-base text-amber-700">{utm.clicks} Clicks</span>;
+      case 'visits':
+        return <span className="font-bold text-base text-red-700">{utm.visits} Visitas</span>;
+      default:
+        return null;
+    }
+  };
+  
   return (
     <div className="bg-slate-50 rounded-lg p-4 border border-slate-200 flex flex-col">
       <div className="flex items-start justify-between">
@@ -1445,8 +1628,8 @@ const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, descrip
               </div>
             </div>
             <div className="flex justify-between items-center text-gray-600 mt-2 pt-2 border-t border-gray-100">
-              <span className="font-medium text-sm">{showUnique ? utm.unique_visits : utm.visits} visitas</span>
-              <span className="font-bold text-base text-gray-800">{(showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(1)}%</span>
+              <span className="font-medium text-sm">{utm.purchases > 0 ? `${utm.purchases} compras` : `${showUnique ? utm.unique_visits : utm.visits} visitas`}</span>
+              {getMetric(utm)}
             </div>
           </div>
         ))}
@@ -1519,7 +1702,8 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
 };
 
 function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
-  const [sortField, setSortField] = useState<UtmSortField>('visits');
+  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate';
+  const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [nameFilter, setNameFilter] = useState('');
   const [metricFilters, setMetricFilters] = useState<Partial<Record<UtmSortField, { op: string; val: number }>>>({});
@@ -1540,6 +1724,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
         case 'visits': return showUnique ? item.unique_visits : item.visits;
         case 'clicks': return showUnique ? item.unique_clicks : item.clicks;
         case 'purchases': return item.purchases;
+        case 'revenue': return item.revenue;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
         case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
         case 'checkout_conversion_rate': return showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate;
@@ -1675,6 +1860,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
             <SortableHeader field="clicks" label="Pagos Iniciados" />
             <SortableHeader field="persuasion_rate" label="Persuasión" />
             <SortableHeader field="purchases" label="Compras" />
+            <SortableHeader field="revenue" label="Ingresos" />
             <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
           </tr>
@@ -1703,6 +1889,9 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{item.purchases}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold text-right">
+                ${(item.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
                   {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}%
