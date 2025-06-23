@@ -359,6 +359,7 @@
             url: target.href,
             fbc: fbc,
             fbp: fbp,
+            user_agent: navigator.userAgent,
             browser_info: browserInfo,
             utm_data: this.__get_utm_data(),
             in_iframe: this.__config__.iframe,
