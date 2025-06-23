@@ -1,4 +1,9 @@
 import { supabase } from '../lib/supabase-server.js';
+import crypto from 'crypto-js';
+
+function hashSHA256(value: string): string {
+  return crypto.SHA256(value).toString(crypto.enc.Hex);
+}
 
 interface TrackingEvent {
   tracking_id: string;
