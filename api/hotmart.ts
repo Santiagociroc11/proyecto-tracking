@@ -278,26 +278,35 @@ async function sendFacebookConversion(
     const price = getProducerCommissionPrice(event);
     const transactionId = event.data.purchase.transaction || '';
 
+    const user_data: { [key: string]: any } = {
+      em: [hashSHA256(event.data.buyer.email)],
+      ph: event.data.buyer.checkout_phone ? [hashSHA256(event.data.buyer.checkout_phone)] : [],
+      fn: [hashSHA256(event.data.buyer.name.split(' ')[0])],
+      ln: [hashSHA256(event.data.buyer.name.split(' ').slice(1).join(' '))],
+      client_ip_address: event.data.purchase.buyer_ip,
+      fbc: trackingEvent?.event_data?.fbc,
+      fbp: trackingEvent?.event_data?.fbp,
+      country: [hashSHA256(enhancedAddress.country_iso.toLowerCase())],
+      ct: enhancedAddress.city ? [hashSHA256(enhancedAddress.city.toLowerCase().trim())] : [],
+      st: enhancedAddress.state ? [hashSHA256(enhancedAddress.state.toLowerCase().trim())] : [],
+      zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip.trim())] : [],
+    };
+
+    if (trackingEvent?.event_data?.user_agent) {
+      user_data.client_user_agent = trackingEvent.event_data.user_agent;
+    }
+
+    if (event.data.purchase.origin?.xcod) {
+      user_data.external_id = [event.data.purchase.origin.xcod];
+    }
+
     const eventPayload = {
       data: [
         {
           event_name: 'Purchase',
           event_time: Math.floor(event.creation_date / 1000),
           event_source_url: trackingEvent?.event_data?.url,
-          user_data: {
-            em: [hashSHA256(event.data.buyer.email)],
-            ph: event.data.buyer.checkout_phone ? [hashSHA256(event.data.buyer.checkout_phone)] : [],
-            fn: [hashSHA256(event.data.buyer.name.split(' ')[0])],
-            ln: [hashSHA256(event.data.buyer.name.split(' ').slice(1).join(' '))],
-            client_ip_address: event.data.purchase.buyer_ip,
-            client_user_agent: trackingEvent?.event_data?.user_agent,
-            fbc: trackingEvent?.event_data?.fbc,
-            fbp: trackingEvent?.event_data?.fbp,
-            country: [hashSHA256(enhancedAddress.country_iso.toLowerCase())],
-            ct: enhancedAddress.city ? [hashSHA256(enhancedAddress.city.toLowerCase())] : [],
-            st: enhancedAddress.state ? [hashSHA256(enhancedAddress.state.toLowerCase())] : [],
-            zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip)] : [],
-          },
+          user_data: user_data,
           custom_data: {
             currency: price.currency_value,
             value: price.value,

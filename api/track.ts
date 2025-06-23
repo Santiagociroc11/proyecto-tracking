@@ -212,18 +212,27 @@ async function sendFacebookConversion(
       return;
     }
 
+    const user_data: { [key: string]: any } = {
+      client_ip_address: data.event_data?.ip,
+      fbc: data.event_data?.fbc,
+      fbp: data.event_data?.fbp,
+    };
+
+    const userAgent = data.user_agent || data.event_data?.browser_info?.userAgent;
+    if (userAgent) {
+      user_data.client_user_agent = userAgent;
+    }
+
+    if (data.visitor_id && typeof data.visitor_id === 'string' && data.visitor_id.length > 0) {
+      user_data.external_id = [data.visitor_id];
+    }
+
     const eventPayload: any = {
       data: [{
         event_name: "InitiateCheckout",
         event_time: Math.floor(Date.now() / 1000),
         action_source: "website",
-        user_data: {
-          client_ip_address: data.event_data?.ip || null,
-          client_user_agent: data.user_agent || data.event_data?.browser_info?.userAgent || null,
-          fbc: data.event_data?.fbc || null,
-          fbp: data.event_data?.fbp || null,
-          external_id: (data.visitor_id && typeof data.visitor_id === 'string' && data.visitor_id.length > 0) ? [data.visitor_id] : null
-        }
+        user_data: user_data
       }]
     };
 
