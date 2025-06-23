@@ -69,6 +69,7 @@ interface TrackingEventWithProduct {
   event_data: any;
   event_type: string;
   created_at: string;
+  user_agent: string;
   products: Product;
   utm_data?: {
     utm_source?: string;
@@ -292,8 +293,8 @@ async function sendFacebookConversion(
       zp: enhancedAddress.zip ? [hashSHA256(enhancedAddress.zip.trim())] : [],
     };
 
-    if (trackingEvent?.event_data?.user_agent) {
-      user_data.client_user_agent = trackingEvent.event_data.user_agent;
+    if (trackingEvent?.user_agent) {
+      user_data.client_user_agent = trackingEvent.user_agent;
     }
 
     if (event.data.purchase.origin?.xcod) {
@@ -448,6 +449,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         event_data,
         event_type,
         created_at,
+        user_agent,
         products (
           id,
           active,
