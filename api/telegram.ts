@@ -189,7 +189,8 @@ export async function notifyPurchase(
     }
 
     // Check if this is an order bump - explicit boolean check
-    const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump === true;
+    const isOrderBump = purchaseData.purchase.order_bump?.is_order_bump === true &&
+                        !!purchaseData.purchase.order_bump?.parent_purchase_transaction;
     const parentTransaction = purchaseData.purchase.order_bump?.parent_purchase_transaction || null;
 
     log('purchase_details_extracted', { is_order_bump: isOrderBump, parent_transaction: parentTransaction });

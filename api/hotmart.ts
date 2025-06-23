@@ -530,7 +530,8 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     log('product_validation_success');
 
     // Determine event type based on order bump status - more explicit check
-    const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true;
+    const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true &&
+                        !!event.data.purchase.order_bump?.parent_purchase_transaction;
     const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
     result.purchase_info.is_order_bump = isOrderBump;
     result.purchase_info.parent_transaction = event.data.purchase.order_bump?.parent_purchase_transaction || null;
