@@ -298,7 +298,7 @@ fbq('track', 'PageView');
       localStorage.setItem('oauth_product_id', id);
 
       // Permisos necesarios para obtener datos de ads
-      const scopes = 'ads_read,read_insights,business_management';
+      const scopes = 'public_profile,email';
 
       // URL de autorización de Meta
       const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
