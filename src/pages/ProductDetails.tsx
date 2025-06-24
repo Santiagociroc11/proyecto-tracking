@@ -694,181 +694,198 @@ fbq('track', 'PageView');
                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
                       <div className="p-6">
                         <h4 className="text-lg font-medium text-gray-900 flex items-center">
-                          <Code2 className="h-5 w-5 mr-2 text-indigo-500" />
-                          Instalar Script de Seguimiento
+                          <Facebook className="h-5 w-5 mr-2 text-blue-600" />
+                          Configuración de Facebook (Píxel)
                         </h4>
-                        <div className="mt-2 text-sm text-gray-500">
-                          <p className="mb-4">Para comenzar a rastrear las visitas y conversiones, agrega este código a tu página de venta:</p>
-                          <ol className="space-y-4">
-                            <li className="flex items-start">
-                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">1</span>
-                              <span className="text-gray-700">Accede al editor de tu página de venta</span>
-                            </li>
-                            <li className="flex items-start">
-                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">2</span>
-                              <div className="text-gray-700">
-                                Debes instalar este script en el <code className="bg-gray-100 px-2 py-0.5 rounded text-indigo-600 font-mono">&lt;/HEAD&gt;</code> de la página
-                                <div className="mt-2 bg-amber-50 border border-amber-200 rounded-lg p-4 text-amber-800">
-                                  <div className="flex items-center">
-                                    <AlertTriangle className="h-5 w-5 mr-2 text-amber-500" />
-                                    <span className="font-semibold">IMPORTANTE</span>
-                                  </div>
-                                  <p className="mt-1">Asegúrate de borrar cualquier script de trackeo anterior relacionado con Hotmart. También quita el pixel de Facebook de la página, nuestro script lo dispara automáticamente.</p>
-                                </div>
-                              </div>
-                            </li>
-                            <li className="flex items-start">
-                              <span className="bg-indigo-600 text-white rounded-full w-6 h-6 flex items-center justify-center text-sm mr-3 flex-shrink-0">3</span>
-                              <div className="text-gray-700">
-                                Pega el siguiente código justo antes de esa etiqueta
-                                <div className="mt-2 bg-red-50 border border-red-200 rounded-lg p-4 text-red-800">
-                                  <div className="flex items-center">
-                                    <AlertTriangle className="h-5 w-5 mr-2 text-red-500" />
-                                    <span className="font-semibold">¡ATENCIÓN!</span>
-                                  </div>
-                                  <p className="mt-1">Si cambias el pixel por algún motivo, deberás volver a esta pantalla, copiar e instalar nuevamente EL SCRIPT COMPLETO en tu página de venta.</p>
-                                </div>
-                              </div>
-                            </li>
-                          </ol>
-                        </div>
-                        <div className="relative mt-4">
-                          <pre className="bg-gray-800 text-white p-4 rounded-lg text-sm overflow-x-auto">
-                            {getTrackingScript()}
-                          </pre>
-                          <button
-                            onClick={() => copyToClipboard(getTrackingScript(), 'script')}
-                            className="absolute top-2 right-2 inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-medium rounded-md text-white bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-indigo-500"
-                          >
-                            {copied === 'script' ? (
-                              <>
-                                <CheckCircle className="h-4 w-4 mr-1" />
-                                ¡Copiado!
-                              </>
-                            ) : (
-                              <>
-                                <Copy className="h-4 w-4 mr-1" />
-                                Copiar Script
-                              </>
-                            )}
-                          </button>
-                        </div>
-
-                        {/* Nueva sección: Integración con Meta */}
-                        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-                          <div className="p-6">
-                            <h4 className="text-lg font-medium text-gray-900 flex items-center">
-                              <Facebook className="h-5 w-5 mr-2 text-blue-600" />
-                              Integración con Meta (Opcional)
-                            </h4>
-                            <div className="mt-2 text-sm text-gray-500">
-                              <p className="mb-4">
-                                Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
-                                y obtener métricas avanzadas de ROAS (Return on Ad Spend).
-                              </p>
-                            </div>
-
-                            {metaIntegration ? (
-                              // Usuario ya tiene Meta conectado
-                              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                                <div className="flex items-start">
-                                  <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
-                                  <div className="ml-3 flex-1">
-                                    <h3 className="text-sm font-medium text-green-800">
-                                      ¡Meta conectado exitosamente!
-                                    </h3>
-                                    <div className="mt-2 text-sm text-green-700">
-                                      <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
-                                      {metaIntegration.meta_ad_account_id && (
-                                        <p className="mt-1">
-                                          <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
-                                        </p>
-                                      )}
-                                      <p className="mt-1">
-                                        <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
-                                      </p>
-                                    </div>
-                                    <div className="mt-4">
-                                      <button
-                                        onClick={handleDisconnectMeta}
-                                        disabled={saving}
-                                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
-                                      >
-                                        <Unlink className="h-4 w-4 mr-2" />
-                                        {saving ? 'Desconectando...' : 'Desconectar Meta'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              // Usuario no tiene Meta conectado
-                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <div className="flex items-start">
-                                  <Info className="h-5 w-5 text-blue-400 mt-0.5" />
-                                  <div className="ml-3 flex-1">
-                                    <h3 className="text-sm font-medium text-blue-800">
-                                      Conecta tu cuenta de Meta
-                                    </h3>
-                                    <div className="mt-2 text-sm text-blue-700">
-                                      <p>Al conectar Meta podrás:</p>
-                                      <ul className="list-disc list-inside mt-2 space-y-1">
-                                        <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
-                                        <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
-                                        <li>Optimizar tus campañas con datos precisos</li>
-                                        <li>Generar reportes completos de rendimiento</li>
-                                      </ul>
-                                    </div>
-                                    <div className="mt-4">
-                                      <button
-                                        onClick={handleConnectMeta}
-                                        disabled={connectingMeta}
-                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        {connectingMeta ? (
-                                          <>
-                                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            Abriendo popup...
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Facebook className="h-4 w-4 mr-2" />
-                                            Conectar con Meta
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
+                        <p className="mt-1 text-sm text-gray-500">
+                          Introduce los datos de tu Píxel de Facebook para el seguimiento de eventos.
+                        </p>
+                        
+                        <form onSubmit={handleSaveFacebookConfig} className="mt-6 space-y-4">
+                          <div>
+                            <label htmlFor="fbPixelId" className="block text-sm font-medium text-gray-700">
+                              ID del Píxel
+                            </label>
+                            <input
+                              type="text"
+                              id="fbPixelId"
+                              value={fbPixelId}
+                              onChange={(e) => setFbPixelId(e.target.value)}
+                              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                              placeholder="Ej: 123456789012345"
+                              required
+                            />
                           </div>
-                        </div>
 
-                        {/* Botones de navegación */}
-                        <div className="flex justify-between">
-                          <button
-                            onClick={() => setCurrentStep(1)}
-                            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                          >
-                            Anterior
-                          </button>
-                          <button
-                            onClick={() => setCurrentStep(3)}
-                            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                          >
-                            Siguiente: Configurar Hotmart
-                          </button>
-                        </div>
+                          <div>
+                            <label htmlFor="fbAccessToken" className="block text-sm font-medium text-gray-700">
+                              Token de Acceso
+                            </label>
+                            <input
+                              type="text"
+                              id="fbAccessToken"
+                              value={fbAccessToken}
+                              onChange={(e) => setFbAccessToken(e.target.value)}
+                              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                              placeholder="Ej: EAAxxxxx..."
+                              required
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                              Encuentra esto en Events Manager → Configuración → Token de Acceso
+                            </p>
+                          </div>
+
+                          <div>
+                            <label htmlFor="fbTestEventCode" className="block text-sm font-medium text-gray-700">
+                              Código de TEST EVENT (opcional)
+                            </label>
+                            
+                            <input
+                              type="text"
+                              id="fbTestEventCode"
+                              value={fbTestEventCode}
+                              onChange={(e) => setFbTestEventCode(e.target.value)}
+                              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                              placeholder="Ej: TEST123"
+                            />
+                            <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                              <div className="flex items-center text-yellow-800">
+                                <AlertTriangle className="h-5 w-5 mr-2 text-yellow-600" />
+                                <p className="text-xs">
+                                  Este TEST EVENT es temporal y sirve únicamente para verificar la correcta llegada de eventos API al pixel.
+                                  <span className="ml-1 font-bold text-red-600">
+                                    Debes eliminarlo antes de comenzar a recibir ventas reales.
+                                  </span>
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex justify-end pt-4">
+                            <button
+                              type="submit"
+                              disabled={saving}
+                              className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                            >
+                              {saving ? 'Guardando...' : 'Guardar y Continuar'}
+                            </button>
+                          </div>
+                        </form>
                       </div>
+                    </div>
+
+                    {/* Botones de navegación */}
+                    <div className="flex justify-between">
+                      <button onClick={() => setCurrentStep(1)} className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Anterior</button>
+                      <button onClick={() => setCurrentStep(3)} className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Siguiente: Conectar con Meta</button>
                     </div>
                   </div>
                 )}
 
                 {currentStep === 3 && (
+                  <div className="space-y-6">
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                      <div className="p-6">
+                        <h4 className="text-lg font-medium text-gray-900 flex items-center">
+                          <Globe className="h-5 w-5 mr-2 text-green-500" />
+                          Integración con Meta (Opcional)
+                        </h4>
+                        <div className="mt-2 text-sm text-gray-500">
+                          <p className="mb-4">
+                            Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
+                            y obtener métricas avanzadas de ROAS (Return on Ad Spend).
+                          </p>
+                        </div>
+
+                        {metaIntegration ? (
+                          // Usuario ya tiene Meta conectado
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <div className="flex items-start">
+                              <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
+                              <div className="ml-3 flex-1">
+                                <h3 className="text-sm font-medium text-green-800">
+                                  ¡Meta conectado exitosamente!
+                                </h3>
+                                <div className="mt-2 text-sm text-green-700">
+                                  <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
+                                  {metaIntegration.meta_ad_account_id && (
+                                    <p className="mt-1">
+                                      <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
+                                    </p>
+                                  )}
+                                  <p className="mt-1">
+                                    <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="mt-4">
+                                  <button
+                                    onClick={handleDisconnectMeta}
+                                    disabled={saving}
+                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+                                  >
+                                    <Unlink className="h-4 w-4 mr-2" />
+                                    {saving ? 'Desconectando...' : 'Desconectar Meta'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          // Usuario no tiene Meta conectado
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="flex items-start">
+                              <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                              <div className="ml-3 flex-1">
+                                <h3 className="text-sm font-medium text-blue-800">
+                                  Conecta tu cuenta de Meta
+                                </h3>
+                                <div className="mt-2 text-sm text-blue-700">
+                                  <p>Al conectar Meta podrás:</p>
+                                  <ul className="list-disc list-inside mt-2 space-y-1">
+                                    <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
+                                    <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
+                                    <li>Optimizar tus campañas con datos precisos</li>
+                                    <li>Generar reportes completos de rendimiento</li>
+                                  </ul>
+                                </div>
+                                <div className="mt-4">
+                                  <button
+                                    onClick={handleConnectMeta}
+                                    disabled={connectingMeta}
+                                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {connectingMeta ? (
+                                      <>
+                                        <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Abriendo popup...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Facebook className="h-4 w-4 mr-2" />
+                                        Conectar con Meta
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Botones de navegación */}
+                    <div className="flex justify-between">
+                      <button onClick={() => setCurrentStep(2)} className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Anterior</button>
+                      <button onClick={() => setCurrentStep(4)} className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">Siguiente: Configurar Hotmart</button>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 4 && (
                   <div className="space-y-6">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
                       <div className="p-6">
@@ -929,13 +946,13 @@ fbq('track', 'PageView');
                         </div>
                         <div className="mt-6 flex justify-between">
                           <button
-                            onClick={() => setCurrentStep(2)}
+                            onClick={() => setCurrentStep(3)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Anterior
                           </button>
                           <button
-                            onClick={() => setCurrentStep(4)}
+                            onClick={() => setCurrentStep(5)}
                             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Siguiente: Configurar UTM
@@ -946,7 +963,7 @@ fbq('track', 'PageView');
                   </div>
                 )}
 
-                {currentStep === 4 && (
+                {currentStep === 5 && (
                   <div className="space-y-6">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
                       <div className="p-6">
@@ -1031,7 +1048,7 @@ fbq('track', 'PageView');
                         </div>
                         <div className="mt-6 flex justify-between">
                           <button
-                            onClick={() => setCurrentStep(3)}
+                            onClick={() => setCurrentStep(4)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Anterior
