@@ -2,87 +2,47 @@ import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto';
 
 export async function handleMetaCallback(request: Request) {
-  try {
-    const url = new URL(request.url);
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    const error = url.searchParams.get('error');
+  const url = new URL(request.url);
+  const code = url.searchParams.get('code');
+  const state = url.searchParams.get('state');
+  const error = url.searchParams.get('error');
 
+  const generateErrorResponse = (errorMessage: string) => {
+    console.error('Meta Auth Error:', errorMessage);
+    const errorHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head><title>Error</title></head>
+      <body>
+        <h3>Error de Conexión</h3>
+        <p>${errorMessage}</p>
+        <script>
+          if (window.opener) {
+            window.opener.postMessage({ type: 'META_AUTH_ERROR', error: '${errorMessage}' }, window.location.origin);
+          }
+          setTimeout(() => window.close(), 3000);
+        </script>
+      </body>
+      </html>
+    `;
+    return new Response(errorHtml, { status: 400, headers: { 'Content-Type': 'text/html' } });
+  };
+
+  try {
     if (error) {
-      console.error('Error from Meta OAuth:', error);
-      
-      // Devolver HTML de error para el popup
-      const errorHtml = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <title>Error de Conexión</title>
-          <style>
-            body {
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              margin: 0;
-              background-color: #f8f9fa;
-            }
-            .container {
-              text-align: center;
-              padding: 2rem;
-              background: white;
-              border-radius: 8px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-              max-width: 400px;
-            }
-            .error-icon {
-              font-size: 48px;
-              color: #dc3545;
-              margin-bottom: 1rem;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="error-icon">⚠️</div>
-            <h3>Error de Conexión</h3>
-            <p>No se pudo conectar con Meta. Por favor, inténtalo de nuevo.</p>
-            <p><small>Error: ${error}</small></p>
-          </div>
-          <script>
-            if (window.opener) {
-              window.opener.postMessage({
-                type: 'META_AUTH_ERROR',
-                error: '${error}'
-              }, window.location.origin);
-            }
-            
-            setTimeout(() => {
-              window.close();
-            }, 3000);
-          </script>
-        </body>
-        </html>
-      `;
-      
-      return new Response(errorHtml, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/html; charset=utf-8',
-        },
-      });
+      return generateErrorResponse(`Error de Meta: ${error}`);
     }
 
     if (!code || !state) {
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: '/dashboard?error=invalid_callback',
-        },
-      });
+      return generateErrorResponse('Parámetros de callback inválidos. Faltan código o estado.');
     }
+    
+    // NOTA: La validación del 'state' debería hacerse en el frontend
+    // o usando una sesión en el backend. Como el state se generó en el cliente,
+    // el servidor no tiene cómo validarlo directamente. El flujo actual confía
+    // en que el cliente que abrió el popup es el mismo que lo procesa.
+    // La verdadera validación CSRF ocurrirá cuando asociemos la sesión de usuario.
 
-    // Obtener las variables de entorno
     const META_APP_ID = process.env.VITE_META_APP_ID;
     const META_APP_SECRET = process.env.META_APP_SECRET;
     const REDIRECT_URI = `${process.env.SITE_URL || 'http://localhost:3000'}/api/auth/meta/callback`;
@@ -123,12 +83,7 @@ export async function handleMetaCallback(request: Request) {
 
     if (userInfo.error) {
       console.error('Error obteniendo información del usuario:', userInfo.error);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: '/dashboard?error=user_info_failed',
-        },
-      });
+      return generateErrorResponse(`Error obteniendo información del usuario: ${userInfo.error.message}`);
     }
 
     // Obtener las cuentas publicitarias del usuario
@@ -265,14 +220,9 @@ export async function handleMetaCallback(request: Request) {
     }
     */
 
-  } catch (error) {
-    console.error('Error en callback de Meta:', error);
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: '/dashboard?error=unexpected_error',
-      },
-    });
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Error desconocido en el servidor.';
+    return generateErrorResponse(errorMessage);
   }
 }
 

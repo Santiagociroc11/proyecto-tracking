@@ -340,14 +340,18 @@ fbq('track', 'PageView');
       const handleMessage = (event: MessageEvent) => {
         if (event.origin !== window.location.origin) return;
         
+        // Limpiar siempre el state de CSRF
+        localStorage.removeItem('oauth_state');
+        localStorage.removeItem('oauth_product_id');
+
         if (event.data.type === 'META_AUTH_SUCCESS') {
           clearInterval(checkClosed);
           popup.close();
           setConnectingMeta(false);
           loadMetaIntegration();
           
-                      // Mostrar mensaje de éxito - en un futuro podrías usar un toast
-            console.log('¡Meta conectado exitosamente!');
+          // Mostrar mensaje de éxito - en un futuro podrías usar un toast
+          console.log('¡Meta conectado exitosamente!');
           window.removeEventListener('message', handleMessage);
         } else if (event.data.type === 'META_AUTH_ERROR') {
           clearInterval(checkClosed);
@@ -366,6 +370,9 @@ fbq('track', 'PageView');
           popup.close();
           clearInterval(checkClosed);
           setConnectingMeta(false);
+          // Limpiar también en caso de timeout
+          localStorage.removeItem('oauth_state');
+          localStorage.removeItem('oauth_product_id');
           window.removeEventListener('message', handleMessage);
         }
       }, 5 * 60 * 1000);
