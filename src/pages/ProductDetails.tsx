@@ -293,9 +293,15 @@ fbq('track', 'PageView');
       }
 
       // Generar state para seguridad CSRF
-      const state = Math.random().toString(36).substring(2);
-      localStorage.setItem('oauth_state', state);
-      localStorage.setItem('oauth_product_id', id);
+      const statePayload = {
+        csrf: Math.random().toString(36).substring(2),
+        productId: id,
+        userId: user.id
+      };
+      
+      const state = btoa(JSON.stringify(statePayload));
+      
+      localStorage.setItem('oauth_csrf', statePayload.csrf);
 
       // Permisos necesarios para obtener datos de ads
       const scopes = 'public_profile,email';
@@ -341,8 +347,7 @@ fbq('track', 'PageView');
         if (event.origin !== window.location.origin) return;
         
         // Limpiar siempre el state de CSRF
-        localStorage.removeItem('oauth_state');
-        localStorage.removeItem('oauth_product_id');
+        localStorage.removeItem('oauth_csrf');
 
         if (event.data.type === 'META_AUTH_SUCCESS') {
           clearInterval(checkClosed);
@@ -371,8 +376,7 @@ fbq('track', 'PageView');
           clearInterval(checkClosed);
           setConnectingMeta(false);
           // Limpiar también en caso de timeout
-          localStorage.removeItem('oauth_state');
-          localStorage.removeItem('oauth_product_id');
+          localStorage.removeItem('oauth_csrf');
           window.removeEventListener('message', handleMessage);
         }
       }, 5 * 60 * 1000);

@@ -97,24 +97,45 @@ export async function handleMetaCallback(request: Request) {
       selectedAdAccount = adAccountsData.data.find((account: any) => account.account_status === 1) || adAccountsData.data[0];
     }
 
+    // Decodificar el state para obtener el product_id y user_id
+    let productId: string, userId: string;
+    try {
+      const decodedState = JSON.parse(atob(state));
+      productId = decodedState.productId;
+      userId = decodedState.userId;
+      
+      if (!productId || !userId) {
+        throw new Error('State inválido: falta productId o userId');
+      }
+      // TODO: Validar decodedState.csrf contra un valor guardado en sesión/cookie
+    } catch (e) {
+      return generateErrorResponse('El parámetro state es inválido o ha sido manipulado.');
+    }
+
     // Cifrar el access token antes de guardarlo
     const encryptedToken = encryptToken(accessToken, ENCRYPTION_KEY);
 
-    // TODO: Necesitamos una forma de obtener el product_id y user_id reales
-    // Por ahora, intentaremos extraerlos del state o usar valores por defecto
-    // En una implementación completa, deberías guardar esta información en una sesión segura
-    
-    // Para la demostración, vamos a intentar extraer el product_id del state
-    // En producción, deberías implementar un sistema de sesiones más robusto
-    const productId = 'temp-placeholder'; // Esto se debe resolver con sesiones
-    const userId = 'temp-placeholder'; // Esto se debe resolver con sesiones
-
-    console.log('Meta OAuth: Guardando integración temporal (necesita implementar sesiones)', {
-      productId,
-      userId,
-      selectedAdAccountId: selectedAdAccount?.id
+    // Guardar la integración en la base de datos
+    const { error: dbError } = await supabase.from('product_integrations').upsert({
+      product_id: productId,
+      user_id: userId,
+      provider: 'meta',
+      meta_ad_account_id: selectedAdAccount?.id || null,
+      meta_business_id: userInfo.id,
+      access_token_encrypted: encryptedToken,
+      status: 'active',
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'product_id, provider'
     });
 
+    if (dbError) {
+      console.error('Error guardando la integración en DB:', dbError);
+      return generateErrorResponse('No se pudo guardar la integración en la base de datos.');
+    }
+
+    console.log(`[Meta Auth] Integración guardada exitosamente para productId: ${productId}`);
+    
     // En lugar de redirigir, vamos a devolver HTML que se comunique con la ventana principal
     const callbackHtml = `
       <!DOCTYPE html>
@@ -187,38 +208,6 @@ export async function handleMetaCallback(request: Request) {
         'Content-Type': 'text/html; charset=utf-8',
       },
     });
-
-    // NOTA: En una implementación completa, necesitarías:
-    // 1. Implementar un sistema de sesiones para relacionar el OAuth con el usuario logueado
-    // 2. Guardar el token en la base de datos después de verificar la sesión
-    // 3. Asociar correctamente el product_id con la integración
-    
-    /* 
-    // Este código se ejecutaría una vez que tengas el sistema de sesiones:
-    const { error: insertError } = await supabase
-      .from('product_integrations')
-      .upsert({
-        product_id: productId,
-        user_id: userId,
-        provider: 'meta',
-        access_token_encrypted: encryptedToken,
-        meta_ad_account_id: selectedAdAccount?.id || null,
-        meta_business_id: userInfo.id,
-        status: 'active'
-      }, {
-        onConflict: 'product_id,provider'
-      });
-
-    if (insertError) {
-      console.error('Error guardando integración en la base de datos:', insertError);
-      return new Response(null, {
-        status: 302,
-        headers: {
-          Location: '/dashboard?error=database_error',
-        },
-      });
-    }
-    */
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Error desconocido en el servidor.';
