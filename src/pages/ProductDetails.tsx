@@ -568,8 +568,9 @@ fbq('track', 'PageView');
                   {[
                     { step: 1, title: 'Facebook', icon: <Facebook className="h-4 w-4" /> },
                     { step: 2, title: 'Script', icon: <Code2 className="h-4 w-4" /> },
-                    { step: 3, title: 'Hotmart', icon: <Webhook className="h-4 w-4" /> },
-                    { step: 4, title: 'UTMs', icon: <Info className="h-4 w-4" /> }
+                    { step: 3, title: 'Meta', icon: <Facebook className="h-4 w-4" /> },
+                    { step: 4, title: 'Hotmart', icon: <Webhook className="h-4 w-4" /> },
+                    { step: 5, title: 'UTMs', icon: <Info className="h-4 w-4" /> }
                   ].map(({ step, title, icon }) => (
                     <button
                       key={step}
