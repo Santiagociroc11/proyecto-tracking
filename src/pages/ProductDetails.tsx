@@ -754,99 +754,7 @@ fbq('track', 'PageView');
                           </button>
                         </div>
 
-                        {/* Nueva sección: Integración con Meta */}
-                        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
-                          <div className="p-6">
-                            <h4 className="text-lg font-medium text-gray-900 flex items-center">
-                              <Facebook className="h-5 w-5 mr-2 text-blue-600" />
-                              Integración con Meta (Opcional)
-                            </h4>
-                            <div className="mt-2 text-sm text-gray-500">
-                              <p className="mb-4">
-                                Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
-                                y obtener métricas avanzadas de ROAS (Return on Ad Spend).
-                              </p>
-                            </div>
 
-                            {metaIntegration ? (
-                              // Usuario ya tiene Meta conectado
-                              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                                <div className="flex items-start">
-                                  <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
-                                  <div className="ml-3 flex-1">
-                                    <h3 className="text-sm font-medium text-green-800">
-                                      ¡Meta conectado exitosamente!
-                                    </h3>
-                                    <div className="mt-2 text-sm text-green-700">
-                                      <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
-                                      {metaIntegration.meta_ad_account_id && (
-                                        <p className="mt-1">
-                                          <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
-                                        </p>
-                                      )}
-                                      <p className="mt-1">
-                                        <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
-                                      </p>
-                                    </div>
-                                    <div className="mt-4">
-                                      <button
-                                        onClick={handleDisconnectMeta}
-                                        disabled={saving}
-                                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
-                                      >
-                                        <Unlink className="h-4 w-4 mr-2" />
-                                        {saving ? 'Desconectando...' : 'Desconectar Meta'}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              // Usuario no tiene Meta conectado
-                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                                <div className="flex items-start">
-                                  <Info className="h-5 w-5 text-blue-400 mt-0.5" />
-                                  <div className="ml-3 flex-1">
-                                    <h3 className="text-sm font-medium text-blue-800">
-                                      Conecta tu cuenta de Meta
-                                    </h3>
-                                    <div className="mt-2 text-sm text-blue-700">
-                                      <p>Al conectar Meta podrás:</p>
-                                      <ul className="list-disc list-inside mt-2 space-y-1">
-                                        <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
-                                        <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
-                                        <li>Optimizar tus campañas con datos precisos</li>
-                                        <li>Generar reportes completos de rendimiento</li>
-                                      </ul>
-                                    </div>
-                                    <div className="mt-4">
-                                      <button
-                                        onClick={handleConnectMeta}
-                                        disabled={connectingMeta}
-                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        {connectingMeta ? (
-                                          <>
-                                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                            </svg>
-                                            Abriendo popup...
-                                          </>
-                                        ) : (
-                                          <>
-                                            <Facebook className="h-4 w-4 mr-2" />
-                                            Conectar con Meta
-                                          </>
-                                        )}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
 
                         {/* Botones de navegación */}
                         <div className="flex justify-between">
@@ -860,7 +768,7 @@ fbq('track', 'PageView');
                             onClick={() => setCurrentStep(3)}
                             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
-                            Siguiente: Configurar Hotmart
+                            Siguiente: Conectar Meta
                           </button>
                         </div>
                       </div>
@@ -869,6 +777,119 @@ fbq('track', 'PageView');
                 )}
 
                 {currentStep === 3 && (
+                  <div className="space-y-6">
+                    <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                      <div className="p-6">
+                        <h4 className="text-lg font-medium text-gray-900 flex items-center">
+                          <Facebook className="h-5 w-5 mr-2 text-blue-600" />
+                          Integración con Meta (Opcional)
+                        </h4>
+                        <div className="mt-2 text-sm text-gray-500">
+                          <p className="mb-4">
+                            Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
+                            y obtener métricas avanzadas de ROAS (Return on Ad Spend).
+                          </p>
+                        </div>
+
+                        {metaIntegration ? (
+                          // Usuario ya tiene Meta conectado
+                          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                            <div className="flex items-start">
+                              <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
+                              <div className="ml-3 flex-1">
+                                <h3 className="text-sm font-medium text-green-800">
+                                  ¡Meta conectado exitosamente!
+                                </h3>
+                                <div className="mt-2 text-sm text-green-700">
+                                  <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
+                                  {metaIntegration.meta_ad_account_id && (
+                                    <p className="mt-1">
+                                      <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
+                                    </p>
+                                  )}
+                                  <p className="mt-1">
+                                    <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="mt-4">
+                                  <button
+                                    onClick={handleDisconnectMeta}
+                                    disabled={saving}
+                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+                                  >
+                                    <Unlink className="h-4 w-4 mr-2" />
+                                    {saving ? 'Desconectando...' : 'Desconectar Meta'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          // Usuario no tiene Meta conectado
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="flex items-start">
+                              <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                              <div className="ml-3 flex-1">
+                                <h3 className="text-sm font-medium text-blue-800">
+                                  Conecta tu cuenta de Meta
+                                </h3>
+                                <div className="mt-2 text-sm text-blue-700">
+                                  <p>Al conectar Meta podrás:</p>
+                                  <ul className="list-disc list-inside mt-2 space-y-1">
+                                    <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
+                                    <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
+                                    <li>Optimizar tus campañas con datos precisos</li>
+                                    <li>Generar reportes completos de rendimiento</li>
+                                  </ul>
+                                </div>
+                                <div className="mt-4">
+                                  <button
+                                    onClick={handleConnectMeta}
+                                    disabled={connectingMeta}
+                                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    {connectingMeta ? (
+                                      <>
+                                        <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                        Abriendo popup...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Facebook className="h-4 w-4 mr-2" />
+                                        Conectar con Meta
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Botones de navegación */}
+                        <div className="flex justify-between mt-6">
+                          <button
+                            onClick={() => setCurrentStep(2)}
+                            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            Anterior
+                          </button>
+                          <button
+                            onClick={() => setCurrentStep(4)}
+                            className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                          >
+                            Siguiente: Configurar Hotmart
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {currentStep === 4 && (
                   <div className="space-y-6">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
                       <div className="p-6">
@@ -929,13 +950,13 @@ fbq('track', 'PageView');
                         </div>
                         <div className="mt-6 flex justify-between">
                           <button
-                            onClick={() => setCurrentStep(2)}
+                            onClick={() => setCurrentStep(3)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Anterior
                           </button>
                           <button
-                            onClick={() => setCurrentStep(4)}
+                            onClick={() => setCurrentStep(5)}
                             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Siguiente: Configurar UTM
@@ -946,7 +967,7 @@ fbq('track', 'PageView');
                   </div>
                 )}
 
-                {currentStep === 4 && (
+                {currentStep === 5 && (
                   <div className="space-y-6">
                     <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
                       <div className="p-6">
@@ -1031,7 +1052,7 @@ fbq('track', 'PageView');
                         </div>
                         <div className="mt-6 flex justify-between">
                           <button
-                            onClick={() => setCurrentStep(3)}
+                            onClick={() => setCurrentStep(4)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
                             Anterior
