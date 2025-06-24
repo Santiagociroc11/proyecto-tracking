@@ -222,7 +222,7 @@ export default function ProductDetails() {
       if (error) throw error;
 
       await loadProduct();
-      setCurrentStep(2);
+      setCurrentStep(3);
     } catch (err) {
       console.error('Error saving Facebook config:', err);
       setError('Error al guardar la configuración de Facebook');
@@ -439,6 +439,14 @@ fbq('track', 'PageView');
     );
   }
 
+  const steps = [
+    { id: 1, name: 'Nombre', icon: Edit2 },
+    { id: 2, name: 'Píxel', icon: Facebook },
+    { id: 3, name: 'Meta', icon: Globe },
+    { id: 4, name: 'Hotmart', icon: Webhook },
+    { id: 5, name: 'UTMs', icon: Info },
+  ];
+
   return (
     <div className="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-6 flex items-center justify-between">
@@ -565,32 +573,24 @@ fbq('track', 'PageView');
                   <div className="w-full border-t border-gray-200"></div>
                 </div>
                 <div className="relative flex justify-between">
-                  {[
-                    { step: 1, title: 'Facebook', icon: <Facebook className="h-4 w-4" /> },
-                    { step: 2, title: 'Script', icon: <Code2 className="h-4 w-4" /> },
-                    { step: 3, title: 'Hotmart', icon: <Webhook className="h-4 w-4" /> },
-                    { step: 4, title: 'UTMs', icon: <Info className="h-4 w-4" /> }
-                  ].map(({ step, title, icon }) => (
-                    <button
-                      key={step}
-                      onClick={() => setCurrentStep(step)}
-                      className={`${currentStep === step
-                        ? 'border-indigo-500 bg-indigo-600 text-white'
-                        : currentStep > step
-                          ? 'border-indigo-500 bg-indigo-100 text-indigo-500'
-                          : 'border-gray-200 bg-white text-gray-500'
-                        } relative w-24 h-24 rounded-full border-2 flex flex-col items-center justify-center text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500`}
-                    >
-                      <div className={`mb-1 ${currentStep === step ? 'text-white' : ''}`}>
-                        {icon}
+                  {steps.map((step, index) => (
+                    <React.Fragment key={step.id}>
+                      <div className="flex flex-col items-center">
+                        <div
+                          className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            currentStep >= step.id ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-500'
+                          }`}
+                        >
+                          <step.icon className="w-5 h-5" />
+                        </div>
+                        <p className={`mt-2 text-sm ${currentStep >= step.id ? 'text-indigo-600 font-semibold' : 'text-gray-500'}`}>
+                          {step.name}
+                        </p>
                       </div>
-                      <span className={`text-xs ${currentStep === step ? 'text-white' : 'text-gray-500'}`}>
-                        {title}
-                      </span>
-                      <span className="absolute -top-2 left-1/2 transform -translate-x-1/2 w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
-                        {step}
-                      </span>
-                    </button>
+                      {index < steps.length - 1 && (
+                        <div className={`flex-1 h-0.5 mx-4 ${currentStep > step.id ? 'bg-indigo-600' : 'bg-gray-200'}`} />
+                      )}
+                    </React.Fragment>
                   ))}
                 </div>
               </div>
