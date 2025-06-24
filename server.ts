@@ -139,12 +139,16 @@ apiRouter.get('/auth/meta/callback', async (req, res) => {
     const result = await handleMetaCallback(request);
     
     // Convertir la Response estándar a una respuesta de Express
+    const body = await result.text();
+    const headers = Object.fromEntries(result.headers.entries());
+
     if (result.status === 302) {
       const location = result.headers.get('Location');
       log('Meta Auth', 'Redirigiendo después del callback', { location });
       return res.redirect(location || '/dashboard');
     } else {
-      return res.status(result.status).json({ success: false });
+      log('Meta Auth', 'Devolviendo HTML de callback', { status: result.status });
+      return res.status(result.status).set(headers).send(body);
     }
     
   } catch (error) {
