@@ -303,8 +303,73 @@ fbq('track', 'PageView');
       // URL de autorización de Meta
       const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
 
-      // Redirigir a Meta
-      window.location.href = authUrl;
+      // Abrir popup en lugar de redirigir
+      const popup = window.open(
+        authUrl,
+        'MetaAuth',
+        'width=600,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no'
+      );
+
+      if (!popup) {
+        throw new Error('No se pudo abrir el popup. Verifica que no esté bloqueado por el navegador.');
+      }
+
+      // Monitorear el popup para detectar cuando se cierre o complete
+      const checkClosed = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(checkClosed);
+          setConnectingMeta(false);
+          
+          // Verificar si la conexión fue exitosa
+          const urlParams = new URLSearchParams(window.location.search);
+          if (urlParams.get('meta_auth_success') === 'true') {
+            // Recargar la integración para mostrar el estado actualizado
+            loadMetaIntegration();
+            
+            // Limpiar los parámetros de la URL
+            const newUrl = window.location.pathname;
+            window.history.replaceState({}, document.title, newUrl);
+            
+            // La integración será recargada automáticamente
+            console.log('Meta conectado exitosamente');
+          }
+        }
+      }, 1000);
+
+      // También escuchar mensajes del popup (método alternativo más elegante)
+      const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+        
+        if (event.data.type === 'META_AUTH_SUCCESS') {
+          clearInterval(checkClosed);
+          popup.close();
+          setConnectingMeta(false);
+          loadMetaIntegration();
+          
+                      // Mostrar mensaje de éxito - en un futuro podrías usar un toast
+            console.log('¡Meta conectado exitosamente!');
+          window.removeEventListener('message', handleMessage);
+        } else if (event.data.type === 'META_AUTH_ERROR') {
+          clearInterval(checkClosed);
+          popup.close();
+          setConnectingMeta(false);
+          setError('Error conectando con Meta: ' + event.data.error);
+          window.removeEventListener('message', handleMessage);
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+
+      // Timeout de seguridad (cerrar después de 5 minutos)
+      setTimeout(() => {
+        if (!popup.closed) {
+          popup.close();
+          clearInterval(checkClosed);
+          setConnectingMeta(false);
+          window.removeEventListener('message', handleMessage);
+        }
+      }, 5 * 60 * 1000);
+
     } catch (err) {
       console.error('Error connecting to Meta:', err);
       setError(err instanceof Error ? err.message : 'Error conectando con Meta');
@@ -747,10 +812,22 @@ fbq('track', 'PageView');
                                       <button
                                         onClick={handleConnectMeta}
                                         disabled={connectingMeta}
-                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                                       >
-                                        <Facebook className="h-4 w-4 mr-2" />
-                                        {connectingMeta ? 'Conectando...' : 'Conectar con Meta'}
+                                        {connectingMeta ? (
+                                          <>
+                                            <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                            </svg>
+                                            Abriendo popup...
+                                          </>
+                                        ) : (
+                                          <>
+                                            <Facebook className="h-4 w-4 mr-2" />
+                                            Conectar con Meta
+                                          </>
+                                        )}
                                       </button>
                                     </div>
                                   </div>

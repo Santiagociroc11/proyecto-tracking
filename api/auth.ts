@@ -10,10 +10,65 @@ export async function handleMetaCallback(request: Request) {
 
     if (error) {
       console.error('Error from Meta OAuth:', error);
-      return new Response(null, {
-        status: 302,
+      
+      // Devolver HTML de error para el popup
+      const errorHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Error de Conexión</title>
+          <style>
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              margin: 0;
+              background-color: #f8f9fa;
+            }
+            .container {
+              text-align: center;
+              padding: 2rem;
+              background: white;
+              border-radius: 8px;
+              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+              max-width: 400px;
+            }
+            .error-icon {
+              font-size: 48px;
+              color: #dc3545;
+              margin-bottom: 1rem;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <div class="error-icon">⚠️</div>
+            <h3>Error de Conexión</h3>
+            <p>No se pudo conectar con Meta. Por favor, inténtalo de nuevo.</p>
+            <p><small>Error: ${error}</small></p>
+          </div>
+          <script>
+            if (window.opener) {
+              window.opener.postMessage({
+                type: 'META_AUTH_ERROR',
+                error: '${error}'
+              }, window.location.origin);
+            }
+            
+            setTimeout(() => {
+              window.close();
+            }, 3000);
+          </script>
+        </body>
+        </html>
+      `;
+      
+      return new Response(errorHtml, {
+        status: 200,
         headers: {
-          Location: '/dashboard?error=meta_auth_failed',
+          'Content-Type': 'text/html; charset=utf-8',
         },
       });
     }
@@ -64,7 +119,7 @@ export async function handleMetaCallback(request: Request) {
     // Obtener información básica del usuario y sus cuentas publicitarias
     const userInfoUrl = `https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${accessToken}`;
     const userInfoResponse = await fetch(userInfoUrl);
-    const userInfo = await userInfoResponse.json();
+    const userInfo: { id: string; name: string; error?: any } = await userInfoResponse.json();
 
     if (userInfo.error) {
       console.error('Error obteniendo información del usuario:', userInfo.error);
@@ -81,7 +136,7 @@ export async function handleMetaCallback(request: Request) {
     const adAccountsResponse = await fetch(adAccountsUrl);
     const adAccountsData = await adAccountsResponse.json();
 
-    let selectedAdAccount = null;
+    let selectedAdAccount: { id: string; name: string; account_status: number } | null = null;
     if (adAccountsData.data && adAccountsData.data.length > 0) {
       // Por simplicidad, tomamos la primera cuenta activa
       selectedAdAccount = adAccountsData.data.find((account: any) => account.account_status === 1) || adAccountsData.data[0];
@@ -105,17 +160,76 @@ export async function handleMetaCallback(request: Request) {
       selectedAdAccountId: selectedAdAccount?.id
     });
 
-    // Por ahora, vamos a redirigir con la información para que el frontend pueda manejarla
-    const redirectUrl = new URL('/dashboard', process.env.SITE_URL || 'http://localhost:3000');
-    redirectUrl.searchParams.set('meta_auth_success', 'true');
-    redirectUrl.searchParams.set('meta_account_id', selectedAdAccount?.id || '');
-    redirectUrl.searchParams.set('meta_business_id', userInfo.id);
-    
-    // Redirigir de vuelta al dashboard con la información
-    return new Response(null, {
-      status: 302,
+    // En lugar de redirigir, vamos a devolver HTML que se comunique con la ventana principal
+    const callbackHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <title>Conectando con Meta...</title>
+        <style>
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f8f9fa;
+          }
+          .container {
+            text-align: center;
+            padding: 2rem;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+          }
+          .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e3e3e3;
+            border-top: 4px solid #1877f2;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 1rem;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="spinner"></div>
+          <h3>¡Conexión exitosa!</h3>
+          <p>Cerrando ventana...</p>
+        </div>
+        <script>
+          // Enviar mensaje a la ventana principal
+          if (window.opener) {
+            window.opener.postMessage({
+              type: 'META_AUTH_SUCCESS',
+              data: {
+                meta_account_id: '${selectedAdAccount?.id || ''}',
+                meta_business_id: '${userInfo.id}',
+                access_token_received: true
+              }
+            }, window.location.origin);
+          }
+          
+          // Cerrar la ventana después de un breve delay
+          setTimeout(() => {
+            window.close();
+          }, 2000);
+        </script>
+      </body>
+      </html>
+    `;
+
+    return new Response(callbackHtml, {
+      status: 200,
       headers: {
-        Location: redirectUrl.toString(),
+        'Content-Type': 'text/html; charset=utf-8',
       },
     });
 
