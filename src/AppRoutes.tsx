@@ -58,6 +58,7 @@ export default function AppRoutes() {
             </PrivateRoute>
           } />
         )}
+        <Route path="/create-user" element={<AdminCreateUser />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
