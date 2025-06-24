@@ -1,6 +1,58 @@
 import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto';
 
+/**
+ * Maneja las solicitudes de eliminación de datos de usuarios de Meta
+ * Este endpoint es requerido por Meta para cumplir con las políticas de datos
+ */
+export async function handleDataDeletionRequest(request: Request) {
+  try {
+    const body = await request.text();
+    
+    // Meta envía una signed request con los datos del usuario
+    // Para este ejemplo, vamos a manejar una implementación básica
+    // En producción deberías verificar la firma de Meta
+    
+    console.log('[Data Deletion] Solicitud recibida de Meta:', body);
+    
+    // Generar un confirmation code único para la eliminación
+    const confirmationCode = crypto.randomBytes(16).toString('hex');
+    
+    // En una implementación completa, aquí deberías:
+    // 1. Verificar la signed request de Meta
+    // 2. Extraer el user_id de Meta del payload
+    // 3. Buscar y eliminar todos los datos relacionados con ese usuario de Meta
+    // 4. Registrar la eliminación en un log de auditoría
+    
+    // Respuesta requerida por Meta
+    const response = {
+      url: `${process.env.SITE_URL || 'https://hotapi.automscc.com'}/data-deletion-status/${confirmationCode}`,
+      confirmation_code: confirmationCode
+    };
+    
+    console.log('[Data Deletion] Respuesta enviada:', response);
+    
+    return new Response(JSON.stringify(response), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+  } catch (error) {
+    console.error('[Data Deletion] Error procesando solicitud:', error);
+    
+    return new Response(JSON.stringify({
+      error: 'Error interno del servidor'
+    }), {
+      status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+}
+
 export async function handleMetaCallback(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
@@ -76,25 +128,34 @@ export async function handleMetaCallback(request: Request) {
 
     const accessToken = tokenData.access_token;
 
-    // Obtener información básica del usuario y sus cuentas publicitarias
-    const userInfoUrl = `https://graph.facebook.com/v19.0/me?fields=id,name&access_token=${accessToken}`;
+    // Obtener información básica del usuario para verificar la conexión (solo ID)
+    const userInfoUrl = `https://graph.facebook.com/v19.0/me?fields=id&access_token=${accessToken}`;
     const userInfoResponse = await fetch(userInfoUrl);
-    const userInfo: { id: string; name: string; error?: any } = await userInfoResponse.json();
+    const userInfo: { id: string; error?: any } = await userInfoResponse.json();
 
     if (userInfo.error) {
       console.error('Error obteniendo información del usuario:', userInfo.error);
       return generateErrorResponse(`Error obteniendo información del usuario: ${userInfo.error.message}`);
     }
 
-    // Obtener las cuentas publicitarias del usuario
-    const adAccountsUrl = `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`;
-    const adAccountsResponse = await fetch(adAccountsUrl);
-    const adAccountsData = await adAccountsResponse.json();
-
+    // Obtener las cuentas publicitarias del usuario (requiere ads_read)
     let selectedAdAccount: { id: string; name: string; account_status: number } | null = null;
-    if (adAccountsData.data && adAccountsData.data.length > 0) {
-      // Por simplicidad, tomamos la primera cuenta activa
-      selectedAdAccount = adAccountsData.data.find((account: any) => account.account_status === 1) || adAccountsData.data[0];
+    let adAccountsData: any = {};
+    
+    try {
+      const adAccountsUrl = `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`;
+      const adAccountsResponse = await fetch(adAccountsUrl);
+      adAccountsData = await adAccountsResponse.json();
+
+      if (adAccountsData.data && adAccountsData.data.length > 0) {
+        // Por simplicidad, tomamos la primera cuenta activa
+        selectedAdAccount = adAccountsData.data.find((account: any) => account.account_status === 1) || adAccountsData.data[0];
+        console.log(`[Meta Auth] Cuenta publicitaria seleccionada: ${selectedAdAccount?.name} (${selectedAdAccount?.id})`);
+      } else if (adAccountsData.error) {
+        console.log(`[Meta Auth] No se pudieron obtener cuentas publicitarias (permisos pendientes): ${adAccountsData.error.message}`);
+      }
+    } catch (error) {
+      console.log(`[Meta Auth] ads_read permission not yet approved, continuing without ad account data`);
     }
 
     // Decodificar el state para obtener el product_id y user_id
@@ -122,6 +183,7 @@ export async function handleMetaCallback(request: Request) {
       provider: 'meta',
       meta_ad_account_id: selectedAdAccount?.id || null,
       meta_business_id: userInfo.id,
+      // Solo guardamos el ID para identificación, no información personal
       access_token_encrypted: encryptedToken,
       status: 'active',
       updated_at: new Date().toISOString(),

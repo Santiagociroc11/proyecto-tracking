@@ -54,14 +54,21 @@
 
         <h3>Integración con la API de Meta (Facebook)</h3>
         <p>
-            Si decides conectar tu cuenta de Meta a nuestro servicio, recopilaremos la siguiente información para proporcionar la funcionalidad de seguimiento de gastos y cálculo de ROAS:
+            Si decides conectar tu cuenta de Meta a nuestro servicio, recopilaremos la siguiente información para proporcionar la funcionalidad de seguimiento de gastos publicitarios y cálculo de ROAS:
         </p>
         <ul>
-            <li><strong>Token de Acceso:</strong> Recibimos un token de acceso de Meta para realizar llamadas a la API en tu nombre. Este token se almacena de forma segura utilizando cifrado AES-256-GCM.</li>
-            <li><strong>ID de Cuenta Publicitaria y de Negocio:</strong> Almacenamos el ID de tu cuenta publicitaria de Meta y el ID de tu negocio para asociar los datos correctamente con tu producto.</li>
-            <li><strong>Datos de Campañas y Rendimiento:</strong> Utilizando los permisos <strong>`ads_read`</strong> y <strong>`read_insights`</strong>, accedemos periódicamente a los datos de tus campañas publicitarias. Específicamente, solicitamos el gasto (`spend`) de tus campañas para calcular métricas de rendimiento como el ROAS. No almacenamos detalles específicos de las creatividades o audiencias de tus anuncios.</li>
+            <li><strong>Información Básica de Identificación:</strong> Utilizamos el permiso <strong>`public_profile`</strong> únicamente para obtener un identificador único de tu cuenta de Meta. No utilizamos ni almacenamos información personal como nombre o foto de perfil.</li>
+            <li><strong>Acceso a Datos de Anuncios:</strong> Con el permiso <strong>`ads_read`</strong>, accedemos a la información de tus cuentas publicitarias y campañas para identificar de dónde provienen las conversiones.</li>
+            <li><strong>Métricas de Rendimiento:</strong> Mediante <strong>`read_insights`</strong>, obtenemos específicamente el gasto diario de tus campañas publicitarias para calcular el ROAS (Retorno de la Inversión Publicitaria).</li>
+            <li><strong>Gestión de Campañas:</strong> Con el permiso <strong>`ads_management`</strong>, podemos realizar optimizaciones automáticas en tus campañas basadas en el rendimiento de las conversiones. Esto incluye pausar campañas con bajo ROAS, ajustar presupuestos según el rendimiento, y activar/desactivar conjuntos de anuncios según las métricas de conversión.</li>
+            <li><strong>Token de Acceso:</strong> El token de acceso se almacena de forma segura utilizando cifrado AES-256-GCM para realizar estas consultas y modificaciones automáticamente.</li>
         </ul>
-        <p>El uso de estos datos se limita estrictamente a mostrarte tu gasto publicitario y el ROAS calculado dentro de tu dashboard personal en nuestra aplicación.</p>
+        <p>
+            <strong>Propósito específico:</strong> Estos permisos nos permiten sincronizar automáticamente el gasto de tus campañas de Meta con las ventas rastreadas por nuestro sistema, calculando métricas precisas de ROAS y realizando optimizaciones automáticas basadas en el rendimiento real de las conversiones.
+        </p>
+        <p>
+            <strong>Limitación de uso:</strong> Los datos se utilizan exclusivamente para mostrar métricas de rendimiento en tu dashboard personal. No compartimos, vendemos ni utilizamos esta información para ningún otro propósito.
+        </p>
 
 
         <h2>2. ¿CÓMO UTILIZAMOS TU INFORMACIÓN?</h2>

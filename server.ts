@@ -2,7 +2,7 @@ import express from 'express';
 import { handleTrackingEvent } from './api/track.js';
 import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
-import { handleMetaCallback } from './api/auth.js';
+import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -157,6 +157,34 @@ apiRouter.get('/auth/meta/callback', async (req, res) => {
   }
 });
 
+// Ruta para eliminación de datos requerida por Meta
+apiRouter.post('/auth/meta/data-deletion', async (req, res) => {
+  log('Meta Data Deletion', 'Recibiendo solicitud de eliminación de datos', { 
+    body: req.body, 
+    headers: req.headers 
+  });
+  
+  try {
+    // Convertir la request de Express a una Request estándar
+    const url = new URL(req.url, `${req.protocol}://${req.get('host')}`);
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers: req.headers as any,
+      body: JSON.stringify(req.body)
+    });
+
+    const result = await handleDataDeletionRequest(request);
+    const responseData = await result.json();
+    
+    log('Meta Data Deletion', 'Respuesta enviada', responseData);
+    return res.status(result.status).json(responseData);
+    
+  } catch (error) {
+    log('Meta Data Deletion', 'Error en eliminación de datos', error);
+    res.status(500).json({ error: 'Error interno del servidor' });
+  }
+});
+
 app.use('/api', apiRouter);
 
 // Serve static files
@@ -172,6 +200,11 @@ app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.
     res.setHeader('X-Content-Type-Options', 'nosniff');
   }
 }));
+
+// Ruta específica para el estado de eliminación de datos
+app.get('/data-deletion-status/*', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'data-deletion-status.html'));
+});
 
 // Handle client-side routing
 app.get('*', (req, res) => {

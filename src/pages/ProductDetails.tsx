@@ -21,6 +21,7 @@ interface MetaIntegration {
   id: string;
   meta_ad_account_id: string | null;
   meta_business_id: string | null;
+  meta_user_name: string | null;
   status: string;
   created_at: string;
 }
@@ -303,8 +304,9 @@ fbq('track', 'PageView');
       
       localStorage.setItem('oauth_csrf', statePayload.csrf);
 
-      // Permisos necesarios para obtener datos de ads
-      const scopes = 'public_profile,email';
+      // Solicitar todos los permisos necesarios para gestión completa de campañas
+      // public_profile es requerido por Meta como permiso base
+      const scopes = 'public_profile,ads_read,read_insights,ads_management';
 
       // URL de autorización de Meta
       const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
@@ -783,12 +785,12 @@ fbq('track', 'PageView');
                       <div className="p-6">
                         <h4 className="text-lg font-medium text-gray-900 flex items-center">
                           <Facebook className="h-5 w-5 mr-2 text-blue-600" />
-                          Integración con Meta (Opcional)
+                          Gestión Automática de Campañas de Meta (Opcional)
                         </h4>
                         <div className="mt-2 text-sm text-gray-500">
                           <p className="mb-4">
-                            Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
-                            y obtener métricas avanzadas de ROAS (Return on Ad Spend).
+                            Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto, calcular ROAS en tiempo real, 
+                            y optimizar tus campañas basándote en conversiones reales de tu producto.
                           </p>
                         </div>
 
@@ -839,7 +841,9 @@ fbq('track', 'PageView');
                                   <ul className="list-disc list-inside mt-2 space-y-1">
                                     <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
                                     <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
-                                    <li>Optimizar tus campañas con datos precisos</li>
+                                    <li>Pausar automáticamente campañas con bajo rendimiento</li>
+                                    <li>Ajustar presupuestos basados en conversiones reales</li>
+                                    <li>Activar/desactivar conjuntos de anuncios según ROAS</li>
                                     <li>Generar reportes completos de rendimiento</li>
                                   </ul>
                                 </div>
