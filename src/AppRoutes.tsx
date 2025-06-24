@@ -9,6 +9,7 @@ import Settings from './pages/Settings';
 import AdminCreateUser from './pages/AdminCreateUser';
 import Header from './components/Header';
 import PrivateRoute from './components/PrivateRoute';
+import PublicCreateUser from './pages/PublicCreateUser';
 
 export default function AppRoutes() {
   const { user, loading, signOut } = useAuth();
@@ -22,7 +23,12 @@ export default function AppRoutes() {
   }
 
   if (!user) {
-    return <Login />;
+    return (
+      <Routes>
+        <Route path="/create-user-public" element={<PublicCreateUser />} />
+        <Route path="*" element={<Login />} />
+      </Routes>
+    );
   }
 
   const isAdmin = user.role === 'admin';
@@ -58,6 +64,7 @@ export default function AppRoutes() {
             </PrivateRoute>
           } />
         )}
+        <Route path="/create-user-public" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>
