@@ -2,6 +2,7 @@ import express from 'express';
 import { handleTrackingEvent } from './api/track.js';
 import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
+import { handleMetaCallback } from './api/auth.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -117,6 +118,38 @@ apiRouter.post('/telegram/test', async (req, res) => {
       success: false, 
       error: 'Error interno del servidor' 
     });
+  }
+});
+
+// Ruta para el callback de Meta OAuth
+apiRouter.get('/auth/meta/callback', async (req, res) => {
+  log('Meta Auth', 'Recibiendo callback de Meta', { 
+    query: req.query, 
+    headers: req.headers 
+  });
+  
+  try {
+    // Convertir la request de Express a una Request estándar
+    const url = new URL(req.url, `${req.protocol}://${req.get('host')}`);
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers: req.headers as any
+    });
+
+    const result = await handleMetaCallback(request);
+    
+    // Convertir la Response estándar a una respuesta de Express
+    if (result.status === 302) {
+      const location = result.headers.get('Location');
+      log('Meta Auth', 'Redirigiendo después del callback', { location });
+      return res.redirect(location || '/dashboard');
+    } else {
+      return res.status(result.status).json({ success: false });
+    }
+    
+  } catch (error) {
+    log('Meta Auth', 'Error en callback de Meta', error);
+    res.redirect('/dashboard?error=callback_failed');
   }
 });
 
