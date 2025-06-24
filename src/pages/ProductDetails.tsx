@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2 } from 'lucide-react';
+import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2, Unlink } from 'lucide-react';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -15,6 +15,14 @@ interface Product {
   fb_access_token: string | null;
   fb_test_event_code: string | null;
   user_id: string;
+}
+
+interface MetaIntegration {
+  id: string;
+  meta_ad_account_id: string | null;
+  meta_business_id: string | null;
+  status: string;
+  created_at: string;
 }
 
 export default function ProductDetails() {
@@ -35,6 +43,10 @@ export default function ProductDetails() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Estados para la integración con Meta
+  const [metaIntegration, setMetaIntegration] = useState<MetaIntegration | null>(null);
+  const [connectingMeta, setConnectingMeta] = useState(false);
 
   useEffect(() => {
     // Set initial active tab based on URL parameter
@@ -47,6 +59,7 @@ export default function ProductDetails() {
   useEffect(() => {
     if (user && id) {
       loadProduct();
+      loadMetaIntegration();
     }
   }, [id, user]);
 
@@ -87,6 +100,26 @@ export default function ProductDetails() {
       setError(err instanceof Error ? err.message : 'Error cargando el producto');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMetaIntegration() {
+    if (!id || !user) return;
+
+    try {
+      const { data: integration, error } = await supabase
+        .from('product_integrations')
+        .select('*')
+        .eq('product_id', id)
+        .eq('provider', 'meta')
+        .eq('status', 'active')
+        .single();
+
+      if (!error && integration) {
+        setMetaIntegration(integration);
+      }
+    } catch (err) {
+      console.error('Error loading Meta integration:', err);
     }
   }
 
@@ -244,6 +277,64 @@ fbq('track', 'PageView');
     navigator.clipboard.writeText(text);
     setCopied(type);
     setTimeout(() => setCopied(null), 2000);
+  }
+
+  async function handleConnectMeta() {
+    if (!id || !user) return;
+
+    setConnectingMeta(true);
+    try {
+      // Variables de entorno que necesitarás configurar
+      const META_APP_ID = import.meta.env.VITE_META_APP_ID;
+      const REDIRECT_URI = `${window.location.origin}/api/auth/meta/callback`;
+
+      if (!META_APP_ID) {
+        throw new Error('Meta App ID no configurado');
+      }
+
+      // Generar state para seguridad CSRF
+      const state = Math.random().toString(36).substring(2);
+      localStorage.setItem('oauth_state', state);
+      localStorage.setItem('oauth_product_id', id);
+
+      // Permisos necesarios para obtener datos de ads
+      const scopes = 'ads_read,read_insights,business_management';
+
+      // URL de autorización de Meta
+      const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
+
+      // Redirigir a Meta
+      window.location.href = authUrl;
+    } catch (err) {
+      console.error('Error connecting to Meta:', err);
+      setError(err instanceof Error ? err.message : 'Error conectando con Meta');
+      setConnectingMeta(false);
+    }
+  }
+
+  async function handleDisconnectMeta() {
+    if (!id || !user || !metaIntegration) return;
+
+    const confirmDisconnect = confirm('¿Estás seguro que quieres desconectar la integración con Meta? Esto detendrá la sincronización de datos de gasto publicitario.');
+    
+    if (!confirmDisconnect) return;
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('product_integrations')
+        .update({ status: 'revoked' })
+        .eq('id', metaIntegration.id);
+
+      if (error) throw error;
+
+      setMetaIntegration(null);
+    } catch (err) {
+      console.error('Error disconnecting Meta:', err);
+      setError('Error al desconectar la integración con Meta');
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (loading) {
@@ -586,7 +677,91 @@ fbq('track', 'PageView');
                             )}
                           </button>
                         </div>
-                        <div className="mt-6 flex justify-between">
+
+                        {/* Nueva sección: Integración con Meta */}
+                        <div className="bg-white border border-gray-200 rounded-lg shadow-sm">
+                          <div className="p-6">
+                            <h4 className="text-lg font-medium text-gray-900 flex items-center">
+                              <Facebook className="h-5 w-5 mr-2 text-blue-600" />
+                              Integración con Meta (Opcional)
+                            </h4>
+                            <div className="mt-2 text-sm text-gray-500">
+                              <p className="mb-4">
+                                Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto de tus campañas 
+                                y obtener métricas avanzadas de ROAS (Return on Ad Spend).
+                              </p>
+                            </div>
+
+                            {metaIntegration ? (
+                              // Usuario ya tiene Meta conectado
+                              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                <div className="flex items-start">
+                                  <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
+                                  <div className="ml-3 flex-1">
+                                    <h3 className="text-sm font-medium text-green-800">
+                                      ¡Meta conectado exitosamente!
+                                    </h3>
+                                    <div className="mt-2 text-sm text-green-700">
+                                      <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
+                                      {metaIntegration.meta_ad_account_id && (
+                                        <p className="mt-1">
+                                          <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
+                                        </p>
+                                      )}
+                                      <p className="mt-1">
+                                        <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
+                                      </p>
+                                    </div>
+                                    <div className="mt-4">
+                                      <button
+                                        onClick={handleDisconnectMeta}
+                                        disabled={saving}
+                                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
+                                      >
+                                        <Unlink className="h-4 w-4 mr-2" />
+                                        {saving ? 'Desconectando...' : 'Desconectar Meta'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              // Usuario no tiene Meta conectado
+                              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                <div className="flex items-start">
+                                  <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                                  <div className="ml-3 flex-1">
+                                    <h3 className="text-sm font-medium text-blue-800">
+                                      Conecta tu cuenta de Meta
+                                    </h3>
+                                    <div className="mt-2 text-sm text-blue-700">
+                                      <p>Al conectar Meta podrás:</p>
+                                      <ul className="list-disc list-inside mt-2 space-y-1">
+                                        <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
+                                        <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
+                                        <li>Optimizar tus campañas con datos precisos</li>
+                                        <li>Generar reportes completos de rendimiento</li>
+                                      </ul>
+                                    </div>
+                                    <div className="mt-4">
+                                      <button
+                                        onClick={handleConnectMeta}
+                                        disabled={connectingMeta}
+                                        className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                                      >
+                                        <Facebook className="h-4 w-4 mr-2" />
+                                        {connectingMeta ? 'Conectando...' : 'Conectar con Meta'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Botones de navegación */}
+                        <div className="flex justify-between">
                           <button
                             onClick={() => setCurrentStep(1)}
                             className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
