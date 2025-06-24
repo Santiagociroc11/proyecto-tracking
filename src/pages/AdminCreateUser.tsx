@@ -1,126 +1,169 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { AlertCircle, CheckCircle } from 'lucide-react';
 
 export default function AdminCreateUser() {
-  const [adminPassword, setAdminPassword] = useState('');
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [maxMonthlyEvents, setMaxMonthlyEvents] = useState(10000);
+  const [maxProducts, setMaxProducts] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    setSuccess(null);
     setLoading(true);
+    setError('');
+    setSuccess(false);
 
     try {
-      const response = await fetch('/api/admin/create-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminPassword, email, password }),
+      // First create the auth user
+      const { data: authData, error: signUpError } = await supabase.auth.signUp({
+        email,
+        password,
       });
 
-      const data = await response.json();
+      if (signUpError) throw signUpError;
+      if (!authData.user) throw new Error('Error creating user');
 
-      if (!response.ok) {
-        throw new Error(data.error || 'Ocurrió un error');
+      // Then create the user record with limits
+      const { error: insertError } = await supabase
+        .from('users')
+        .insert([{
+          id: authData.user.id,
+          active: true,
+          max_monthly_events: maxMonthlyEvents,
+          max_products: maxProducts,
+          events_count: 0,
+          role: 'user'
+        }]);
+
+      if (insertError) {
+        // Cleanup auth user if db insert fails
+        await supabase.auth.admin.deleteUser(authData.user.id);
+        throw insertError;
       }
 
-      setSuccess(`¡Usuario ${data.user.email} creado exitosamente!`);
+      setSuccess(true);
       setEmail('');
       setPassword('');
-
+      setMaxMonthlyEvents(10000);
+      setMaxProducts(1);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Error desconocido');
+      console.error('Error creating user:', err);
+      setError(err instanceof Error ? err.message : 'Error al crear el usuario');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
-        <h2 className="text-2xl font-bold text-center text-gray-900">
-          Crear Nuevo Usuario (Admin)
-        </h2>
-        <form className="space-y-6" onSubmit={handleSubmit}>
-          <div>
-            <label
-              htmlFor="admin-password"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Contraseña de Administrador
-            </label>
-            <input
-              id="admin-password"
-              name="admin-password"
-              type="password"
-              required
-              value={adminPassword}
-              onChange={(e) => setAdminPassword(e.target.value)}
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
-            />
+    <div className="max-w-2xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="bg-white shadow-lg rounded-lg p-6">
+        <h1 className="text-2xl font-bold text-gray-900 mb-6">Crear Usuario con Plan</h1>
+
+        {error && (
+          <div className="mb-4 bg-red-50 border-l-4 border-red-400 p-4">
+            <div className="flex">
+              <AlertCircle className="h-5 w-5 text-red-400" />
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            </div>
           </div>
-          <hr />
+        )}
+
+        {success && (
+          <div className="mb-4 bg-green-50 border-l-4 border-green-400 p-4">
+            <div className="flex">
+              <CheckCircle className="h-5 w-5 text-green-400" />
+              <div className="ml-3">
+                <p className="text-sm text-green-700">Usuario creado exitosamente</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label
-              htmlFor="email"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Email del Nuevo Usuario
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+              Correo Electrónico
             </label>
             <input
-              id="email"
-              name="email"
               type="email"
-              autoComplete="email"
-              required
+              id="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              required
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             />
           </div>
 
           <div>
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Contraseña del Nuevo Usuario
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+              Contraseña
             </label>
             <input
-              id="password"
-              name="password"
               type="password"
-              required
+              id="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 mt-1 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+              required
+              minLength={6}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
             />
           </div>
 
           <div>
+            <label htmlFor="maxEvents" className="block text-sm font-medium text-gray-700">
+              Eventos Mensuales Máximos
+            </label>
+            <input
+              type="number"
+              id="maxEvents"
+              value={maxMonthlyEvents}
+              onChange={(e) => setMaxMonthlyEvents(parseInt(e.target.value))}
+              required
+              min={1000}
+              step={1000}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              Número máximo de eventos que el usuario puede registrar por mes
+            </p>
+          </div>
+
+          <div>
+            <label htmlFor="maxProducts" className="block text-sm font-medium text-gray-700">
+              Productos Máximos
+            </label>
+            <input
+              type="number"
+              id="maxProducts"
+              value={maxProducts}
+              onChange={(e) => setMaxProducts(parseInt(e.target.value))}
+              required
+              min={1}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+            />
+            <p className="mt-1 text-sm text-gray-500">
+              Número máximo de productos que el usuario puede crear
+            </p>
+          </div>
+
+          <div className="flex justify-end">
             <button
               type="submit"
               disabled={loading}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              className="inline-flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
             >
               {loading ? 'Creando...' : 'Crear Usuario'}
             </button>
           </div>
         </form>
-        {error && (
-            <div className="p-4 mt-4 text-sm text-red-700 bg-red-100 border border-red-200 rounded-lg">
-                {error}
-            </div>
-        )}
-        {success && (
-            <div className="p-4 mt-4 text-sm text-green-700 bg-green-100 border border-green-200 rounded-lg">
-                {success}
-            </div>
-        )}
       </div>
     </div>
   );

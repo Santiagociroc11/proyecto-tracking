@@ -3,7 +3,6 @@ import { handleTrackingEvent } from './api/track.js';
 import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
 import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
-import { handleAdminCreateUser } from './api/admin.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -182,30 +181,6 @@ apiRouter.post('/auth/meta/data-deletion', async (req, res) => {
     
   } catch (error) {
     log('Meta Data Deletion', 'Error en eliminación de datos', error);
-    res.status(500).json({ error: 'Error interno del servidor' });
-  }
-});
-
-// Ruta para crear usuarios como administrador
-apiRouter.post('/admin/create-user', async (req, res) => {
-  log('Admin', 'Recibiendo solicitud para crear usuario', { 
-    body: { email: req.body.email } // Solo loguear el email, no contraseñas
-  });
-  
-  try {
-    const request = new Request(`${req.protocol}://${req.get('host')}${req.originalUrl}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body)
-    });
-
-    const result = await handleAdminCreateUser(request);
-    const responseData = await result.json();
-    
-    return res.status(result.status).json(responseData);
-    
-  } catch (error) {
-    log('Admin', 'Error creando usuario', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
