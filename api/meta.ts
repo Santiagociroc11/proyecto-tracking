@@ -1,23 +1,5 @@
 import { supabase } from '../lib/supabase-server.js';
-import crypto from 'crypto';
 
-// Función para descifrar el token de acceso
-function decryptToken(encryptedText: string, key: string): string {
-  const algorithm = 'aes-256-gcm';
-  const parts = encryptedText.split(':');
-  
-  const iv = Buffer.from(parts[0], 'hex');
-  const authTag = Buffer.from(parts[1], 'hex');
-  const encrypted = parts[2];
-  
-  const decipher = crypto.createDecipher(algorithm, key);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-  decrypted += decipher.final('utf8');
-  
-  return decrypted;
-}
 
 export async function handleRefreshAdAccounts(request: Request) {
   try {
@@ -69,7 +51,7 @@ export async function handleRefreshAdAccounts(request: Request) {
     // Descifrar el access token
     let accessToken: string;
     try {
-      accessToken = decryptToken(integration.access_token_encrypted, ENCRYPTION_KEY);
+      accessToken = integration.access_token_encrypted; // DEBUG: Reading plaintext
     } catch (error) {
       console.error('Error decrypting access token:', error);
       return new Response(JSON.stringify({
