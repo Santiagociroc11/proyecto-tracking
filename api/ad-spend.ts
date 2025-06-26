@@ -1,25 +1,24 @@
 import { supabase } from '../lib/supabase-server.js';
 
-// Función para descifrar tokens (igual que en auth.ts)
+// Función para descifrar tokens (compatible con el formato de auth.ts)
 function decryptToken(encryptedText: string, key: string): string {
   try {
-    const textParts = encryptedText.split(':');
-    if (textParts.length !== 2) {
-      throw new Error('Invalid encrypted text format');
+    const algorithm = 'aes-256-gcm';
+    const parts = encryptedText.split(':');
+    
+    if (parts.length !== 3) {
+      throw new Error('Invalid encrypted text format - expected iv:authTag:encrypted');
     }
     
-    const iv = Buffer.from(textParts.shift()!, 'hex');
-    const encryptedData = Buffer.from(textParts[0], 'hex');
+    const iv = Buffer.from(parts[0], 'hex');
+    const authTag = Buffer.from(parts[1], 'hex');
+    const encrypted = parts[2];
     
     const crypto = require('crypto');
-    const decipher = crypto.createDecipheriv('aes-256-gcm', Buffer.from(key, 'hex'), iv);
-    
-    const authTag = encryptedData.slice(-16);
-    const ciphertext = encryptedData.slice(0, -16);
-    
+    const decipher = crypto.createDecipher(algorithm, key);
     decipher.setAuthTag(authTag);
     
-    let decrypted = decipher.update(ciphertext, null, 'utf8');
+    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
     
     return decrypted;
