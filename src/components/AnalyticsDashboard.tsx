@@ -18,6 +18,8 @@ import {
   Gem,
   AlertTriangle,
   Zap,
+  Target,
+  TrendingDown,
 } from 'lucide-react';
 import {
   BarChart,
@@ -60,6 +62,10 @@ interface AnalyticsData {
   total_order_bump_revenue: number;
   total_revenue: number;
   revenue_today: number;
+  total_ad_spend: number;
+  ad_spend_today: number;
+  roas: number; // Return on Ad Spend
+  roas_today: number;
   utm_stats: {
     medium: string;
     campaign: string;
@@ -71,6 +77,8 @@ interface AnalyticsData {
     purchases: number;
     order_bumps: number;
     revenue: number;
+    ad_spend: number;
+    roas: number;
     conversion_rate: number;
     unique_conversion_rate: number;
     persuasion_rate: number;
@@ -86,6 +94,8 @@ interface AnalyticsData {
     purchases: number;
     order_bumps: number;
     revenue: number;
+    ad_spend: number;
+    roas: number;
   }[];
   top_sources: {
     source: string;
@@ -116,9 +126,10 @@ type SortField =
   | 'clicks'
   | 'purchases'
   | 'conversion_rate'
-  | 'persuasion_rate';
+  | 'persuasion_rate'
+  | 'roas';
 type SortDirection = 'asc' | 'desc';
-type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate';
+type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend';
 
 interface ResizableHeaderProps {
   width: number;
@@ -213,6 +224,18 @@ const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
                       <span className="text-gray-500">Ingresos del Día:</span>
                       <span className="font-bold text-emerald-600 ml-4">
                         ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Gasto Publicitario:</span>
+                      <span className="font-bold text-red-600 ml-4">
+                        ${(data.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">ROAS:</span>
+                      <span className="font-bold text-indigo-600 ml-4">
+                        {(data.roas || 0).toFixed(2)}x
                       </span>
                   </p>
               </div>
@@ -517,6 +540,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
           total_order_bump_revenue: 0,
           total_revenue: 0,
           revenue_today: revenueToday,
+          total_ad_spend: 0,
+          ad_spend_today: 0,
+          roas: 0,
+          roas_today: 0,
           utm_stats: [],
           daily_stats: [],
           top_sources: [],
@@ -550,7 +577,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
         
         if (!dailyStats.has(localDate)) {
-          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0, revenue: 0 });
+          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0, revenue: 0, ad_spend: 0, roas: 0 });
         }
         if (!dailyUniqueVisitors.has(localDate)) {
           dailyUniqueVisitors.set(localDate, new Set());
@@ -609,7 +636,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               utmStats.set(utmKey, {
                 medium: medium || 'none', campaign: campaign || 'none', content: content || 'none',
                 visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0,
-                revenue: 0,
+                revenue: 0, ad_spend: 0, roas: 0,
                 visitorSet: new Set(), clickSet: new Set(),
               });
             }
@@ -660,6 +687,82 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       const sourceStatsArray: { source: string; visits: number; unique_visits: number; clicks: number; unique_clicks: number; }[] = [];
 
+      // Consultar gasto publicitario
+      const { data: adSpendData, error: adSpendError } = await supabase
+        .from('ad_spend')
+        .select('date, spend')
+        .eq('product_id', productId)
+        .gte('date', startDate)
+        .lte('date', endDate);
+
+      if (adSpendError) {
+        console.error('Error fetching ad spend data:', adSpendError);
+      }
+
+      // Consultar gasto publicitario de hoy
+      const { data: adSpendTodayData, error: adSpendTodayError } = await supabase
+        .from('ad_spend')
+        .select('spend')
+        .eq('product_id', productId)
+        .eq('date', todayFormatted);
+
+      if (adSpendTodayError) {
+        console.error('Error fetching today ad spend data:', adSpendTodayError);
+      }
+
+      // Calcular totales de ad spend
+      const totalAdSpend = adSpendData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
+      const adSpendToday = adSpendTodayData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
+
+      // Calcular ROAS
+      const totalRevenue = totalMainProductRevenue + totalOrderBumpRevenue;
+      const roas = totalAdSpend > 0 ? totalRevenue / totalAdSpend : 0;
+      const roasToday = adSpendToday > 0 ? revenueToday / adSpendToday : 0;
+
+      // Crear mapa de gasto por fecha para daily stats
+      const adSpendByDate = new Map<string, number>();
+      adSpendData?.forEach(item => {
+        adSpendByDate.set(item.date, item.spend || 0);
+      });
+
+      // Actualizar daily stats con ad spend y ROAS
+      const dailyStatsArrayWithAdSpend = Array.from(dailyStats.values()).map(day => {
+        const dayAdSpend = adSpendByDate.get(day.date) || 0;
+        const dayRoas = dayAdSpend > 0 ? day.revenue / dayAdSpend : 0;
+        return {
+          ...day,
+          ad_spend: dayAdSpend,
+          roas: dayRoas
+        };
+      }).sort((a, b) => a.date.localeCompare(b.date));
+
+      // Actualizar UTM stats con ad spend y ROAS (distribuir proporcionalmente)
+      const utmStatsArrayWithAdSpend = Array.from(utmStats.values())
+        .map((stat) => {
+          // Distribuir ad spend proporcionalmente basado en visitas
+          const totalVisitsForPeriod = totalVisits > 0 ? totalVisits : 1;
+          const utmAdSpend = totalAdSpend * (stat.visits / totalVisitsForPeriod);
+          const utmRoas = utmAdSpend > 0 ? stat.revenue / utmAdSpend : 0;
+          
+          return {
+            ...stat,
+            campaign: decodeName(stat.campaign),
+            medium: decodeName(stat.medium),
+            content: decodeName(stat.content),
+            revenue: stat.revenue,
+            ad_spend: utmAdSpend,
+            roas: utmRoas,
+            conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
+            unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
+            persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
+            unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
+            checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
+            unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
+            order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
+          };
+        })
+        .sort((a, b) => b.visits - a.visits);
+
       setData({
         total_visits: totalVisits,
         unique_visits: uniqueVisitors.size,
@@ -674,10 +777,14 @@ export default function AnalyticsDashboard({ productId }: Props) {
         order_bump_rate: totalPurchases > 0 ? (totalOrderBumps / totalPurchases) * 100 : 0,
         total_main_product_revenue: totalMainProductRevenue,
         total_order_bump_revenue: totalOrderBumpRevenue,
-        total_revenue: totalMainProductRevenue + totalOrderBumpRevenue,
+        total_revenue: totalRevenue,
         revenue_today: revenueToday,
-        utm_stats: utmStatsArray,
-        daily_stats: dailyStatsArray,
+        total_ad_spend: totalAdSpend,
+        ad_spend_today: adSpendToday,
+        roas: roas,
+        roas_today: roasToday,
+        utm_stats: utmStatsArrayWithAdSpend,
+        daily_stats: dailyStatsArrayWithAdSpend,
         top_sources: sourceStatsArray,
       });
     } catch (error) {
@@ -700,6 +807,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Pagos Iniciados': showUnique ? utm.unique_clicks : utm.clicks,
       'Compras': utm.purchases,
       'Order Bumps': utm.order_bumps,
+      'Ingresos ($)': utm.revenue.toFixed(2),
+      'Gasto Publicitario ($)': utm.ad_spend.toFixed(2),
+      'ROAS': utm.roas.toFixed(2),
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
       'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
       'Tasa Order Bump (%)': utm.order_bump_rate.toFixed(2),
@@ -713,6 +823,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Pagos Iniciados': showUnique ? day.unique_clicks : day.clicks,
       'Compras': day.purchases,
       'Order Bumps': day.order_bumps,
+      'Ingresos ($)': day.revenue.toFixed(2),
+      'Gasto Publicitario ($)': day.ad_spend.toFixed(2),
+      'ROAS': day.roas.toFixed(2),
     }));
     const dailySheet = XLSX.utils.json_to_sheet(dailyData);
     XLSX.utils.book_append_sheet(workbook, dailySheet, 'Estadísticas Diarias');
@@ -860,11 +973,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
         hiddenGems: [],
         leakyFaucets: [],
         wastedAdSpend: [],
+        roasChampions: [],
       };
     }
   
     const campaignsWithRevenue = data.utm_stats.filter(utm => utm.revenue > 0);
     const campaignsWithClicks = data.utm_stats.filter(utm => utm.clicks > 0);
+    const campaignsWithAdSpend = data.utm_stats.filter(utm => utm.ad_spend > 0);
   
     const moneyMachines = [...campaignsWithRevenue]
       .sort((a, b) => b.revenue - a.revenue);
@@ -881,8 +996,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const wastedAdSpend = data.utm_stats
       .filter(utm => utm.visits > 0 && utm.clicks === 0)
       .sort((a, b) => b.visits - a.visits);
+
+    const roasChampions = [...campaignsWithAdSpend]
+      .filter(utm => utm.roas > 0)
+      .sort((a, b) => b.roas - a.roas);
   
-    return { moneyMachines, hiddenGems, leakyFaucets, wastedAdSpend };
+    return { moneyMachines, hiddenGems, leakyFaucets, wastedAdSpend, roasChampions };
   }, [data]);
 
   const handleCampaignSelection = (selection: Set<string>) => {
@@ -912,7 +1031,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           unique_clicks: 0,
           purchases: 0,
           order_bumps: 0,
-          revenue: 0
+          revenue: 0,
+          ad_spend: 0
         });
       }
       
@@ -924,10 +1044,12 @@ export default function AnalyticsDashboard({ productId }: Props) {
       stats.purchases += utm.purchases;
       stats.order_bumps += utm.order_bumps;
       stats.revenue += utm.revenue;
+      stats.ad_spend += utm.ad_spend;
     });
 
     return Array.from(grouped.values()).map(stat => ({
       ...stat,
+      roas: stat.ad_spend > 0 ? stat.revenue / stat.ad_spend : 0,
       conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
       unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
       persuasion_rate: stat.clicks > 0 ? (stat.clicks / stat.visits) * 100 : 0,
@@ -1166,7 +1288,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs Principales */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="flex items-center">
@@ -1183,6 +1305,55 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="flex items-center">
+            <div className="p-3 bg-red-100 rounded-lg">
+              <TrendingDown className="h-7 w-7 text-red-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Gasto Publicitario Hoy</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.ad_spend_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-indigo-100 rounded-lg">
+              <Target className="h-7 w-7 text-indigo-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">ROAS Hoy</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {data.roas_today.toFixed(2)}x
+              </h3>
+              <p className="text-xs text-gray-400">
+                {data.roas_today >= 3 ? '🟢 Excelente' : data.roas_today >= 2 ? '🟡 Bueno' : '🔴 Mejorar'}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-purple-100 rounded-lg">
+              <Target className="h-7 w-7 text-purple-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">ROAS Total</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {data.roas.toFixed(2)}x
+              </h3>
+              <p className="text-xs text-gray-400">
+                {data.roas >= 3 ? '🟢 Excelente' : data.roas >= 2 ? '🟡 Bueno' : '🔴 Mejorar'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* KPIs Secundarios */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
             <div className="p-3 bg-blue-100 rounded-lg">
               <DollarSign className="h-7 w-7 text-blue-600" />
             </div>
@@ -1190,6 +1361,19 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <p className="text-sm font-medium text-gray-500">Ingresos Totales</p>
               <h3 className="text-2xl font-bold text-gray-900">
                 ${data.total_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </h3>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white p-6 rounded-lg shadow-sm border">
+          <div className="flex items-center">
+            <div className="p-3 bg-red-100 rounded-lg">
+              <TrendingDown className="h-7 w-7 text-red-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Gasto Publicitario Total</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                ${data.total_ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
             </div>
           </div>
@@ -1342,6 +1526,17 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 activeDot={{ r: 8, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
                 strokeDasharray="none"
               />
+              <Line 
+                yAxisId="right" 
+                type="monotone" 
+                dataKey="ad_spend" 
+                name="📈 Gasto Publicitario ($)" 
+                stroke="#DC2626" 
+                strokeWidth={3} 
+                dot={{ r: 4, strokeWidth: 2, fill: '#DC2626', stroke: '#fff' }} 
+                activeDot={{ r: 6, strokeWidth: 2, fill: '#DC2626', stroke: '#fff' }} 
+                strokeDasharray="5 5"
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
@@ -1442,6 +1637,23 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       <p className="text-sm text-gray-500">Ingresos Totales</p>
                     </div>
                   </div>
+                  {/* Separador visual para gasto publicitario */}
+                  <div className="ml-8 pl-1 flex items-center" style={{ minHeight: '40px' }}>
+                    <div className="w-px h-full bg-red-300 mr-4"></div>
+                    <div className="text-xs text-red-600 font-semibold bg-red-50 px-2 py-1 rounded-full">
+                      ROAS: {data.roas.toFixed(2)}x
+                    </div>
+                  </div>
+                  {/* Etapa 5: Gasto Publicitario */}
+                  <div className="flex items-center">
+                    <div className="flex-shrink-0 bg-red-100 rounded-lg w-16 h-16 flex items-center justify-center">
+                      <TrendingDown className="w-8 h-8 text-red-600" />
+                    </div>
+                    <div className="ml-4">
+                      <p className="text-lg font-bold text-gray-900">${(data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-sm text-gray-500">Gasto Publicitario</p>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -1450,40 +1662,133 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 <h3 className="text-xl font-bold text-gray-900">Métricas Clave</h3>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-6">
                     <div>
+                      <p className="text-sm font-medium text-gray-500">ROAS Total</p>
+                      <p className="text-3xl font-bold text-purple-600">{data.roas.toFixed(2)}x</p>
+                      <p className="text-xs text-gray-400">
+                        {data.roas >= 3 ? '🟢 Excelente' : data.roas >= 2 ? '🟡 Bueno' : '🔴 Mejorar'}
+                      </p>
+                    </div>
+                    <div>
                       <p className="text-sm font-medium text-gray-500">Conversión General</p>
                       <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-500">Persuasión General</p>
-                      <p className="text-3xl font-bold text-indigo-600">{(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-500">Ingreso / Visita (RPV)</p>
-                      <p className="text-3xl font-bold text-emerald-600">${rpv.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                      <p className="text-sm font-medium text-gray-500">Gasto / Visita (CPV)</p>
+                      <p className="text-3xl font-bold text-red-600">${((showUnique ? data.unique_visits : data.total_visits) > 0 ? data.total_ad_spend / (showUnique ? data.unique_visits : data.total_visits) : 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                     </div>
                     <div>
                       <p className="text-sm font-medium text-gray-500">Ingreso / Compra (AOV)</p>
                       <p className="text-3xl font-bold text-emerald-600">${aov.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-500">Total Compras</p>
-                      <p className="text-3xl font-bold text-indigo-600">{data.total_purchases}</p>
+                      <p className="text-sm font-medium text-gray-500">Beneficio Neto</p>
+                      <p className="text-3xl font-bold text-green-600">${(data.total_revenue - data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                     </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
-                      <p className="text-3xl font-bold text-orange-600">{data.order_bump_rate.toFixed(2)}%</p>
+                      <p className="text-sm font-medium text-gray-500">Margen de Beneficio</p>
+                      <p className="text-3xl font-bold text-blue-600">{(data.total_revenue > 0 ? ((data.total_revenue - data.total_ad_spend) / data.total_revenue * 100) : 0).toFixed(2)}%</p>
                     </div>
                 </div>
               </div>
             </div>
 
-            {/* Fila 2: Motor de Insights */}
+            {/* Fila 2: Métricas de Rentabilidad */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
+              <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
+                <Target className="h-6 w-6 text-purple-600 mr-3" />
+                Análisis de Rentabilidad
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                {/* ROAS por período */}
+                <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-6 rounded-lg border border-purple-200">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4">ROAS por Período</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">ROAS Total:</span>
+                      <span className={`text-lg font-bold ${data.roas >= 3 ? 'text-green-600' : data.roas >= 2 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {data.roas.toFixed(2)}x
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">ROAS Hoy:</span>
+                      <span className={`text-lg font-bold ${data.roas_today >= 3 ? 'text-green-600' : data.roas_today >= 2 ? 'text-yellow-600' : 'text-red-600'}`}>
+                        {data.roas_today.toFixed(2)}x
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-2">
+                      {data.roas >= 3 ? '🟢 Excelente rentabilidad' : data.roas >= 2 ? '🟡 Rentabilidad aceptable' : '🔴 Revisar estrategia'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Distribución de gastos */}
+                <div className="bg-gradient-to-br from-red-50 to-pink-50 p-6 rounded-lg border border-red-200">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4">Distribución de Gastos</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Gasto Total:</span>
+                      <span className="text-lg font-bold text-red-600">
+                        ${data.total_ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Gasto Hoy:</span>
+                      <span className="text-lg font-bold text-red-600">
+                        ${data.ad_spend_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">CPV (Costo/Visita):</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        ${((showUnique ? data.unique_visits : data.total_visits) > 0 ? data.total_ad_spend / (showUnique ? data.unique_visits : data.total_visits) : 0).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Beneficios */}
+                <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-6 rounded-lg border border-green-200">
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4">Beneficios</h4>
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Beneficio Neto:</span>
+                      <span className={`text-lg font-bold ${(data.total_revenue - data.total_ad_spend) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        ${(data.total_revenue - data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">Margen:</span>
+                      <span className={`text-lg font-bold ${((data.total_revenue - data.total_ad_spend) / data.total_revenue * 100) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {(data.total_revenue > 0 ? ((data.total_revenue - data.total_ad_spend) / data.total_revenue * 100) : 0).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">ROI:</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        {(data.total_ad_spend > 0 ? (((data.total_revenue - data.total_ad_spend) / data.total_ad_spend) * 100) : 0).toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Fila 3: Motor de Insights */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
               <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
                 <Lightbulb className="h-6 w-6 text-yellow-500 mr-3" />
                 Inteligencia de Campañas
               </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
+                <InsightCard
+                  icon={<Target className="h-8 w-8 text-white" />}
+                  bgColor="bg-purple-500"
+                  title="ROAS Champions"
+                  description="Campañas con mejor retorno de inversión. ¡Duplicar presupuesto!"
+                  campaigns={insights.roasChampions}
+                  showUnique={showUnique}
+                  metricType="roas"
+                />
                 <InsightCard
                   icon={<Rocket className="h-8 w-8 text-white" />}
                   bgColor="bg-green-500"
@@ -1579,7 +1884,7 @@ interface InsightCardProps {
   description: string;
   campaigns: any[];
   showUnique: boolean;
-  metricType: 'revenue' | 'aov' | 'clicks' | 'visits';
+  metricType: 'revenue' | 'aov' | 'clicks' | 'visits' | 'roas';
 }
 
 const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, description, campaigns, showUnique, metricType }) => {
@@ -1593,6 +1898,8 @@ const InsightCard: React.FC<InsightCardProps> = ({ icon, bgColor, title, descrip
         return <span className="font-bold text-base text-amber-700">{utm.clicks} Clicks</span>;
       case 'visits':
         return <span className="font-bold text-base text-red-700">{utm.visits} Visitas</span>;
+      case 'roas':
+        return <span className="font-bold text-base text-purple-700">{(utm.roas || 0).toFixed(2)}x ROAS</span>;
       default:
         return null;
     }
@@ -1702,7 +2009,7 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
 };
 
 function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
-  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate';
+  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend';
   const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [nameFilter, setNameFilter] = useState('');
@@ -1725,6 +2032,8 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
         case 'clicks': return showUnique ? item.unique_clicks : item.clicks;
         case 'purchases': return item.purchases;
         case 'revenue': return item.revenue;
+        case 'ad_spend': return item.ad_spend;
+        case 'roas': return item.roas;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
         case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
         case 'checkout_conversion_rate': return showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate;
@@ -1747,7 +2056,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
       return true;
     });
 
-    const metricsToScale: UtmSortField[] = ['persuasion_rate', 'conversion_rate', 'checkout_conversion_rate'];
+    const metricsToScale: UtmSortField[] = ['persuasion_rate', 'conversion_rate', 'checkout_conversion_rate', 'roas'];
     const minMaxValues = metricsToScale.reduce((acc, field) => {
       const values = filteredData.map(item => getSortableValue(item, field)).filter(v => typeof v === 'number' && isFinite(v));
       acc[field] = {
@@ -1861,6 +2170,8 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
             <SortableHeader field="persuasion_rate" label="Persuasión" />
             <SortableHeader field="purchases" label="Compras" />
             <SortableHeader field="revenue" label="Ingresos" />
+            <SortableHeader field="ad_spend" label="Gasto Pub." />
+            <SortableHeader field="roas" label="ROAS" />
             <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
           </tr>
@@ -1891,6 +2202,18 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{item.purchases}</td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold text-right">
                 ${(item.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
+                ${(item.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                  (item.roas || 0) >= 3 ? 'bg-green-100 text-green-800' : 
+                  (item.roas || 0) >= 2 ? 'bg-yellow-100 text-yellow-800' : 
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {(item.roas || 0).toFixed(2)}x
+                </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
