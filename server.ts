@@ -5,6 +5,7 @@ import { sendTestNotification } from './api/telegram.js';
 import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
 import { handleRefreshAdAccounts } from './api/meta.js';
 import { handleAdSpendSync, handleManualAdSpendSync } from './api/ad-spend.js';
+import { handleMetaAdsSync } from './api/meta-ads-sync.js';
 import cors from 'cors';
 import cron from 'node-cron';
 import rateLimit from 'express-rate-limit';
@@ -266,6 +267,34 @@ apiRouter.post('/ad-spend/sync', async (req, res) => {
   }
 });
 
+// Nuevo endpoint para sincronización de Meta Ads (datos detallados)
+apiRouter.post('/meta-ads/sync', async (req, res) => {
+  log('Meta Ads', 'Recibiendo solicitud de sincronización de Meta Ads', { 
+    body: req.body,
+    headers: req.headers 
+  });
+  
+  try {
+    const result = await handleMetaAdsSync();
+    
+    log('Meta Ads', 'Sincronización completada', result);
+    
+    if (result.success) {
+      return res.status(200).json(result);
+    } else {
+      return res.status(500).json(result);
+    }
+    
+  } catch (error) {
+    log('Meta Ads', 'Error en sincronización de Meta Ads', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
 // Ruta para el callback de Meta OAuth
 apiRouter.get('/auth/meta/callback', async (req, res) => {
   log('Meta Auth', 'Recibiendo callback de Meta', { 
@@ -367,29 +396,41 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-// Cron job para sincronizar gastos publicitarios cada 5 minutos
+// Cron jobs para sincronización de datos de Meta
 let adSpendCronTask: any = null;
+let metaAdsCronTask: any = null;
 
-function startAdSpendCron() {
-  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios (cada 5 minutos)');
+function startMetaCronJobs() {
+  log('Cron', 'Iniciando cron jobs de sincronización de Meta (cada 5 minutos)');
   
   // Ejecutar inmediatamente al iniciar
   executeAdSpendSync('startup');
+  executeMetaAdsSync('startup');
   
-  // Configurar cron para ejecutar cada 5 minutos: */5 * * * *
+  // Configurar cron para ad spend básico (cada 5 minutos)
   adSpendCronTask = cron.schedule('*/5 * * * *', async () => {
     executeAdSpendSync('scheduled');
   }, {
     timezone: "UTC"
   });
   
-  // Iniciar el cron job
-  adSpendCronTask.start();
+  // Configurar cron para Meta Ads detallado (cada 10 minutos, offset de 2 minutos)
+  metaAdsCronTask = cron.schedule('2,12,22,32,42,52 * * * *', async () => {
+    executeMetaAdsSync('scheduled');
+  }, {
+    timezone: "UTC"
+  });
   
-  log('Cron', 'Cron job configurado exitosamente - ejecutará cada 5 minutos');
+  // Iniciar los cron jobs
+  adSpendCronTask.start();
+  metaAdsCronTask.start();
+  
+  log('Cron', 'Cron jobs configurados exitosamente');
+  log('Cron', '- Ad Spend: cada 5 minutos');
+  log('Cron', '- Meta Ads: cada 10 minutos (offset +2min)');
 }
 
-// Función auxiliar para ejecutar la sincronización con mejor logging
+// Función auxiliar para ejecutar la sincronización de ad spend con mejor logging
 async function executeAdSpendSync(trigger: 'startup' | 'scheduled' | 'manual') {
   const startTime = Date.now();
   log('Cron', `Iniciando sincronización de gastos publicitarios (trigger: ${trigger})`);
@@ -399,7 +440,7 @@ async function executeAdSpendSync(trigger: 'startup' | 'scheduled' | 'manual') {
     const responseData = await result.json();
     const duration = Date.now() - startTime;
     
-    log('Cron', `Sincronización completada exitosamente (${duration}ms)`, {
+    log('Cron', `Sincronización de ad spend completada exitosamente (${duration}ms)`, {
       trigger,
       processed: responseData.processed,
       errors: responseData.errors,
@@ -409,7 +450,7 @@ async function executeAdSpendSync(trigger: 'startup' | 'scheduled' | 'manual') {
     return responseData;
   } catch (error) {
     const duration = Date.now() - startTime;
-    log('Cron', `Error en sincronización (${duration}ms)`, {
+    log('Cron', `Error en sincronización de ad spend (${duration}ms)`, {
       trigger,
       error: error instanceof Error ? error.message : 'Unknown error'
     });
@@ -417,38 +458,72 @@ async function executeAdSpendSync(trigger: 'startup' | 'scheduled' | 'manual') {
   }
 }
 
-// Función para detener el cron job
-function stopAdSpendCron() {
+// Función auxiliar para ejecutar la sincronización de Meta Ads con mejor logging
+async function executeMetaAdsSync(trigger: 'startup' | 'scheduled' | 'manual') {
+  const startTime = Date.now();
+  log('Cron', `Iniciando sincronización de Meta Ads (trigger: ${trigger})`);
+  
+  try {
+    const result = await handleMetaAdsSync();
+    const duration = Date.now() - startTime;
+    
+    log('Cron', `Sincronización de Meta Ads completada exitosamente (${duration}ms)`, {
+      trigger,
+      processed: result.totalProcessed,
+      errors: result.totalErrors,
+      success: result.success
+    });
+    
+    return result;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    log('Cron', `Error en sincronización de Meta Ads (${duration}ms)`, {
+      trigger,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    throw error;
+  }
+}
+
+// Función para detener los cron jobs
+function stopMetaCronJobs() {
   if (adSpendCronTask) {
     adSpendCronTask.stop();
     adSpendCronTask.destroy();
     adSpendCronTask = null;
-    log('Cron', 'Cron job de sincronización de gastos publicitarios detenido');
+    log('Cron', 'Cron job de ad spend detenido');
+  }
+  
+  if (metaAdsCronTask) {
+    metaAdsCronTask.stop();
+    metaAdsCronTask.destroy();
+    metaAdsCronTask = null;
+    log('Cron', 'Cron job de Meta Ads detenido');
   }
 }
 
 // Manejar señales de cierre para limpiar recursos
 process.on('SIGTERM', () => {
   log('Server', 'Recibida señal SIGTERM, cerrando servidor...');
-  stopAdSpendCron();
+  stopMetaCronJobs();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   log('Server', 'Recibida señal SIGINT, cerrando servidor...');
-  stopAdSpendCron();
+  stopMetaCronJobs();
   process.exit(0);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
   log('Server', `Servidor escuchando en puerto ${PORT}`);
   
-  // Iniciar el cron job solo en producción o si está explícitamente habilitado
+  // Iniciar los cron jobs solo en producción o si está explícitamente habilitado
   const enableCron = process.env.ENABLE_AD_SPEND_CRON === 'true' || process.env.NODE_ENV === 'production';
   
   if (enableCron) {
-    startAdSpendCron();
+    startMetaCronJobs();
   } else {
-    log('Cron', 'Cron job de sincronización de gastos publicitarios deshabilitado (establecer ENABLE_AD_SPEND_CRON=true para habilitar)');
+    log('Cron', 'Cron jobs de sincronización de Meta deshabilitados (establecer ENABLE_AD_SPEND_CRON=true para habilitar)');
   }
 });
