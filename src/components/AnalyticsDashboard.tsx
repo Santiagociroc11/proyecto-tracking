@@ -84,15 +84,6 @@ interface AnalyticsData {
     persuasion_rate: number;
     unique_persuasion_rate: number;
     order_bump_rate: number;
-    // Nuevas propiedades de Meta Ads
-    impressions?: number;
-    clicks_meta?: number;
-    reach?: number;
-    cpm?: number;
-    cpc?: number;
-    ctr?: number;
-    purchases_meta?: number;
-    purchase_value_meta?: number;
   }[];
   daily_stats: {
     date: string;
@@ -696,57 +687,32 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       const sourceStatsArray: { source: string; visits: number; unique_visits: number; clicks: number; unique_clicks: number; }[] = [];
 
-      // Consultar datos de Meta Ads (nueva estructura)
-      const { data: metaAdsData, error: metaAdsError } = await supabase
-        .from('meta_ads_data')
-        .select(`
-          date,
-          campaign_id,
-          campaign_name,
-          adset_id,
-          adset_name,
-          ad_id,
-          ad_name,
-          spend,
-          impressions,
-          clicks,
-          reach,
-          cpm,
-          cpc,
-          ctr,
-          purchases,
-          purchase_value,
-          campaign_daily_budget,
-          campaign_lifetime_budget,
-          adset_daily_budget,
-          adset_lifetime_budget,
-          campaign_has_budget,
-          campaign_status,
-          adset_status,
-          ad_status
-        `)
+      // Consultar gasto publicitario
+      const { data: adSpendData, error: adSpendError } = await supabase
+        .from('ad_spend')
+        .select('date, spend')
         .eq('product_id', productId)
         .gte('date', startDate)
         .lte('date', endDate);
 
-      if (metaAdsError) {
-        console.error('Error fetching meta ads data:', metaAdsError);
+      if (adSpendError) {
+        console.error('Error fetching ad spend data:', adSpendError);
       }
 
-      // Consultar datos de Meta Ads de hoy
-      const { data: metaAdsTodayData, error: metaAdsTodayError } = await supabase
-        .from('meta_ads_data')
-        .select('spend, purchases, purchase_value')
+      // Consultar gasto publicitario de hoy
+      const { data: adSpendTodayData, error: adSpendTodayError } = await supabase
+        .from('ad_spend')
+        .select('spend')
         .eq('product_id', productId)
         .eq('date', todayFormatted);
 
-      if (metaAdsTodayError) {
-        console.error('Error fetching today meta ads data:', metaAdsTodayError);
+      if (adSpendTodayError) {
+        console.error('Error fetching today ad spend data:', adSpendTodayError);
       }
 
-      // Calcular totales de gasto publicitario
-      const totalAdSpend = metaAdsData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
-      const adSpendToday = metaAdsTodayData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
+      // Calcular totales de ad spend
+      const totalAdSpend = adSpendData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
+      const adSpendToday = adSpendTodayData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
 
       // Calcular ROAS
       const totalRevenue = totalMainProductRevenue + totalOrderBumpRevenue;
@@ -755,9 +721,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       // Crear mapa de gasto por fecha para daily stats
       const adSpendByDate = new Map<string, number>();
-      metaAdsData?.forEach((item: any) => {
-        const currentSpend = adSpendByDate.get(item.date) || 0;
-        adSpendByDate.set(item.date, currentSpend + (item.spend || 0));
+      adSpendData?.forEach(item => {
+        adSpendByDate.set(item.date, item.spend || 0);
       });
 
       // Actualizar daily stats con ad spend y ROAS
@@ -771,111 +736,22 @@ export default function AnalyticsDashboard({ productId }: Props) {
         };
       }).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Nueva lógica: combinar datos de Meta Ads con eventos de tracking
-      // Crear un mapa de campañas de Meta Ads con sus métricas
-      const metaAdsStatsMap = new Map<string, any>();
-      
-      metaAdsData?.forEach((item: any) => {
-        // Usar el nuevo formato de UTM: campaign_name|campaign_id, adset_name|adset_id, ad_name|ad_id
-        const utmKey = JSON.stringify({
-          medium: `${item.adset_name}|${item.adset_id}`,
-          campaign: `${item.campaign_name}|${item.campaign_id}`,
-          content: `${item.ad_name}|${item.ad_id}`
-        });
-
-        if (!metaAdsStatsMap.has(utmKey)) {
-          metaAdsStatsMap.set(utmKey, {
-            medium: `${item.adset_name}|${item.adset_id}`,
-            campaign: `${item.campaign_name}|${item.campaign_id}`,
-            content: `${item.ad_name}|${item.ad_id}`,
-            // Métricas de Meta Ads
-            ad_spend: 0,
-            impressions: 0,
-            clicks_meta: 0, // Clicks de Meta para diferenciarlo de pagos iniciados
-            reach: 0,
-            cpm: 0,
-            cpc: 0,
-            ctr: 0,
-            purchases_meta: 0, // Purchases de Meta pixel
-            purchase_value_meta: 0,
-            // Métricas de tracking (se llenarán después)
-            visits: 0,
-            unique_visits: 0,
-            clicks: 0, // Pagos iniciados
-            unique_clicks: 0,
-            purchases: 0, // Purchases del tracking
-            order_bumps: 0,
-            revenue: 0,
-            roas: 0,
-            visitorSet: new Set(),
-            clickSet: new Set(),
-          });
-        }
-
-        const stats = metaAdsStatsMap.get(utmKey);
-        stats.ad_spend += item.spend || 0;
-        stats.impressions += item.impressions || 0;
-        stats.clicks_meta += item.clicks || 0;
-        stats.reach += item.reach || 0;
-        stats.purchases_meta += item.purchases || 0;
-        stats.purchase_value_meta += item.purchase_value || 0;
-        
-        // Calcular métricas promedio ponderadas
-        if (stats.impressions > 0) {
-          stats.cpm = (stats.ad_spend / stats.impressions) * 1000;
-          stats.ctr = (stats.clicks_meta / stats.impressions) * 100;
-        }
-        if (stats.clicks_meta > 0) {
-          stats.cpc = stats.ad_spend / stats.clicks_meta;
-        }
-
-        metaAdsStatsMap.set(utmKey, stats);
-      });
-
-      // Ahora agregar los datos de tracking a las campañas de Meta Ads
-      utmStats.forEach((trackingStats, utmKey) => {
-        if (metaAdsStatsMap.has(utmKey)) {
-          // Si la campaña existe en Meta Ads, agregar datos de tracking
-          const metaStats = metaAdsStatsMap.get(utmKey);
-          metaStats.visits = trackingStats.visits;
-          metaStats.unique_visits = trackingStats.unique_visits;
-          metaStats.clicks = trackingStats.clicks; // Pagos iniciados
-          metaStats.unique_clicks = trackingStats.unique_clicks;
-          metaStats.purchases = trackingStats.purchases;
-          metaStats.order_bumps = trackingStats.order_bumps;
-          metaStats.revenue = trackingStats.revenue;
-          metaStats.visitorSet = trackingStats.visitorSet;
-          metaStats.clickSet = trackingStats.clickSet;
-        } else {
-          // Si no existe en Meta Ads, crear entrada solo con datos de tracking
-          metaAdsStatsMap.set(utmKey, {
-            ...trackingStats,
-            ad_spend: 0,
-            impressions: 0,
-            clicks_meta: 0,
-            reach: 0,
-            cpm: 0,
-            cpc: 0,
-            ctr: 0,
-            purchases_meta: 0,
-            purchase_value_meta: 0,
-          });
-        }
-      });
-
-      // Convertir el mapa a array y calcular métricas finales
-      const utmStatsArrayWithAdSpend = Array.from(metaAdsStatsMap.values())
+      // Actualizar UTM stats con ad spend y ROAS (distribuir proporcionalmente)
+      const utmStatsArrayWithAdSpend = Array.from(utmStats.values())
         .map((stat) => {
-          const roas = stat.ad_spend > 0 ? stat.revenue / stat.ad_spend : 0;
+          // Distribuir ad spend proporcionalmente basado en visitas
+          const totalVisitsForPeriod = totalVisits > 0 ? totalVisits : 1;
+          const utmAdSpend = totalAdSpend * (stat.visits / totalVisitsForPeriod);
+          const utmRoas = utmAdSpend > 0 ? stat.revenue / utmAdSpend : 0;
           
           return {
             ...stat,
             campaign: decodeName(stat.campaign),
-            medium: decodeName(stat.medium),  
+            medium: decodeName(stat.medium),
             content: decodeName(stat.content),
-            unique_visits: stat.visitorSet ? stat.visitorSet.size : stat.unique_visits,
-            unique_clicks: stat.clickSet ? stat.clickSet.size : stat.unique_clicks,
-            roas: roas,
+            revenue: stat.revenue,
+            ad_spend: utmAdSpend,
+            roas: utmRoas,
             conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
             unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
             persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
@@ -885,7 +761,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
             order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
           };
         })
-        .sort((a, b) => b.ad_spend - a.ad_spend); // Ordenar por gasto publicitario primero
+        .sort((a, b) => b.visits - a.visits);
 
       setData({
         total_visits: totalVisits,
@@ -934,12 +810,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Ingresos ($)': utm.revenue.toFixed(2),
       'Gasto Publicitario ($)': utm.ad_spend.toFixed(2),
       'ROAS': utm.roas.toFixed(2),
-      'Impresiones': utm.impressions || 0,
-      'CPM ($)': (utm.cpm || 0).toFixed(2),
-      'CPC ($)': (utm.cpc || 0).toFixed(2),
-      'CTR (%)': (utm.ctr || 0).toFixed(2),
-      'Clicks Meta': utm.clicks_meta || 0,
-      'Reach': utm.reach || 0,
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
       'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
       'Tasa Order Bump (%)': utm.order_bump_rate.toFixed(2),
@@ -2302,10 +2172,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
             <SortableHeader field="revenue" label="Ingresos" />
             <SortableHeader field="ad_spend" label="Gasto Pub." />
             <SortableHeader field="roas" label="ROAS" />
-            <th scope="col" className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Impresiones</th>
-            <th scope="col" className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">CPM</th>
-            <th scope="col" className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">CPC</th>
-            <th scope="col" className="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">CTR</th>
             <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
           </tr>
@@ -2348,18 +2214,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 }`}>
                   {(item.roas || 0).toFixed(2)}x
                 </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium text-right">
-                {(item.impressions || 0).toLocaleString('es-ES')}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium text-right">
-                ${(item.cpm || 0).toFixed(2)}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium text-right">
-                ${(item.cpc || 0).toFixed(2)}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 font-medium text-right">
-                {(item.ctr || 0).toFixed(2)}%
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
