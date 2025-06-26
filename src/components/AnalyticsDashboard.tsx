@@ -43,8 +43,6 @@ import 'react-resizable/css/styles.css';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { uniqBy } from 'lodash';
-import { format, parseISO } from 'date-fns';
-import { es } from 'date-fns/locale';
 
 interface AnalyticsData {
   total_visits: number;
@@ -62,9 +60,6 @@ interface AnalyticsData {
   total_order_bump_revenue: number;
   total_revenue: number;
   revenue_today: number;
-  total_spend: number;
-  roas: number;
-  profit: number;
   utm_stats: {
     medium: string;
     campaign: string;
@@ -91,7 +86,6 @@ interface AnalyticsData {
     purchases: number;
     order_bumps: number;
     revenue: number;
-    spend: number;
   }[];
   top_sources: {
     source: string;
@@ -194,54 +188,39 @@ const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
 
 const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
   if (active && payload && payload.length) {
-    const { visits, unique_visits, clicks, unique_clicks, purchases } = payload[0].payload;
-    const conversionRate = visits > 0 ? (purchases / visits) * 100 : 0;
-    const uniqueConversionRate = unique_visits > 0 ? (purchases / unique_visits) * 100 : 0;
-    const persuasionRate = clicks > 0 ? (purchases / clicks) * 100 : 0;
-    const uniquePersuasionRate = unique_clicks > 0 ? (purchases / unique_clicks) * 100 : 0;
-
-    return (
-      <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200 text-sm">
-        <p className="font-bold text-gray-800 mb-2">{format(new Date(label), "PPP", { locale: es })}</p>
-        <div className="space-y-1">
-          {payload.map((p: any) => (
-            <p key={p.dataKey} style={{ color: p.color }}>
-              <span className="font-medium">{p.name}:</span>{' '}
-              {['revenue', 'spend'].includes(p.dataKey)
-                ? formatCurrency(p.value)
-                : formatNumber(p.value)
-              }
-            </p>
-          ))}
-          <hr className="my-2 border-t border-gray-200"/>
-          <p className="text-gray-600">
-            <span className="font-medium">Conversión (Visitas):</span> {showUnique ? uniqueConversionRate.toFixed(2) : conversionRate.toFixed(2)}%
-          </p>
-          <p className="text-gray-600">
-            <span className="font-medium">Conversión (Clicks):</span> {showUnique ? uniquePersuasionRate.toFixed(2) : persuasionRate.toFixed(2)}%
-          </p>
-        </div>
-      </div>
-    );
+      const data = payload[0].payload;
+      return (
+          <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200">
+              <p className="font-bold text-gray-800">{label}</p>
+              <div className="mt-2 space-y-1 text-sm">
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}:</span>
+                      <span className="font-medium text-blue-600 ml-4">{showUnique ? data.unique_visits : data.visits}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}:</span>
+                      <span className="font-medium text-green-600 ml-4">{showUnique ? data.unique_clicks : data.clicks}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Compras:</span>
+                      <span className="font-medium text-purple-600 ml-4">{data.purchases}</span>
+                  </p>
+                  <p className="flex justify-between">
+                      <span className="text-gray-500">Order Bumps:</span>
+                      <span className="font-medium text-orange-600 ml-4">{data.order_bumps}</span>
+                  </p>
+                  <p className="flex justify-between mt-2 pt-2 border-t">
+                      <span className="text-gray-500">Ingresos del Día:</span>
+                      <span className="font-bold text-emerald-600 ml-4">
+                        ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                  </p>
+              </div>
+          </div>
+      );
   }
+
   return null;
-};
-
-const formatCurrency = (value: number, compact = false) => {
-  return new Intl.NumberFormat('es-ES', {
-    style: 'currency',
-    currency: 'USD', // TODO: Make this dynamic based on product currency
-    notation: compact ? 'compact' : 'standard',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-};
-
-const formatNumber = (value: number, decimals = 0) => {
-  return new Intl.NumberFormat('es-ES', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value);
 };
 
 export default function AnalyticsDashboard({ productId }: Props) {
@@ -541,9 +520,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
           utm_stats: [],
           daily_stats: [],
           top_sources: [],
-          total_spend: 0,
-          roas: 0,
-          profit: 0,
         });
         setLoading(false);
         return;
@@ -574,7 +550,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const localDate = formatDateToTimezone(event.created_at, timezone).split(' ')[0];
         
         if (!dailyStats.has(localDate)) {
-          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0, revenue: 0, spend: 0 });
+          dailyStats.set(localDate, { date: localDate, visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0, revenue: 0 });
         }
         if (!dailyUniqueVisitors.has(localDate)) {
           dailyUniqueVisitors.set(localDate, new Set());
@@ -703,9 +679,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         utm_stats: utmStatsArray,
         daily_stats: dailyStatsArray,
         top_sources: sourceStatsArray,
-        total_spend: 0,
-        roas: 0,
-        profit: 0,
       });
     } catch (error) {
       console.error('Error loading analytics:', error);
@@ -1248,80 +1221,76 @@ export default function AnalyticsDashboard({ productId }: Props) {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Ingresos Totales</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {formatCurrency(data.total_revenue)}
-          </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-blue-100 rounded">
+              <Users className="h-6 w-6 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_visits : data.total_visits}</h3>
+            </div>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Gasto Total</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {formatCurrency(data.total_spend)}
-          </p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-green-100 rounded">
+              <BarChartIcon className="h-6 w-6 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_clicks : data.total_clicks}</h3>
+            </div>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Ganancia</h3>
-          <p className={`mt-1 text-3xl font-semibold ${data.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatCurrency(data.profit)}
-          </p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-purple-100 rounded">
+              <DollarSign className="h-6 w-6 text-purple-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Compras</p>
+              <h3 className="text-2xl font-bold text-gray-900">{data.total_purchases}</h3>
+            </div>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">ROAS</h3>
-          <p className={`mt-1 text-3xl font-semibold ${data.roas >= 1 ? 'text-green-600' : 'text-red-600'}`}>
-            {formatNumber(data.roas, 2)}x
-          </p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-orange-100 rounded">
+              <Rocket className="h-6 w-6 text-orange-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Order Bumps</p>
+              <h3 className="text-2xl font-bold text-gray-900">{data.total_order_bumps}</h3>
+            </div>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Visitas</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {data.total_visits}
-          </p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-yellow-100 rounded">
+              <LineChartIcon className="h-6 w-6 text-yellow-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Tasa de Conversión</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%
+              </h3>
+            </div>
+          </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Pagos Iniciados</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {data.total_clicks}
-          </p>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-6">
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Compras</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {data.total_purchases}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Order Bumps</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {data.total_order_bumps}
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Tasa de Conversión</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Tasa Order Bump</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {data.order_bump_rate.toFixed(2)}%
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Persuasión</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%
-          </p>
-        </div>
-        <div className="bg-white p-4 rounded-lg shadow">
-          <h3 className="text-sm font-medium text-gray-500">Persuasión Única</h3>
-          <p className="mt-1 text-3xl font-semibold text-gray-900">
-            {(showUnique ? data.unique_persuasion_rate : data.persuasion_rate).toFixed(2)}%
-          </p>
+        <div className="bg-white p-6 rounded-lg shadow">
+          <div className="flex items-center">
+            <div className="p-2 bg-indigo-100 rounded">
+              <TrendingUp className="h-6 w-6 text-indigo-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {data.order_bump_rate.toFixed(2)}%
+              </h3>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1371,17 +1340,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 strokeWidth={4} 
                 dot={{ r: 6, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
                 activeDot={{ r: 8, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
-                strokeDasharray="none"
-              />
-              <Line 
-                yAxisId="right" 
-                type="monotone" 
-                dataKey="spend" 
-                name="💸 Gasto ($)" 
-                stroke="#ef4444" 
-                strokeWidth={4} 
-                dot={{ r: 6, strokeWidth: 3, fill: '#ef4444', stroke: '#fff' }} 
-                activeDot={{ r: 8, strokeWidth: 3, fill: '#ef4444', stroke: '#fff' }} 
                 strokeDasharray="none"
               />
             </ComposedChart>
