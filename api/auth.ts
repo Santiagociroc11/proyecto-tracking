@@ -138,21 +138,34 @@ export async function handleMetaCallback(request: Request) {
       return generateErrorResponse(`Error obteniendo información del usuario: ${userInfo.error.message}`);
     }
 
-    // Obtener las cuentas publicitarias del usuario (requiere ads_read)
+    // Obtener las cuentas publicitarias del usuario (requiere ads_read) con paginación
     let selectedAdAccount: { id: string; name: string; account_status: number } | null = null;
-    let adAccountsData: any = {};
+    let allAdAccounts: any[] = [];
     
     try {
-      const adAccountsUrl = `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${accessToken}`;
-      const adAccountsResponse = await fetch(adAccountsUrl);
-      adAccountsData = await adAccountsResponse.json();
+      let nextUrl = `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&limit=100&access_token=${accessToken}`;
+      
+      while (nextUrl) {
+        const adAccountsResponse = await fetch(nextUrl);
+        const adAccountsData = await adAccountsResponse.json();
+        
+        if (adAccountsData.error) {
+          console.log(`[Meta Auth] Error obteniendo cuentas publicitarias: ${adAccountsData.error.message}`);
+          break;
+        }
 
-      if (adAccountsData.data && adAccountsData.data.length > 0) {
+        if (adAccountsData.data) {
+          allAdAccounts = allAdAccounts.concat(adAccountsData.data);
+        }
+
+        // Verificar si hay más páginas
+        nextUrl = adAccountsData.paging?.next || null;
+      }
+
+      if (allAdAccounts.length > 0) {
         // Por simplicidad, tomamos la primera cuenta activa
-        selectedAdAccount = adAccountsData.data.find((account: any) => account.account_status === 1) || adAccountsData.data[0];
-        console.log(`[Meta Auth] Cuenta publicitaria seleccionada: ${selectedAdAccount?.name} (${selectedAdAccount?.id})`);
-      } else if (adAccountsData.error) {
-        console.log(`[Meta Auth] No se pudieron obtener cuentas publicitarias (permisos pendientes): ${adAccountsData.error.message}`);
+        selectedAdAccount = allAdAccounts.find((account: any) => account.account_status === 1) || allAdAccounts[0];
+        console.log(`[Meta Auth] ${allAdAccounts.length} cuentas publicitarias obtenidas. Seleccionada: ${selectedAdAccount?.name} (${selectedAdAccount?.id})`);
       }
     } catch (error) {
       console.log(`[Meta Auth] ads_read permission not yet approved, continuing without ad account data`);
@@ -208,9 +221,9 @@ export async function handleMetaCallback(request: Request) {
           .eq('provider', 'meta')
           .single();
 
-        if (integration && adAccountsData.data) {
+        if (integration && allAdAccounts.length > 0) {
           // Guardar todas las cuentas publicitarias disponibles
-          const adAccountsToInsert = adAccountsData.data.map((account: any) => ({
+          const adAccountsToInsert = allAdAccounts.map((account: any) => ({
             id: account.id,
             user_integration_id: integration.id,
             name: account.name,

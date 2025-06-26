@@ -3,6 +3,7 @@ import { handleTrackingEvent } from './api/track.js';
 import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
 import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
+import { handleRefreshAdAccounts } from './api/meta.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -114,6 +115,32 @@ apiRouter.post('/telegram/test', async (req, res) => {
 
   } catch (error) {
     log('Telegram', 'Error en prueba de notificación', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor' 
+    });
+  }
+});
+
+apiRouter.post('/meta/refresh-ad-accounts', async (req, res) => {
+  log('Meta Refresh', 'Recibiendo solicitud para refrescar cuentas publicitarias', { body: req.body });
+  try {
+    // Convertir la request de Express a una Request estándar
+    const url = new URL(req.url, `${req.protocol}://${req.get('host')}`);
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers: req.headers as any,
+      body: JSON.stringify(req.body)
+    });
+
+    const result = await handleRefreshAdAccounts(request);
+    const responseData = await result.json();
+    
+    log('Meta Refresh', 'Respuesta enviada', responseData);
+    return res.status(result.status).json(responseData);
+    
+  } catch (error) {
+    log('Meta Refresh', 'Error refrescando cuentas publicitarias', error);
     res.status(500).json({ 
       success: false, 
       error: 'Error interno del servidor' 

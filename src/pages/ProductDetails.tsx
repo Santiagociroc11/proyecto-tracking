@@ -26,13 +26,26 @@ interface MetaIntegration {
   created_at: string;
 }
 
+interface UserIntegration {
+  id: string;
+  provider: string;
+  status: string;
+  created_at: string;
+}
+
+interface MetaAdAccount {
+  id: string;
+  name: string;
+  status: string;
+}
+
 export default function ProductDetails() {
   const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
-  const [copied, setCopied] = useState<'script' | 'webhook' | null>(null);
+  const [copied, setCopied] = useState<'script' | 'webhook' | 'utm' | null>(null);
   const [fbPixelId, setFbPixelId] = useState('');
   const [fbAccessToken, setFbAccessToken] = useState('');
   const [fbTestEventCode, setFbTestEventCode] = useState('');
@@ -45,9 +58,15 @@ export default function ProductDetails() {
   const [editedName, setEditedName] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   
-  // Estados para la integración con Meta
+  // Estados para la integración con Meta (legacy)
   const [metaIntegration, setMetaIntegration] = useState<MetaIntegration | null>(null);
-  const [connectingMeta, setConnectingMeta] = useState(false);
+  
+  // Estados para la gestión de cuentas publicitarias
+  const [userIntegration, setUserIntegration] = useState<UserIntegration | null>(null);
+  const [adAccounts, setAdAccounts] = useState<MetaAdAccount[]>([]);
+  const [selectedAdAccounts, setSelectedAdAccounts] = useState<Set<string>>(new Set());
+  const [productAdAccounts, setProductAdAccounts] = useState<MetaAdAccount[]>([]);
+  const [savingAdAccounts, setSavingAdAccounts] = useState(false);
 
   useEffect(() => {
     // Set initial active tab based on URL parameter
@@ -61,8 +80,15 @@ export default function ProductDetails() {
     if (user && id) {
       loadProduct();
       loadMetaIntegration();
+      loadUserAdAccounts();
     }
   }, [id, user]);
+
+  useEffect(() => {
+    if (product?.id) {
+      loadProductAdAccounts();
+    }
+  }, [product]);
 
   async function loadProduct() {
     if (!id || !user) return;
@@ -121,6 +147,62 @@ export default function ProductDetails() {
       }
     } catch (err) {
       console.error('Error loading Meta integration:', err);
+    }
+  }
+
+  async function loadUserAdAccounts() {
+    if (!user) return;
+
+    try {
+      // Cargar la integración del usuario con Meta
+      const { data: userIntegrationData, error: userIntegrationError } = await supabase
+        .from('user_integrations')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('provider', 'meta')
+        .eq('status', 'active')
+        .single();
+
+      if (!userIntegrationError && userIntegrationData) {
+        setUserIntegration(userIntegrationData);
+
+        // Cargar las cuentas publicitarias del usuario
+        const { data: adAccountsData, error: adAccountsError } = await supabase
+          .from('meta_ad_accounts')
+          .select('*')
+          .eq('user_integration_id', userIntegrationData.id)
+          .eq('status', 'active');
+
+        if (!adAccountsError && adAccountsData) {
+          setAdAccounts(adAccountsData);
+        }
+      }
+
+    } catch (err) {
+      console.error('Error loading user ad accounts:', err);
+    }
+  }
+
+  async function loadProductAdAccounts() {
+    if (!product?.id) return;
+
+    try {
+      // Cargar las cuentas publicitarias asociadas al producto
+      const { data: productAdAccountsData, error } = await supabase
+        .from('product_ad_accounts')
+        .select(`
+          ad_account_id,
+          meta_ad_accounts!inner(id, name, status)
+        `)
+        .eq('product_id', product.id);
+
+      if (!error && productAdAccountsData) {
+        const accounts = productAdAccountsData.map(item => item.meta_ad_accounts).flat();
+        setProductAdAccounts(accounts);
+        setSelectedAdAccounts(new Set(accounts.map(acc => acc.id)));
+      }
+    } catch (err) {
+      console.error('Error loading product ad accounts:', err);
     }
   }
 
@@ -202,6 +284,42 @@ export default function ProductDetails() {
     }
   }
 
+  async function handleSaveAdAccounts() {
+    if (!id || !user) return;
+
+    setSavingAdAccounts(true);
+    setError('');
+
+    try {
+      // Primero eliminar todas las asociaciones existentes
+      await supabase
+        .from('product_ad_accounts')
+        .delete()
+        .eq('product_id', id);
+
+      // Luego insertar las nuevas asociaciones
+      if (selectedAdAccounts.size > 0) {
+        const newAssociations = Array.from(selectedAdAccounts).map(adAccountId => ({
+          product_id: id,
+          ad_account_id: adAccountId
+        }));
+
+        const { error } = await supabase
+          .from('product_ad_accounts')
+          .insert(newAssociations);
+
+        if (error) throw error;
+      }
+
+      await loadProductAdAccounts();
+    } catch (err) {
+      console.error('Error saving ad accounts:', err);
+      setError('Error al guardar las cuentas publicitarias');
+    } finally {
+      setSavingAdAccounts(false);
+    }
+  }
+
   async function handleSaveFacebookConfig(e: React.FormEvent) {
     e.preventDefault();
     if (!id || !user) return;
@@ -274,146 +392,13 @@ fbq('track', 'PageView');
 <!-- End Meta Pixel Code -->` : ''}`;
   }
 
-  function copyToClipboard(text: string, type: 'script' | 'webhook') {
+  function copyToClipboard(text: string, type: 'script' | 'webhook' | 'utm') {
     navigator.clipboard.writeText(text);
     setCopied(type);
     setTimeout(() => setCopied(null), 2000);
   }
 
-  async function handleConnectMeta() {
-    if (!id || !user) return;
 
-    setConnectingMeta(true);
-    try {
-      // Variables de entorno que necesitarás configurar
-      const META_APP_ID = import.meta.env.VITE_META_APP_ID;
-      const REDIRECT_URI = `${window.location.origin}/api/auth/meta/callback`;
-
-      if (!META_APP_ID) {
-        throw new Error('Meta App ID no configurado');
-      }
-
-      // Generar state para seguridad CSRF
-      const statePayload = {
-        csrf: Math.random().toString(36).substring(2),
-        productId: id,
-        userId: user.id
-      };
-      
-      const state = btoa(JSON.stringify(statePayload));
-      
-      localStorage.setItem('oauth_csrf', statePayload.csrf);
-
-      // Solicitar todos los permisos necesarios para gestión completa de campañas
-      // public_profile es requerido por Meta como permiso base
-      const scopes = 'public_profile,ads_read,read_insights,ads_management';
-
-      // URL de autorización de Meta
-      const authUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
-
-      // Abrir popup en lugar de redirigir
-      const popup = window.open(
-        authUrl,
-        'MetaAuth',
-        'width=600,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no'
-      );
-
-      if (!popup) {
-        throw new Error('No se pudo abrir el popup. Verifica que no esté bloqueado por el navegador.');
-      }
-
-      // Monitorear el popup para detectar cuando se cierre o complete
-      const checkClosed = setInterval(() => {
-        if (popup.closed) {
-          clearInterval(checkClosed);
-          setConnectingMeta(false);
-          
-          // Verificar si la conexión fue exitosa
-          const urlParams = new URLSearchParams(window.location.search);
-          if (urlParams.get('meta_auth_success') === 'true') {
-            // Recargar la integración para mostrar el estado actualizado
-            loadMetaIntegration();
-            
-            // Limpiar los parámetros de la URL
-            const newUrl = window.location.pathname;
-            window.history.replaceState({}, document.title, newUrl);
-            
-            // La integración será recargada automáticamente
-            console.log('Meta conectado exitosamente');
-          }
-        }
-      }, 1000);
-
-      // También escuchar mensajes del popup (método alternativo más elegante)
-      const handleMessage = (event: MessageEvent) => {
-        if (event.origin !== window.location.origin) return;
-        
-        // Limpiar siempre el state de CSRF
-        localStorage.removeItem('oauth_csrf');
-
-        if (event.data.type === 'META_AUTH_SUCCESS') {
-          clearInterval(checkClosed);
-          popup.close();
-          setConnectingMeta(false);
-          loadMetaIntegration();
-          
-          // Mostrar mensaje de éxito - en un futuro podrías usar un toast
-          console.log('¡Meta conectado exitosamente!');
-          window.removeEventListener('message', handleMessage);
-        } else if (event.data.type === 'META_AUTH_ERROR') {
-          clearInterval(checkClosed);
-          popup.close();
-          setConnectingMeta(false);
-          setError('Error conectando con Meta: ' + event.data.error);
-          window.removeEventListener('message', handleMessage);
-        }
-      };
-
-      window.addEventListener('message', handleMessage);
-
-      // Timeout de seguridad (cerrar después de 5 minutos)
-      setTimeout(() => {
-        if (!popup.closed) {
-          popup.close();
-          clearInterval(checkClosed);
-          setConnectingMeta(false);
-          // Limpiar también en caso de timeout
-          localStorage.removeItem('oauth_csrf');
-          window.removeEventListener('message', handleMessage);
-        }
-      }, 5 * 60 * 1000);
-
-    } catch (err) {
-      console.error('Error connecting to Meta:', err);
-      setError(err instanceof Error ? err.message : 'Error conectando con Meta');
-      setConnectingMeta(false);
-    }
-  }
-
-  async function handleDisconnectMeta() {
-    if (!id || !user || !metaIntegration) return;
-
-    const confirmDisconnect = confirm('¿Estás seguro que quieres desconectar la integración con Meta? Esto detendrá la sincronización de datos de gasto publicitario.');
-    
-    if (!confirmDisconnect) return;
-
-    setSaving(true);
-    try {
-      const { error } = await supabase
-        .from('product_integrations')
-        .update({ status: 'revoked' })
-        .eq('id', metaIntegration.id);
-
-      if (error) throw error;
-
-      setMetaIntegration(null);
-    } catch (err) {
-      console.error('Error disconnecting Meta:', err);
-      setError('Error al desconectar la integración con Meta');
-    } finally {
-      setSaving(false);
-    }
-  }
 
   if (loading) {
     return (
@@ -771,7 +756,7 @@ fbq('track', 'PageView');
                             onClick={() => setCurrentStep(3)}
                             className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                           >
-                            Siguiente: Conectar Meta
+                            Siguiente: Seleccionar Cuenta Publicitaria
                           </button>
                         </div>
                       </div>
@@ -785,89 +770,239 @@ fbq('track', 'PageView');
                       <div className="p-6">
                         <h4 className="text-lg font-medium text-gray-900 flex items-center">
                           <Facebook className="h-5 w-5 mr-2 text-blue-600" />
-                          Gestión Automática de Campañas de Meta (Opcional)
+                          Seleccionar Cuenta Publicitaria de Meta (Opcional)
                         </h4>
                         <div className="mt-2 text-sm text-gray-500">
                           <p className="mb-4">
-                            Conecta tu cuenta publicitaria de Meta para sincronizar automáticamente el gasto, calcular ROAS en tiempo real, 
-                            y optimizar tus campañas basándote en conversiones reales de tu producto.
+                            Asocia una cuenta publicitaria específica a este producto para rastrear el gasto publicitario 
+                            y calcular el ROAS automáticamente.
                           </p>
                         </div>
 
-                        {metaIntegration ? (
-                          // Usuario ya tiene Meta conectado
-                          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                            <div className="flex items-start">
-                              <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
-                              <div className="ml-3 flex-1">
-                                <h3 className="text-sm font-medium text-green-800">
-                                  ¡Meta conectado exitosamente!
-                                </h3>
-                                <div className="mt-2 text-sm text-green-700">
-                                  <p>Tu cuenta de Meta está conectada y sincronizando datos.</p>
-                                  {metaIntegration.meta_ad_account_id && (
-                                    <p className="mt-1">
-                                      <span className="font-medium">Cuenta publicitaria:</span> {metaIntegration.meta_ad_account_id}
+                        {userIntegration ? (
+                          // Usuario tiene Meta conectado a nivel de usuario
+                          <div className="space-y-4">
+                            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                              <div className="flex items-start">
+                                <CheckCircle className="h-5 w-5 text-green-400 mt-0.5" />
+                                <div className="ml-3 flex-1">
+                                  <h3 className="text-sm font-medium text-green-800">
+                                    Meta conectado
+                                  </h3>
+                                  <div className="mt-1 text-sm text-green-700">
+                                    <p>Tienes {adAccounts.length} cuenta(s) publicitaria(s) disponible(s)</p>
+                                    <p className="text-xs">
+                                      Conectado el {new Date(userIntegration.created_at).toLocaleDateString()}
                                     </p>
-                                  )}
-                                  <p className="mt-1">
-                                    <span className="font-medium">Conectado desde:</span> {new Date(metaIntegration.created_at).toLocaleDateString()}
-                                  </p>
-                                </div>
-                                <div className="mt-4">
-                                  <button
-                                    onClick={handleDisconnectMeta}
-                                    disabled={saving}
-                                    className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 disabled:opacity-50"
-                                  >
-                                    <Unlink className="h-4 w-4 mr-2" />
-                                    {saving ? 'Desconectando...' : 'Desconectar Meta'}
-                                  </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
+
+                            {adAccounts.length > 0 ? (
+                              <div className="space-y-6">
+                                <div>
+                                  <div className="flex items-center justify-between mb-3">
+                                    <label className="block text-sm font-medium text-gray-700">
+                                      Selecciona las cuentas publicitarias para este producto:
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!user || !userIntegration) return;
+                                        
+                                        setSavingAdAccounts(true);
+                                        try {
+                                          const response = await fetch('/api/meta/refresh-ad-accounts', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({
+                                              userId: user.id,
+                                              integrationId: userIntegration.id
+                                            })
+                                          });
+                                          
+                                          const result = await response.json();
+                                          if (result.success) {
+                                            await loadUserAdAccounts();
+                                          }
+                                        } catch (error) {
+                                          console.error('Error refreshing ad accounts:', error);
+                                        } finally {
+                                          setSavingAdAccounts(false);
+                                        }
+                                      }}
+                                      disabled={savingAdAccounts}
+                                      className="inline-flex items-center px-2 py-1 text-xs font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      title="Actualizar lista de cuentas publicitarias"
+                                    >
+                                      {savingAdAccounts ? (
+                                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                                      ) : (
+                                        <>
+                                          <svg className="h-3 w-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                          </svg>
+                                          Actualizar
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                  
+                                  <div className="space-y-3 max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-4">
+                                    {adAccounts.map((account) => {
+                                      const isSelected = selectedAdAccounts.has(account.id);
+                                      const isProductAccount = productAdAccounts.some(pAcc => pAcc.id === account.id);
+                                      
+                                      return (
+                                        <div
+                                          key={account.id}
+                                          className={`
+                                            flex items-center justify-between p-3 rounded-lg border-2 cursor-pointer transition-all duration-200
+                                            ${isSelected 
+                                              ? 'border-indigo-500 bg-indigo-50' 
+                                              : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                            }
+                                          `}
+                                          onClick={() => {
+                                            const newSelected = new Set(selectedAdAccounts);
+                                            if (isSelected) {
+                                              newSelected.delete(account.id);
+                                            } else {
+                                              newSelected.add(account.id);
+                                            }
+                                            setSelectedAdAccounts(newSelected);
+                                          }}
+                                        >
+                                          <div className="flex items-center flex-1">
+                                            <input
+                                              type="checkbox"
+                                              checked={isSelected}
+                                              onChange={() => {}} // Controlled by div onClick
+                                              className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                                            />
+                                            <div className="ml-3 flex-1">
+                                              <h4 className="text-sm font-medium text-gray-900">
+                                                {account.name}
+                                              </h4>
+                                              <p className="text-xs text-gray-500">
+                                                {account.id}
+                                              </p>
+                                            </div>
+                                          </div>
+                                          
+                                          <div className="flex items-center space-x-2">
+                                            {isProductAccount && (
+                                              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                                Activa
+                                              </span>
+                                            )}
+                                            <span className={`
+                                              inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
+                                              ${account.status === 'active' 
+                                                ? 'bg-green-100 text-green-800' 
+                                                : 'bg-yellow-100 text-yellow-800'
+                                              }
+                                            `}>
+                                              {account.status === 'active' ? 'Disponible' : 'Inactiva'}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                  
+                                  <div className="flex items-center justify-between mt-4">
+                                    <p className="text-sm text-gray-500">
+                                      {selectedAdAccounts.size} de {adAccounts.length} cuentas seleccionadas
+                                    </p>
+                                    <button
+                                      onClick={handleSaveAdAccounts}
+                                      disabled={savingAdAccounts}
+                                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                      {savingAdAccounts ? (
+                                        <>
+                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                          Guardando...
+                                        </>
+                                      ) : (
+                                        'Guardar Selección'
+                                      )}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {productAdAccounts.length > 0 && (
+                                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                                    <div className="flex items-start">
+                                      <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                                      <div className="ml-3">
+                                        <h5 className="text-sm font-medium text-blue-900">
+                                          Cuentas activas para este producto:
+                                        </h5>
+                                        <div className="mt-2 space-y-1">
+                                          {productAdAccounts.map((account) => (
+                                            <p key={account.id} className="text-sm text-blue-700">
+                                              • {account.name} ({account.id})
+                                            </p>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                  <h5 className="text-sm font-medium text-gray-900 mb-2">
+                                    💡 Beneficios de conectar una cuenta publicitaria:
+                                  </h5>
+                                  <ul className="text-sm text-gray-700 space-y-1">
+                                    <li>• Seguimiento automático del gasto publicitario</li>
+                                    <li>• Cálculo de ROAS (Retorno de Inversión Publicitaria) en tiempo real</li>
+                                    <li>• Reportes consolidados de rendimiento</li>
+                                    <li>• Alertas cuando el ROAS baja de cierto umbral</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                <div className="flex items-start">
+                                  <AlertTriangle className="h-5 w-5 text-yellow-400 mt-0.5" />
+                                  <div className="ml-3">
+                                    <h3 className="text-sm font-medium text-yellow-800">
+                                      No hay cuentas publicitarias disponibles
+                                    </h3>
+                                    <p className="mt-1 text-sm text-yellow-700">
+                                      Es posible que Meta aún no haya aprobado los permisos de ads_read para tu aplicación,
+                                      o no tengas cuentas publicitarias activas.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         ) : (
                           // Usuario no tiene Meta conectado
-                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                          <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                             <div className="flex items-start">
-                              <Info className="h-5 w-5 text-blue-400 mt-0.5" />
+                              <AlertTriangle className="h-5 w-5 text-orange-400 mt-0.5" />
                               <div className="ml-3 flex-1">
-                                <h3 className="text-sm font-medium text-blue-800">
-                                  Conecta tu cuenta de Meta
+                                <h3 className="text-sm font-medium text-orange-800">
+                                  Conecta primero tu cuenta de Meta
                                 </h3>
-                                <div className="mt-2 text-sm text-blue-700">
-                                  <p>Al conectar Meta podrás:</p>
-                                  <ul className="list-disc list-inside mt-2 space-y-1">
-                                    <li>Ver el gasto publicitario automáticamente en tu dashboard</li>
-                                    <li>Calcular el ROAS (Return on Ad Spend) en tiempo real</li>
-                                    <li>Pausar automáticamente campañas con bajo rendimiento</li>
-                                    <li>Ajustar presupuestos basados en conversiones reales</li>
-                                    <li>Activar/desactivar conjuntos de anuncios según ROAS</li>
-                                    <li>Generar reportes completos de rendimiento</li>
-                                  </ul>
-                                </div>
-                                <div className="mt-4">
-                                  <button
-                                    onClick={handleConnectMeta}
-                                    disabled={connectingMeta}
-                                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  >
-                                    {connectingMeta ? (
-                                      <>
-                                        <svg className="animate-spin -ml-1 mr-3 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        Abriendo popup...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Facebook className="h-4 w-4 mr-2" />
-                                        Conectar con Meta
-                                      </>
-                                    )}
-                                  </button>
+                                <div className="mt-2 text-sm text-orange-700">
+                                  <p>Para poder seleccionar cuentas publicitarias, necesitas conectar tu cuenta de Meta primero.</p>
+                                  <p className="mt-2">
+                                    Ve a{' '}
+                                    <Link 
+                                      to="/settings" 
+                                      className="font-medium text-orange-800 underline hover:text-orange-900"
+                                    >
+                                      Configuración → Integración con Meta
+                                    </Link>
+                                    {' '}y conecta tu cuenta.
+                                  </p>
                                 </div>
                               </div>
                             </div>

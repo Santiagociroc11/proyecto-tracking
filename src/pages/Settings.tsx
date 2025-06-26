@@ -239,6 +239,44 @@ export default function Settings() {
     }
   }
 
+  async function handleRefreshAdAccounts() {
+    if (!user || !metaIntegration) return;
+
+    setConnectingMeta(true);
+    setMetaError('');
+
+    try {
+      // Llamar a un endpoint para refrescar las cuentas publicitarias
+      const response = await fetch('/api/meta/refresh-ad-accounts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          integrationId: metaIntegration.id
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Error al actualizar cuentas publicitarias');
+      }
+
+      // Recargar la integración para mostrar los datos actualizados
+      await loadMetaIntegration();
+      
+      console.log(`[Meta Refresh] ${result.adAccountsCount} cuentas publicitarias sincronizadas`);
+      
+    } catch (error) {
+      console.error('Error refreshing ad accounts:', error);
+      setMetaError(error instanceof Error ? error.message : 'Error actualizando cuentas publicitarias');
+    } finally {
+      setConnectingMeta(false);
+    }
+  }
+
   async function testTelegramNotification() {
     if (!telegramChatId.trim()) {
       setTestError('Por favor ingresa un Chat ID válido antes de probar');
@@ -397,14 +435,34 @@ export default function Settings() {
                           </p>
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        onClick={handleDisconnectMeta}
-                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
-                      >
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Desconectar
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          type="button"
+                          onClick={handleRefreshAdAccounts}
+                          disabled={connectingMeta}
+                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-blue-700 bg-blue-100 hover:bg-blue-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Sincronizar cuentas publicitarias"
+                        >
+                          {connectingMeta ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                          ) : (
+                            <>
+                              <svg className="h-4 w-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                              </svg>
+                              Actualizar
+                            </>
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDisconnectMeta}
+                          className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                        >
+                          <XCircle className="h-4 w-4 mr-2" />
+                          Desconectar
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ) : (
