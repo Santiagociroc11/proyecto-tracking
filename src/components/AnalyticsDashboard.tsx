@@ -253,7 +253,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   
   // Helper function to format date in user's timezone
   const formatLocalDate = (date: Date) => {
-    return format(date, "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'");
+    return formatDateToTimezone(date, timezone);
   };
   
   const today = new Date();
