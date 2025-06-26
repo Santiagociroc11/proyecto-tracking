@@ -57,7 +57,7 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
         limit: '1'
       });
 
-      const url = `${baseUrl}/${version}/act_${accountId}/insights?${params.toString()}`;
+      const url = `${baseUrl}/${version}/${accountId}/insights?${params.toString()}`;
       
       // DEBUG: Log de la URL
       console.log(`[Ad Spend Debug] Requesting URL for account ${accountId}: ${url}`);
@@ -166,13 +166,42 @@ export async function handleAdSpendSync() {
         const accessToken = integration.access_token_encrypted; // DEBUG: Reading plaintext for debugging
         // const accessToken = decryptToken(integration.access_token_encrypted, ENCRYPTION_KEY);
         
-        // Obtener las cuentas publicitarias activas
-        const activeAdAccounts = (integration.meta_ad_accounts || [])
-          .filter((account: any) => account.status === 'active')
+        // Obtener las cuentas publicitarias que están realmente en uso por los productos
+        const allAdAccountIdsForIntegration = (integration.meta_ad_accounts || [])
           .map((account: any) => account.id);
 
+        if (allAdAccountIdsForIntegration.length === 0) {
+          log('No ad accounts associated with this integration. Skipping.', { integrationId: integration.id });
+          continue;
+        }
+
+        // De todas las cuentas de la integración, ver cuáles se usan en productos
+        const { data: usedProductAdAccounts, error: usedAccountsError } = await supabase
+          .from('product_ad_accounts')
+          .select('ad_account_id')
+          .in('ad_account_id', allAdAccountIdsForIntegration);
+
+        if (usedAccountsError) {
+          log('Error fetching product-linked ad accounts', { 
+            integrationId: integration.id, 
+            error: usedAccountsError.message 
+          });
+          totalErrors++;
+          continue;
+        }
+
+        if (!usedProductAdAccounts || usedProductAdAccounts.length === 0) {
+          log('No ad accounts from this integration are linked to any products. Skipping spend fetch.', { integrationId: integration.id });
+          continue;
+        }
+        
+        // Filtrar a una lista única de IDs de cuentas a consultar
+        const activeAdAccounts = [...new Set(usedProductAdAccounts.map((paa: { ad_account_id: string }) => paa.ad_account_id))];
+        
+        log('Ad accounts linked to products found, will fetch spend for these.', { integrationId: integration.id, count: activeAdAccounts.length });
+
         if (activeAdAccounts.length === 0) {
-          log('No active ad accounts for integration', { integrationId: integration.id });
+          log('No active ad accounts for integration are linked to any products', { integrationId: integration.id });
           continue;
         }
 
