@@ -15,7 +15,10 @@ function decryptToken(encryptedText: string, key: string): string {
     const authTag = Buffer.from(parts[1], 'hex');
     const encrypted = parts[2];
     
-    const decipher = crypto.createDecipher(algorithm, key);
+    // Derivar la clave de la misma manera que en el cifrado
+    const derivedKey = crypto.createHash('sha256').update(String(key)).digest();
+
+    const decipher = crypto.createDecipheriv(algorithm, derivedKey, iv);
     decipher.setAuthTag(authTag);
     
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');

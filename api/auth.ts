@@ -351,7 +351,11 @@ export async function handleMetaCallback(request: Request) {
 function encryptToken(text: string, key: string): string {
   const algorithm = 'aes-256-gcm';
   const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipher(algorithm, key);
+
+  // Derivar una clave de 32 bytes del ENCRYPTION_KEY para AES-256
+  const derivedKey = crypto.createHash('sha256').update(String(key)).digest();
+
+  const cipher = crypto.createCipheriv(algorithm, derivedKey, iv);
   
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
@@ -366,11 +370,18 @@ export function decryptToken(encryptedText: string, key: string): string {
   const algorithm = 'aes-256-gcm';
   const parts = encryptedText.split(':');
   
+  if (parts.length !== 3) {
+    throw new Error('Invalid encrypted text format');
+  }
+
   const iv = Buffer.from(parts[0], 'hex');
   const authTag = Buffer.from(parts[1], 'hex');
   const encrypted = parts[2];
+
+  // Derivar la clave de la misma manera que en el cifrado
+  const derivedKey = crypto.createHash('sha256').update(String(key)).digest();
   
-  const decipher = crypto.createDecipher(algorithm, key);
+  const decipher = crypto.createDecipheriv(algorithm, derivedKey, iv);
   decipher.setAuthTag(authTag);
   
   let decrypted = decipher.update(encrypted, 'hex', 'utf8');
