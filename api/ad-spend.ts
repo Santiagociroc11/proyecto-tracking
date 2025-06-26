@@ -1,4 +1,4 @@
-import { supabase } from '../lib/supabase-server';
+import { supabase } from '../lib/supabase-server.js';
 
 // Función para descifrar tokens (igual que en auth.ts)
 function decryptToken(encryptedText: string, key: string): string {
