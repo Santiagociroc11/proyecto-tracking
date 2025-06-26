@@ -158,15 +158,19 @@ export async function handleMetaCallback(request: Request) {
       console.log(`[Meta Auth] ads_read permission not yet approved, continuing without ad account data`);
     }
 
-    // Decodificar el state para obtener el product_id y user_id
-    let productId: string, userId: string;
+    // Decodificar el state para obtener la información necesaria
+    let productId: string | undefined, userId: string, isSettings: boolean;
     try {
       const decodedState = JSON.parse(atob(state));
       productId = decodedState.productId;
       userId = decodedState.userId;
+      isSettings = decodedState.isSettings || false;
       
-      if (!productId || !userId) {
-        throw new Error('State inválido: falta productId o userId');
+      if (!userId) {
+        throw new Error('State inválido: falta userId');
+      }
+      if (!isSettings && !productId) {
+        throw new Error('State inválido: falta productId para integración de producto');
       }
       // TODO: Validar decodedState.csrf contra un valor guardado en sesión/cookie
     } catch (e) {
@@ -176,27 +180,80 @@ export async function handleMetaCallback(request: Request) {
     // Cifrar el access token antes de guardarlo
     const encryptedToken = encryptToken(accessToken, ENCRYPTION_KEY);
 
-    // Guardar la integración en la base de datos
-    const { error: dbError } = await supabase.from('product_integrations').upsert({
-      product_id: productId,
-      user_id: userId,
-      provider: 'meta',
-      meta_ad_account_id: selectedAdAccount?.id || null,
-      meta_business_id: userInfo.id,
-      // Solo guardamos el ID para identificación, no información personal
-      access_token_encrypted: encryptedToken,
-      status: 'active',
-      updated_at: new Date().toISOString(),
-    }, {
-      onConflict: 'product_id, provider'
-    });
+    let dbError: any = null;
+
+    if (isSettings) {
+      // Caso 1: Integración a nivel de usuario (desde Settings)
+      console.log(`[Meta Auth] Guardando integración de usuario para userId: ${userId}`);
+      
+      // Guardar la integración de usuario
+      const { error: userIntegrationError } = await supabase.from('user_integrations').upsert({
+        user_id: userId,
+        provider: 'meta',
+        access_token_encrypted: encryptedToken,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id, provider'
+      });
+
+      if (userIntegrationError) {
+        dbError = userIntegrationError;
+      } else {
+        // Obtener el ID de la integración recién creada/actualizada
+        const { data: integration } = await supabase
+          .from('user_integrations')
+          .select('id')
+          .eq('user_id', userId)
+          .eq('provider', 'meta')
+          .single();
+
+        if (integration && adAccountsData.data) {
+          // Guardar todas las cuentas publicitarias disponibles
+          const adAccountsToInsert = adAccountsData.data.map((account: any) => ({
+            id: account.id,
+            user_integration_id: integration.id,
+            name: account.name,
+            status: account.account_status === 1 ? 'active' : 'inactive'
+          }));
+
+          const { error: adAccountsError } = await supabase
+            .from('meta_ad_accounts')
+            .upsert(adAccountsToInsert, { onConflict: 'id' });
+
+          if (adAccountsError) {
+            console.error('Error guardando cuentas publicitarias:', adAccountsError);
+          } else {
+            console.log(`[Meta Auth] ${adAccountsToInsert.length} cuentas publicitarias guardadas`);
+          }
+        }
+      }
+    } else {
+      // Caso 2: Integración a nivel de producto (desde ProductDetails) - mantener lógica anterior
+      console.log(`[Meta Auth] Guardando integración de producto para productId: ${productId}`);
+      
+      const { error: productIntegrationError } = await supabase.from('product_integrations').upsert({
+        product_id: productId,
+        user_id: userId,
+        provider: 'meta',
+        meta_ad_account_id: selectedAdAccount?.id || null,
+        meta_business_id: userInfo.id,
+        access_token_encrypted: encryptedToken,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'product_id, provider'
+      });
+
+      dbError = productIntegrationError;
+    }
 
     if (dbError) {
       console.error('Error guardando la integración en DB:', dbError);
       return generateErrorResponse('No se pudo guardar la integración en la base de datos.');
     }
 
-    console.log(`[Meta Auth] Integración guardada exitosamente para productId: ${productId}`);
+    console.log(`[Meta Auth] Integración guardada exitosamente. Tipo: ${isSettings ? 'usuario' : 'producto'}`);
     
     // En lugar de redirigir, vamos a devolver HTML que se comunique con la ventana principal
     const callbackHtml = `

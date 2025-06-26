@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Settings as SettingsIcon, BellRing, ExternalLink, ArrowLeft, ChevronDown, ChevronUp, Users, MessageCircle } from 'lucide-react';
+import { Settings as SettingsIcon, BellRing, ExternalLink, ArrowLeft, ChevronDown, ChevronUp, Users, MessageCircle, Facebook, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; // Import useNavigate
 
 interface UserSettings {
@@ -9,6 +9,14 @@ interface UserSettings {
   telegram_chat_id?: string;
   telegram_thread_id?: string;
   telegram_notification_type?: 'private' | 'group' | 'group_topic';
+}
+
+interface MetaIntegration {
+  id: string;
+  provider: string;
+  status: string;
+  created_at: string;
+  ad_accounts_count: number;
 }
 
 export default function Settings() {
@@ -25,11 +33,15 @@ export default function Settings() {
   const [testingTelegram, setTestingTelegram] = useState(false);
   const [testSuccess, setTestSuccess] = useState(false);
   const [testError, setTestError] = useState('');
+  const [metaIntegration, setMetaIntegration] = useState<MetaIntegration | null>(null);
+  const [connectingMeta, setConnectingMeta] = useState(false);
+  const [metaError, setMetaError] = useState('');
   const navigate = useNavigate(); // Initialize useNavigate
 
   useEffect(() => {
     if (user) {
       loadSettings();
+      loadMetaIntegration();
     }
   }, [user]);
 
@@ -56,6 +68,34 @@ export default function Settings() {
       console.error('Error loading settings:', err);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMetaIntegration() {
+    try {
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('user_integrations')
+        .select(`
+          id,
+          provider,
+          status,
+          created_at,
+          meta_ad_accounts(count)
+        `)
+        .eq('user_id', user.id)
+        .eq('provider', 'meta')
+        .maybeSingle();
+
+      if (!error && data) {
+        setMetaIntegration({
+          ...data,
+          ad_accounts_count: data.meta_ad_accounts?.[0]?.count || 0
+        });
+      }
+    } catch (err) {
+      console.error('Error loading Meta integration:', err);
     }
   }
 
@@ -96,6 +136,108 @@ export default function Settings() {
   const handleGoBack = () => {
     navigate('/dashboard'); // Navigate to the dashboard route
   };
+
+  async function handleConnectMeta() {
+    if (!user) return;
+
+    setConnectingMeta(true);
+    setMetaError('');
+
+    try {
+      const META_APP_ID = import.meta.env.VITE_META_APP_ID;
+      const REDIRECT_URI = `${window.location.origin}/api/auth/meta/callback`;
+
+      if (!META_APP_ID) {
+        throw new Error('Meta App ID no configurado');
+      }
+
+      // Generar state para seguridad CSRF
+      const statePayload = {
+        csrf: Math.random().toString(36).substring(2),
+        userId: user.id,
+        isSettings: true // Marcamos que viene de Settings
+      };
+      
+      const state = btoa(JSON.stringify(statePayload));
+      localStorage.setItem('oauth_csrf', statePayload.csrf);
+
+      // Solicitar permisos para leer cuentas publicitarias y insights
+      const scopes = 'public_profile,ads_read,read_insights';
+
+      // URL de autorización de Meta
+      const authUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
+
+      // Abrir popup
+      const popup = window.open(
+        authUrl,
+        'MetaAuth',
+        'width=600,height=700,scrollbars=yes,resizable=yes,status=yes,location=yes,toolbar=no,menubar=no'
+      );
+
+      if (!popup) {
+        throw new Error('No se pudo abrir la ventana de autorización. Verifica que los pop-ups estén habilitados.');
+      }
+
+      // Escuchar el mensaje del callback
+      const handleMessage = (event: MessageEvent) => {
+        if (event.origin !== window.location.origin) return;
+
+        if (event.data.type === 'META_AUTH_SUCCESS') {
+          popup.close();
+          window.removeEventListener('message', handleMessage);
+          loadMetaIntegration(); // Recargar la integración
+          setConnectingMeta(false);
+        } else if (event.data.type === 'META_AUTH_ERROR') {
+          popup.close();
+          window.removeEventListener('message', handleMessage);
+          setMetaError(event.data.error || 'Error en la autenticación');
+          setConnectingMeta(false);
+        }
+      };
+
+      window.addEventListener('message', handleMessage);
+
+      // Timeout para cerrar el popup
+      const timeout = setTimeout(() => {
+        popup.close();
+        window.removeEventListener('message', handleMessage);
+        setMetaError('Tiempo de espera agotado');
+        setConnectingMeta(false);
+      }, 60000); // 1 minuto
+
+      // Limpiar timeout si se recibe respuesta
+      const originalHandler = handleMessage;
+      const wrappedHandler = (event: MessageEvent) => {
+        clearTimeout(timeout);
+        originalHandler(event);
+      };
+      window.removeEventListener('message', handleMessage);
+      window.addEventListener('message', wrappedHandler);
+
+    } catch (error) {
+      console.error('Error connecting to Meta:', error);
+      setMetaError(error instanceof Error ? error.message : 'Error conectando con Meta');
+      setConnectingMeta(false);
+    }
+  }
+
+  async function handleDisconnectMeta() {
+    if (!user || !metaIntegration) return;
+
+    try {
+      const { error } = await supabase
+        .from('user_integrations')
+        .delete()
+        .eq('id', metaIntegration.id);
+
+      if (error) throw error;
+
+      setMetaIntegration(null);
+    } catch (error) {
+      console.error('Error disconnecting Meta:', error);
+      setMetaError('Error desconectando Meta');
+    }
+  }
 
   async function testTelegramNotification() {
     if (!telegramChatId.trim()) {
@@ -225,6 +367,96 @@ export default function Settings() {
                 <p className="mt-2 text-sm text-gray-500">
                   Esta configuración afectará cómo se muestran las fechas y horas en tus reportes.
                 </p>
+              </div>
+
+              {/* Meta Integration Section */}
+              <div className="border-t border-gray-200 pt-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center">
+                    <Facebook className="h-5 w-5 text-blue-600" />
+                    <h4 className="ml-2 text-lg font-medium text-gray-900">
+                      Integración con Meta (Facebook/Instagram)
+                    </h4>
+                  </div>
+                </div>
+
+                {metaIntegration ? (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center">
+                        <CheckCircle className="h-5 w-5 text-green-600" />
+                        <div className="ml-3">
+                          <h5 className="text-sm font-medium text-green-900">
+                            Cuenta Conectada
+                          </h5>
+                          <p className="text-sm text-green-700">
+                            {metaIntegration.ad_accounts_count} cuenta(s) publicitaria(s) disponible(s)
+                          </p>
+                          <p className="text-xs text-green-600">
+                            Conectado el {new Date(metaIntegration.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectMeta}
+                        className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-red-700 bg-red-100 hover:bg-red-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        Desconectar
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-start">
+                        <Facebook className="h-5 w-5 text-blue-600 mt-0.5" />
+                        <div className="ml-3">
+                          <h5 className="text-sm font-medium text-blue-900">
+                            ¿Por qué conectar tu cuenta de Meta?
+                          </h5>
+                          <ul className="mt-2 text-sm text-blue-700 space-y-1">
+                            <li>• Obtener el gasto publicitario automáticamente</li>
+                            <li>• Calcular el ROAS (Retorno de Inversión Publicitaria)</li>
+                            <li>• Seleccionar cuentas publicitarias específicas por producto</li>
+                            <li>• Análisis completo de rendimiento</li>
+                          </ul>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleConnectMeta}
+                      disabled={connectingMeta}
+                      className="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {connectingMeta ? (
+                        <>
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                          Conectando con Meta...
+                        </>
+                      ) : (
+                        <>
+                          <Facebook className="h-4 w-4 mr-2" />
+                          Conectar con Meta
+                        </>
+                      )}
+                    </button>
+
+                    {metaError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div className="flex">
+                          <AlertTriangle className="h-5 w-5 text-red-400" />
+                          <div className="ml-3">
+                            <p className="text-sm text-red-700">{metaError}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-gray-200 pt-6">
