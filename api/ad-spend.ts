@@ -100,11 +100,14 @@ export async function handleAdSpendSync() {
       throw new Error('Missing ENCRYPTION_KEY environment variable');
     }
 
-    // Obtener la fecha de hoy
+    // Obtener la fecha de hoy (SOLO sincroniza el día actual)
     const today = new Date();
     const dateString = today.toISOString().split('T')[0];
     
-    log('Syncing for date', { date: dateString });
+    log('Syncing for date (DAILY SYNC - current day only)', { 
+      date: dateString,
+      note: 'Only syncing current day. Historical data requires manual backfill.'
+    });
 
     // Obtener todas las integraciones activas de Meta
     const { data: integrations, error: integrationsError } = await supabase

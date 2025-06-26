@@ -6,6 +6,7 @@ import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
 import { handleRefreshAdAccounts } from './api/meta.js';
 import { handleAdSpendSync, handleManualAdSpendSync } from './api/ad-spend.js';
 import cors from 'cors';
+import cron from 'node-cron';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -54,6 +55,92 @@ app.use(limiter);
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Debug endpoint para verificar el estado del cron y la base de datos
+app.get('/debug/ad-spend-status', async (req, res) => {
+  try {
+    log('Debug', 'Verificando estado de sincronización de gastos publicitarios');
+    
+    // Verificar si el cron está corriendo
+    const cronStatus = adSpendCronTask ? 'running' : 'stopped';
+    
+    // Verificar últimos datos en la base de datos
+    const { supabase } = await import('./lib/supabase-server.js');
+    const { data: latestRecords, error: dbError } = await supabase
+      .from('ad_spend')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (dbError) {
+      throw new Error(`Database error: ${dbError.message}`);
+    }
+
+    // Verificar integraciones activas de Meta
+    const { data: integrations, error: integrationsError } = await supabase
+      .from('user_integrations')
+      .select(`
+        id,
+        user_id,
+        status,
+        created_at,
+        meta_ad_accounts (
+          id,
+          name,
+          status
+        )
+      `)
+      .eq('provider', 'meta')
+      .eq('status', 'active');
+
+    if (integrationsError) {
+      throw new Error(`Integrations error: ${integrationsError.message}`);
+    }
+
+    const activeAdAccounts = integrations?.reduce((total, integration) => {
+      return total + (integration.meta_ad_accounts?.filter((acc: any) => acc.status === 'active').length || 0);
+    }, 0) || 0;
+
+    const statusData = {
+      timestamp: new Date().toISOString(),
+      cron: {
+        status: cronStatus,
+        schedule: '*/5 * * * * (every 5 minutes)',
+        enabled: process.env.ENABLE_AD_SPEND_CRON === 'true' || process.env.NODE_ENV === 'production'
+      },
+      integrations: {
+        total: integrations?.length || 0,
+        activeAdAccounts
+      },
+      database: {
+        latestRecords: latestRecords?.length || 0,
+        lastSync: latestRecords?.[0]?.created_at || null,
+        recentData: latestRecords?.map(record => ({
+          product_id: record.product_id,
+          date: record.date,
+          spend: record.spend,
+          currency: record.currency,
+          created_at: record.created_at
+        })) || []
+      },
+      environment: {
+        NODE_ENV: process.env.NODE_ENV,
+        ENABLE_AD_SPEND_CRON: process.env.ENABLE_AD_SPEND_CRON,
+        ENCRYPTION_KEY_SET: !!process.env.ENCRYPTION_KEY
+      }
+    };
+
+    log('Debug', 'Estado de sincronización obtenido', statusData);
+    res.json(statusData);
+    
+  } catch (error) {
+    log('Debug', 'Error verificando estado', error);
+    res.status(500).json({
+      error: 'Error verificando estado',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
 });
 
 // API Routes
@@ -280,32 +367,62 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
-// Cron job para sincronizar gastos publicitarios cada 10 minutos
-let adSpendSyncInterval: NodeJS.Timeout;
+// Cron job para sincronizar gastos publicitarios cada 5 minutos
+let adSpendCronTask: any = null;
 
 function startAdSpendCron() {
-  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios');
+  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios (cada 5 minutos)');
   
   // Ejecutar inmediatamente al iniciar
-  handleAdSpendSync().catch(error => {
-    log('Cron', 'Error en primera ejecución de sincronización', error);
+  executeAdSpendSync('startup');
+  
+  // Configurar cron para ejecutar cada 5 minutos: */5 * * * *
+  adSpendCronTask = cron.schedule('*/5 * * * *', async () => {
+    executeAdSpendSync('scheduled');
+  }, {
+    timezone: "UTC"
   });
   
-  // Configurar para ejecutar cada 10 minutos (600,000 ms)
-  adSpendSyncInterval = setInterval(async () => {
-    try {
-      log('Cron', 'Ejecutando sincronización programada de gastos publicitarios');
-      await handleAdSpendSync();
-    } catch (error) {
-      log('Cron', 'Error en sincronización programada', error);
-    }
-  }, 10 * 60 * 1000); // 10 minutos
+  // Iniciar el cron job
+  adSpendCronTask.start();
+  
+  log('Cron', 'Cron job configurado exitosamente - ejecutará cada 5 minutos');
+}
+
+// Función auxiliar para ejecutar la sincronización con mejor logging
+async function executeAdSpendSync(trigger: 'startup' | 'scheduled' | 'manual') {
+  const startTime = Date.now();
+  log('Cron', `Iniciando sincronización de gastos publicitarios (trigger: ${trigger})`);
+  
+  try {
+    const result = await handleAdSpendSync();
+    const responseData = await result.json();
+    const duration = Date.now() - startTime;
+    
+    log('Cron', `Sincronización completada exitosamente (${duration}ms)`, {
+      trigger,
+      processed: responseData.processed,
+      errors: responseData.errors,
+      date: responseData.date
+    });
+    
+    return responseData;
+  } catch (error) {
+    const duration = Date.now() - startTime;
+    log('Cron', `Error en sincronización (${duration}ms)`, {
+      trigger,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    throw error;
+  }
 }
 
 // Función para detener el cron job
 function stopAdSpendCron() {
-  if (adSpendSyncInterval) {
-    clearInterval(adSpendSyncInterval);
+  if (adSpendCronTask) {
+    adSpendCronTask.stop();
+    adSpendCronTask.destroy();
+    adSpendCronTask = null;
     log('Cron', 'Cron job de sincronización de gastos publicitarios detenido');
   }
 }

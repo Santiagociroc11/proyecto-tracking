@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sync, AlertCircle, CheckCircle } from 'lucide-react';
+import { RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface SyncResult {
   success: boolean;
@@ -52,7 +52,7 @@ export default function AdSpendSync() {
           disabled={loading}
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
         >
-          <Sync className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'Sincronizando...' : 'Sincronizar Ahora'}
         </button>
       </div>
@@ -61,6 +61,25 @@ export default function AdSpendSync() {
         Este proceso obtiene los gastos publicitarios del día actual desde Meta Ads API 
         y los guarda en la base de datos para cada producto configurado.
       </p>
+
+      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+        <h4 className="text-sm font-medium text-blue-900 mb-2">🔍 Debug y Verificación</h4>
+        <div className="space-y-2">
+          <a 
+            href="/debug/ad-spend-status" 
+            target="_blank" 
+            rel="noopener noreferrer"
+            className="inline-flex items-center text-sm text-blue-700 hover:text-blue-800 underline"
+          >
+            Ver estado detallado del sistema
+          </a>
+          <p className="text-xs text-blue-600">
+            • Verifica si el cron está funcionando<br/>
+            • Muestra últimos datos sincronizados<br/>
+            • Estado de integraciones de Meta
+          </p>
+        </div>
+      </div>
 
       {result && (
         <div className={`p-4 rounded-lg ${result.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
@@ -98,7 +117,7 @@ export default function AdSpendSync() {
       <div className="mt-4 p-3 bg-gray-50 rounded-lg">
         <h4 className="text-sm font-medium text-gray-900 mb-2">Información del Cron Job</h4>
         <div className="text-sm text-gray-600 space-y-1">
-          <p>• Se ejecuta automáticamente cada 10 minutos</p>
+          <p>• Se ejecuta automáticamente cada 5 minutos</p>
           <p>• Procesa todas las integraciones activas de Meta</p>
           <p>• Guarda los gastos por producto y cuenta publicitaria</p>
           <p>• Los datos se usan para calcular ROAS en el dashboard</p>
