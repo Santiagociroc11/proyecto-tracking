@@ -41,6 +41,9 @@ interface AdSpendData {
 async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[], dateString: string): Promise<AdSpendData[]> {
   const results: AdSpendData[] = [];
   
+  // DEBUG: Log del token y la URL para depuración
+  console.log(`[Ad Spend Debug] Using Access Token starting with: ${accessToken ? accessToken.substring(0, 10) : 'N/A'}...`);
+
   for (const accountId of adAccountIds) {
     try {
       const baseUrl = 'https://graph.facebook.com';
@@ -55,15 +58,18 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
       });
 
       const url = `${baseUrl}/${version}/act_${accountId}/insights?${params.toString()}`;
+      
+      // DEBUG: Log de la URL
+      console.log(`[Ad Spend Debug] Requesting URL for account ${accountId}: ${url}`);
+
       const response = await fetch(url);
+      const result = await response.json(); // Siempre parsear el JSON para obtener el error completo
 
       if (!response.ok) {
-        console.error(`Error fetching spend for account ${accountId}: ${response.status}`);
+        console.error(`Error fetching spend for account ${accountId}: ${response.status}`, JSON.stringify(result, null, 2));
         continue;
       }
 
-      const result = await response.json();
-      
       if (result.data && result.data.length > 0) {
         const data = result.data[0];
         results.push({
@@ -82,7 +88,7 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
         });
       }
     } catch (error) {
-      console.error(`Error fetching spend for account ${accountId}:`, error);
+      console.error(`[Ad Spend Debug] Network or other error for account ${accountId}:`, error);
     }
   }
   
