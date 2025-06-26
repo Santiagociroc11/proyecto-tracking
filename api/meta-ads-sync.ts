@@ -1,5 +1,4 @@
 import { createClient } from '@supabase/supabase-js';
-import { NextApiRequest, NextApiResponse } from 'next';
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -428,25 +427,5 @@ export async function handleMetaAdsSync() {
   }
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  try {
-    const result = await handleMetaAdsSync();
-    
-    if (result.success) {
-      res.status(200).json(result);
-    } else {
-      res.status(500).json(result);
-    }
-  } catch (error) {
-    log('API handler error', { error: error instanceof Error ? error.message : 'Unknown error' });
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-} 
+// Note: This module exports handleMetaAdsSync for use in Express.js server
+// The Express.js endpoint is configured in server.ts 
