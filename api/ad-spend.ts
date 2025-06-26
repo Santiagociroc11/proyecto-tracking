@@ -157,7 +157,8 @@ export async function handleAdSpendSync() {
         });
 
         // Descifrar el access token
-        const accessToken = decryptToken(integration.access_token_encrypted, ENCRYPTION_KEY);
+        const accessToken = integration.access_token_encrypted; // DEBUG: Reading plaintext for debugging
+        // const accessToken = decryptToken(integration.access_token_encrypted, ENCRYPTION_KEY);
         
         // Obtener las cuentas publicitarias activas
         const activeAdAccounts = (integration.meta_ad_accounts || [])

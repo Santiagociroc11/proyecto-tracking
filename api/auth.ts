@@ -191,7 +191,8 @@ export async function handleMetaCallback(request: Request) {
     }
 
     // Cifrar el access token antes de guardarlo
-    const encryptedToken = encryptToken(accessToken, ENCRYPTION_KEY);
+    const encryptedToken = accessToken; // DEBUG: Storing plaintext for debugging
+    // const encryptedToken = encryptToken(accessToken, ENCRYPTION_KEY);
 
     let dbError: any = null;
 
