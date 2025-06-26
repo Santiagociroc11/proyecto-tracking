@@ -3,6 +3,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Settings as SettingsIcon, BellRing, ExternalLink, ArrowLeft, ChevronDown, ChevronUp, Users, MessageCircle, Facebook, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; // Import useNavigate
+import AdSpendSync from '../components/AdSpendSync';
 
 interface UserSettings {
   timezone: string;
@@ -516,6 +517,13 @@ export default function Settings() {
                   </div>
                 )}
               </div>
+
+              {/* Sección de Sincronización de Gastos Publicitarios - Solo para administradores */}
+              {user?.role === 'admin' && (
+                <div className="border-t border-gray-200 pt-6">
+                  <AdSpendSync />
+                </div>
+              )}
 
               <div className="border-t border-gray-200 pt-6">
                 <div className="flex items-center justify-between mb-4">

@@ -4,6 +4,7 @@ import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
 import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
 import { handleRefreshAdAccounts } from './api/meta.js';
+import { handleAdSpendSync, handleManualAdSpendSync } from './api/ad-spend.js';
 import cors from 'cors';
 import rateLimit from 'express-rate-limit';
 import path from 'path';
@@ -148,6 +149,36 @@ apiRouter.post('/meta/refresh-ad-accounts', async (req, res) => {
   }
 });
 
+apiRouter.post('/ad-spend/sync', async (req, res) => {
+  log('Ad Spend', 'Recibiendo solicitud de sincronización de gastos publicitarios', { 
+    body: req.body,
+    headers: req.headers 
+  });
+  
+  try {
+    // Convertir la request de Express a una Request estándar
+    const url = new URL(req.url, `${req.protocol}://${req.get('host')}`);
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers: req.headers as any,
+      body: JSON.stringify(req.body)
+    });
+
+    const result = await handleManualAdSpendSync(request);
+    const responseData = await result.json();
+    
+    log('Ad Spend', 'Sincronización completada', responseData);
+    return res.status(result.status).json(responseData);
+    
+  } catch (error) {
+    log('Ad Spend', 'Error en sincronización de gastos publicitarios', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor' 
+    });
+  }
+});
+
 // Ruta para el callback de Meta OAuth
 apiRouter.get('/auth/meta/callback', async (req, res) => {
   log('Meta Auth', 'Recibiendo callback de Meta', { 
@@ -249,6 +280,58 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+// Cron job para sincronizar gastos publicitarios cada 10 minutos
+let adSpendSyncInterval: NodeJS.Timeout;
+
+function startAdSpendCron() {
+  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios');
+  
+  // Ejecutar inmediatamente al iniciar
+  handleAdSpendSync().catch(error => {
+    log('Cron', 'Error en primera ejecución de sincronización', error);
+  });
+  
+  // Configurar para ejecutar cada 10 minutos (600,000 ms)
+  adSpendSyncInterval = setInterval(async () => {
+    try {
+      log('Cron', 'Ejecutando sincronización programada de gastos publicitarios');
+      await handleAdSpendSync();
+    } catch (error) {
+      log('Cron', 'Error en sincronización programada', error);
+    }
+  }, 10 * 60 * 1000); // 10 minutos
+}
+
+// Función para detener el cron job
+function stopAdSpendCron() {
+  if (adSpendSyncInterval) {
+    clearInterval(adSpendSyncInterval);
+    log('Cron', 'Cron job de sincronización de gastos publicitarios detenido');
+  }
+}
+
+// Manejar señales de cierre para limpiar recursos
+process.on('SIGTERM', () => {
+  log('Server', 'Recibida señal SIGTERM, cerrando servidor...');
+  stopAdSpendCron();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  log('Server', 'Recibida señal SIGINT, cerrando servidor...');
+  stopAdSpendCron();
+  process.exit(0);
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   log('Server', `Servidor escuchando en puerto ${PORT}`);
+  
+  // Iniciar el cron job solo en producción o si está explícitamente habilitado
+  const enableCron = process.env.ENABLE_AD_SPEND_CRON === 'true' || process.env.NODE_ENV === 'production';
+  
+  if (enableCron) {
+    startAdSpendCron();
+  } else {
+    log('Cron', 'Cron job de sincronización de gastos publicitarios deshabilitado (establecer ENABLE_AD_SPEND_CRON=true para habilitar)');
+  }
 });
