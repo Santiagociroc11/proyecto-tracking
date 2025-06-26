@@ -309,7 +309,7 @@ fbq('track', 'PageView');
       const scopes = 'public_profile,ads_read,read_insights,ads_management';
 
       // URL de autorización de Meta
-      const authUrl = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
+      const authUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
 
       // Abrir popup en lugar de redirigir
       const popup = window.open(
