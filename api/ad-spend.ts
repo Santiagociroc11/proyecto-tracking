@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase-server.js';
+import crypto from 'crypto';
 
 // Función para descifrar tokens (compatible con el formato de auth.ts)
 function decryptToken(encryptedText: string, key: string): string {
@@ -14,7 +15,6 @@ function decryptToken(encryptedText: string, key: string): string {
     const authTag = Buffer.from(parts[1], 'hex');
     const encrypted = parts[2];
     
-    const crypto = require('crypto');
     const decipher = crypto.createDecipher(algorithm, key);
     decipher.setAuthTag(authTag);
     
