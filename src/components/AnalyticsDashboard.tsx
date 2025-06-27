@@ -754,42 +754,51 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
       const sourceStatsArray: { source: string; visits: number; unique_visits: number; clicks: number; unique_clicks: number; }[] = [];
 
-      // Consultar gasto publicitario
-      const { data: adSpendData, error: adSpendError } = await supabase
-        .from('ad_spend')
-        .select('date, spend')
-        .eq('product_id', productId)
-        .gte('date', startDate)
-        .lte('date', endDate);
+      // Obtener las cuentas publicitarias del producto
+      const { data: productAdAccounts } = await supabase
+        .from('product_ad_accounts')
+        .select('id')
+        .eq('product_id', productId);
 
-      if (adSpendError) {
-        console.error('Error fetching ad spend data:', adSpendError);
+      const productAdAccountIds = productAdAccounts?.map(acc => acc.id) || [];
+
+      // Consultar gasto publicitario usando ad_performance (datos reales y detallados)
+      const { data: adPerformanceData, error: adPerformanceError } = await supabase
+        .from('ad_performance')
+        .select('spend, date')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .in('product_ad_account_id', productAdAccountIds);
+
+      if (adPerformanceError) {
+        console.error('Error fetching ad performance data:', adPerformanceError);
       }
 
       // Consultar gasto publicitario de hoy
-      const { data: adSpendTodayData, error: adSpendTodayError } = await supabase
-        .from('ad_spend')
+      const { data: adPerformanceTodayData, error: adPerformanceTodayError } = await supabase
+        .from('ad_performance')
         .select('spend')
-        .eq('product_id', productId)
-        .eq('date', todayFormatted);
+        .eq('date', todayFormatted)
+        .in('product_ad_account_id', productAdAccountIds);
 
-      if (adSpendTodayError) {
-        console.error('Error fetching today ad spend data:', adSpendTodayError);
+      if (adPerformanceTodayError) {
+        console.error('Error fetching today ad performance data:', adPerformanceTodayError);
       }
 
-      // Calcular totales de ad spend
-      const totalAdSpend = adSpendData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
-      const adSpendToday = adSpendTodayData?.reduce((acc, item) => acc + (item.spend || 0), 0) ?? 0;
+      // Calcular totales de ad spend desde ad_performance
+      const totalAdSpend = adPerformanceData?.reduce((acc, item) => acc + (parseFloat(item.spend) || 0), 0) ?? 0;
+      const adSpendToday = adPerformanceTodayData?.reduce((acc, item) => acc + (parseFloat(item.spend) || 0), 0) ?? 0;
 
       // Calcular ROAS
       const totalRevenue = totalMainProductRevenue + totalOrderBumpRevenue;
       const roas = totalAdSpend > 0 ? totalRevenue / totalAdSpend : 0;
       const roasToday = adSpendToday > 0 ? revenueToday / adSpendToday : 0;
 
-      // Crear mapa de gasto por fecha para daily stats
+      // Crear mapa de gasto por fecha para daily stats desde ad_performance
       const adSpendByDate = new Map<string, number>();
-      adSpendData?.forEach(item => {
-        adSpendByDate.set(item.date, item.spend || 0);
+      adPerformanceData?.forEach(item => {
+        const currentSpend = adSpendByDate.get(item.date) || 0;
+        adSpendByDate.set(item.date, currentSpend + (parseFloat(item.spend) || 0));
       });
 
       // Actualizar daily stats con ad spend y ROAS
@@ -803,16 +812,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
         };
       }).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Obtener las cuentas publicitarias del producto
-      const { data: productAdAccounts } = await supabase
-        .from('product_ad_accounts')
-        .select('id')
-        .eq('product_id', productId);
-
-      const productAdAccountIds = productAdAccounts?.map(acc => acc.id) || [];
-
-      // Obtener datos reales de ad performance por UTM
-      const { data: adPerformanceData, error: adPerformanceError } = await supabase
+      // Obtener datos reales de ad performance por UTM (segunda consulta más específica)
+      const { data: adPerformanceDataForUtm } = await supabase
         .from('ad_performance')
         .select(`
           ad_id,
@@ -831,36 +832,125 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // Crear mapa de gasto real por campaña/adset/ad
       const adSpendByUtm = new Map<string, number>();
       
-      if (adPerformanceData) {
-        adPerformanceData.forEach(adPerf => {
-          // Crear claves similares a las UTMs para hacer match
-          const campaignKey = adPerf.campaign_name || adPerf.campaign_id || '';
-          const adsetKey = adPerf.adset_name || adPerf.adset_id || '';
-          const adKey = adPerf.ad_name || adPerf.ad_id || '';
+      if (adPerformanceDataForUtm) {
+        console.log('=== DEBUG: Ad Performance Data ===');
+        console.log('Total ad performance records:', adPerformanceDataForUtm.length);
+        console.log('First 3 records:', adPerformanceDataForUtm.slice(0, 3));
+        
+        console.log('=== DEBUG: UTM Stats Keys ===');
+        for (const [utmKey, utmStat] of utmStats.entries()) {
+          console.log('UTM Key:', utmKey);
+          console.log('UTM Campaign:', utmStat.campaign);
+          console.log('UTM Medium:', utmStat.medium);
+          console.log('UTM Content:', utmStat.content);
+          console.log('---');
+        }
+        
+        // Nueva lógica: cada registro de Facebook se usa solo UNA VEZ
+        const usedFacebookRecords = new Set<string>();
+        
+        console.log('=== DEBUG: Starting precise matching (1:1) ===');
+        console.log('Total Facebook records:', adPerformanceDataForUtm.length);
+        console.log('Total UTM groups:', utmStats.size);
+        
+        // Para cada UTM, encontrar su mejor match único
+        for (const [utmKey, utmStat] of utmStats.entries()) {
+          console.log('=== Finding best match for UTM ===');
+          console.log('UTM Key:', utmKey);
           
-          // Intentar hacer match con los IDs extraídos de las UTMs
-          for (const [utmKey, utmStat] of utmStats.entries()) {
-            const campaignId = extractUtmId(utmStat.campaign);
-            const adsetId = extractUtmId(utmStat.medium);
-            const adId = extractUtmId(utmStat.content);
+          const campaignId = extractUtmId(utmStat.campaign);
+          const adsetId = extractUtmId(utmStat.medium);
+          const adId = extractUtmId(utmStat.content);
+          
+          const cleanCampaign = cleanUtmName(utmStat.campaign);
+          const cleanMedium = cleanUtmName(utmStat.medium);
+          const cleanContent = cleanUtmName(utmStat.content);
+          
+          console.log('UTM Campaign:', cleanCampaign, '(ID:', campaignId, ')');
+          console.log('UTM Medium:', cleanMedium, '(ID:', adsetId, ')');
+          console.log('UTM Content:', cleanContent, '(ID:', adId, ')');
+          
+                     let bestMatch: { adPerf: any; recordId: string; reasons: string[]; score: number } | null = null;
+           let bestScore = 0;
+          
+          // Evaluar cada registro de Facebook disponible
+          adPerformanceDataForUtm.forEach((adPerf, index) => {
+            const recordId = `${adPerf.campaign_id}-${adPerf.adset_id}-${adPerf.ad_id}-${index}`;
             
-            let isMatch = false;
+            // Skip si ya fue usado
+            if (usedFacebookRecords.has(recordId)) return;
             
-            // Match por IDs si están disponibles
-            if (campaignId && adPerf.campaign_id === campaignId) isMatch = true;
-            else if (adsetId && adPerf.adset_id === adsetId) isMatch = true;
-            else if (adId && adPerf.ad_id === adId) isMatch = true;
-            // Match por nombres si no hay IDs
-            else if (!campaignId && cleanUtmName(utmStat.campaign) === campaignKey) isMatch = true;
-            else if (!adsetId && cleanUtmName(utmStat.medium) === adsetKey) isMatch = true;
-            else if (!adId && cleanUtmName(utmStat.content) === adKey) isMatch = true;
+            let score = 0;
+            const reasons = [];
             
-            if (isMatch) {
-              const currentSpend = adSpendByUtm.get(utmKey) || 0;
-              adSpendByUtm.set(utmKey, currentSpend + (parseFloat(adPerf.spend) || 0));
+            // 1. Match perfecto por IDs (máxima prioridad)
+            if (campaignId && adPerf.campaign_id === campaignId) {
+              score += 1000;
+              reasons.push('Campaign ID exact');
             }
-          }
-        });
+            if (adsetId && adPerf.adset_id === adsetId) {
+              score += 500;
+              reasons.push('Adset ID exact');
+            }
+            if (adId && adPerf.ad_id === adId) {
+              score += 300;
+              reasons.push('Ad ID exact');
+            }
+            
+            // 2. Match por nombres (solo si no hay match por IDs)
+            if (score === 0) {
+              const campaignMatch = cleanCampaign === (adPerf.campaign_name || '');
+              const adsetMatch = cleanMedium === (adPerf.adset_name || '');
+              const adMatch = cleanContent === (adPerf.ad_name || '');
+              
+              if (campaignMatch && adsetMatch && adMatch) {
+                score = 100; // Match completo
+                reasons.push('Full name match');
+              } else if (campaignMatch && adsetMatch) {
+                score = 80; // Campaign + Adset
+                reasons.push('Campaign + Adset match');
+              } else if (campaignMatch && adMatch) {
+                score = 75; // Campaign + Ad
+                reasons.push('Campaign + Ad match');
+              } else if (adsetMatch && adMatch) {
+                score = 70; // Adset + Ad
+                reasons.push('Adset + Ad match');
+              }
+            }
+            
+            // Si es el mejor hasta ahora, guardarlo
+            if (score > bestScore) {
+              bestMatch = { adPerf, recordId, reasons, score };
+              bestScore = score;
+            }
+          });
+          
+                     // Asignar el mejor match (solo si tiene confianza suficiente)
+           if (bestMatch !== null && bestScore >= 70) {
+             const match = bestMatch; // TypeScript type assertion
+             usedFacebookRecords.add(match.recordId);
+             const spend = parseFloat(match.adPerf.spend) || 0;
+             adSpendByUtm.set(utmKey, spend);
+             
+             console.log('🎯 BEST MATCH assigned!');
+             console.log('Score:', match.score);
+             console.log('Reasons:', match.reasons.join(', '));
+             console.log('FB Data:', {
+               campaign: match.adPerf.campaign_name,
+               adset: match.adPerf.adset_name,
+               ad: match.adPerf.ad_name,
+               spend: spend
+             });
+           } else {
+             console.log('❌ No confident match (best score:', bestScore, ')');
+           }
+          console.log('---');
+        }
+        
+        console.log('=== DEBUG: Final Ad Spend by UTM ===');
+        for (const [key, spend] of adSpendByUtm.entries()) {
+          console.log('UTM Key:', key, 'Total Spend:', spend);
+        }
       }
 
       // Actualizar UTM stats con ad spend real
