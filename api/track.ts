@@ -340,7 +340,7 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
     // Ignorar eventos de verificación de Meta
     if (data.event_data?.utm_data?.utm_source === 'Facebook_Right_Column') {
       log('IgnoreEvent', 'Ignorando evento de Facebook Right Column (verificación de Meta)', {
-        utm_source: data.event_data.utm_data.utm_source
+        utm_source: 'Facebook_Right_Column'
       });
       return { success: true, debugLogs };
     }
