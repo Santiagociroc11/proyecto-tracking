@@ -312,6 +312,39 @@ export default function ProductDetails() {
       }
 
       await loadProductAdAccounts();
+
+      // Sincronizar automáticamente los datos de ads spend para este producto
+      try {
+        console.log('Iniciando sincronización automática de ads spend para el producto...');
+        const syncResponse = await fetch('/api/ad-spend/sync-product', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            productId: id,
+            userId: user.id
+          })
+        });
+
+        const syncResult = await syncResponse.json();
+        
+        if (syncResponse.ok && syncResult.success) {
+          console.log('Sincronización de ads spend completada:', syncResult);
+          // Mostrar mensaje de éxito si se procesaron datos
+          if (syncResult.processed > 0) {
+            // Aquí podrías agregar una notificación visual de éxito
+            console.log(`✅ Se sincronizaron ${syncResult.processed} registros de gasto publicitario`);
+          }
+        } else {
+          console.warn('La sincronización de ads spend falló:', syncResult.error);
+          // No mostramos error al usuario para no interferir con el guardado exitoso
+        }
+      } catch (syncError) {
+        console.warn('Error en la sincronización automática de ads spend:', syncError);
+        // No mostramos error al usuario para no interferir con el guardado exitoso
+      }
+
     } catch (err) {
       console.error('Error saving ad accounts:', err);
       setError('Error al guardar las cuentas publicitarias');

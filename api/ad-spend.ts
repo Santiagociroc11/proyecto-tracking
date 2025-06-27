@@ -642,4 +642,218 @@ export async function handleManualAdSpendSync(request: Request) {
   }
 
   return await handleAdSpendSync();
+}
+
+// Nueva función para sincronizar ads spend al conectar cuentas publicitarias a un producto
+export async function handleProductAdAccountSync(request: Request) {
+  try {
+    const body = await request.json();
+    const { productId, userId } = body;
+
+    if (!productId || !userId) {
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Faltan parámetros requeridos (productId, userId)'
+      }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
+    if (!ENCRYPTION_KEY) {
+      console.error('Missing ENCRYPTION_KEY environment variable');
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Configuración del servidor incompleta'
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const log = (step: string, data: Record<string, any> = {}) => {
+      console.log(`[Product Ad Account Sync] ${step}:`, data);
+    };
+
+    log('Starting product ad account sync', { productId, userId });
+
+    // Obtener la integración del usuario con Meta
+    const { data: userIntegration, error: integrationError } = await supabase
+      .from('user_integrations')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('provider', 'meta')
+      .eq('status', 'active')
+      .single();
+
+    if (integrationError || !userIntegration) {
+      log('No active Meta integration found for user', { userId, error: integrationError?.message });
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'No se encontró una integración activa de Meta para este usuario'
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    // Obtener las cuentas publicitarias asociadas a este producto
+    const { data: productAdAccounts, error: productAccountsError } = await supabase
+      .from('product_ad_accounts')
+      .select(`
+        ad_account_id,
+        meta_ad_accounts!inner(id, name, status)
+      `)
+      .eq('product_id', productId);
+
+    if (productAccountsError) {
+      log('Error fetching product ad accounts', { productId, error: productAccountsError.message });
+      return new Response(JSON.stringify({
+        success: false,
+        error: 'Error al obtener las cuentas publicitarias del producto'
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    if (!productAdAccounts || productAdAccounts.length === 0) {
+      log('No ad accounts found for product', { productId });
+      return new Response(JSON.stringify({
+        success: true,
+        message: 'No hay cuentas publicitarias asociadas a este producto',
+        processed: 0
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const adAccountIds = productAdAccounts.map(pac => pac.ad_account_id);
+    log('Found ad accounts for product', { productId, adAccountIds });
+
+    // Descifrar el access token
+    const accessToken = userIntegration.access_token_encrypted; // DEBUG: Reading plaintext
+    
+    // Obtener la fecha actual en la zona horaria del usuario
+    const dateString = await getDateStringForUser(userId);
+    
+    log('Fetching ad spend data', { dateString, adAccountIds });
+
+    // Obtener datos de gasto de Meta
+    const adSpendData = await fetchAdSpendFromMeta(accessToken, adAccountIds, dateString, userId);
+    
+    // También sincronizar datos detallados de ad performance
+    const adPerformanceResult = await syncAdPerformance(accessToken, adAccountIds, dateString, userId);
+    
+    log('Ad performance sync completed', {
+      synced: adPerformanceResult.synced,
+      errors: adPerformanceResult.errors,
+      skipped: adPerformanceResult.skipped
+    });
+
+    // Guardar los datos de ad spend en la base de datos
+    let totalProcessed = 0;
+    let totalErrors = 0;
+
+    for (const spendData of adSpendData) {
+      try {
+        // Obtener todos los product_ad_accounts para esta cuenta publicitaria y producto
+        const { data: specificProductAdAccounts, error: specificProductError } = await supabase
+          .from('product_ad_accounts')
+          .select('id, product_id')
+          .eq('ad_account_id', spendData.ad_account_id)
+          .eq('product_id', productId);
+
+        if (specificProductError) {
+          log('Error fetching specific product ad accounts', { 
+            adAccountId: spendData.ad_account_id,
+            productId,
+            error: specificProductError.message 
+          });
+          totalErrors++;
+          continue;
+        }
+
+        if (!specificProductAdAccounts || specificProductAdAccounts.length === 0) {
+          log('No specific product ad accounts found', { adAccountId: spendData.ad_account_id, productId });
+          continue;
+        }
+
+        // Insertar/actualizar el gasto para cada relación
+        for (const productAdAccount of specificProductAdAccounts) {
+          const { error: upsertError } = await supabase
+            .from('ad_spend')
+            .upsert({
+              product_id: productAdAccount.product_id,
+              product_ad_account_id: productAdAccount.id,
+              date: spendData.date,
+              spend: spendData.spend,
+              currency: spendData.currency,
+              created_at: new Date().toISOString()
+            }, {
+              onConflict: 'product_id, date'
+            });
+
+          if (upsertError) {
+            log('Error upserting ad spend', {
+              productId: productAdAccount.product_id,
+              adAccountId: spendData.ad_account_id,
+              error: upsertError.message
+            });
+            totalErrors++;
+          } else {
+            log('Ad spend saved successfully', {
+              productId: productAdAccount.product_id,
+              adAccountId: spendData.ad_account_id,
+              spend: spendData.spend,
+              currency: spendData.currency
+            });
+            totalProcessed++;
+          }
+        }
+      } catch (error) {
+        log('Error processing ad spend data', {
+          adAccountId: spendData.ad_account_id,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+        totalErrors++;
+      }
+    }
+
+    log('Product ad account sync completed', { 
+      productId,
+      totalProcessed,
+      totalErrors,
+      adPerformanceSynced: adPerformanceResult.synced,
+      adPerformanceErrors: adPerformanceResult.errors,
+      adPerformanceSkipped: adPerformanceResult.skipped
+    });
+
+    return new Response(JSON.stringify({
+      success: true,
+      message: 'Sincronización de ads spend completada para el producto',
+      processed: totalProcessed,
+      errors: totalErrors,
+      adPerformanceSynced: adPerformanceResult.synced,
+      adPerformanceErrors: adPerformanceResult.errors,
+      adPerformanceSkipped: adPerformanceResult.skipped,
+      productId,
+      date: dateString
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('[Product Ad Account Sync] Fatal error:', error);
+    return new Response(JSON.stringify({
+      success: false,
+      error: error instanceof Error ? error.message : 'Error interno del servidor'
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 } 

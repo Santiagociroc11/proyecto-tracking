@@ -4,7 +4,7 @@ import { handleHotmartWebhook } from './api/hotmart.js';
 import { sendTestNotification } from './api/telegram.js';
 import { handleMetaCallback, handleDataDeletionRequest } from './api/auth.js';
 import { handleRefreshAdAccounts } from './api/meta.js';
-import { handleAdSpendSync, handleManualAdSpendSync } from './api/ad-spend.js';
+import { handleAdSpendSync, handleManualAdSpendSync, handleProductAdAccountSync } from './api/ad-spend.js';
 import cors from 'cors';
 import cron from 'node-cron';
 import rateLimit from 'express-rate-limit';
@@ -259,6 +259,36 @@ apiRouter.post('/ad-spend/sync', async (req, res) => {
     
   } catch (error) {
     log('Ad Spend', 'Error en sincronización de gastos publicitarios', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error interno del servidor' 
+    });
+  }
+});
+
+apiRouter.post('/ad-spend/sync-product', async (req, res) => {
+  log('Product Ad Spend', 'Recibiendo solicitud de sincronización de gastos para producto específico', { 
+    body: req.body,
+    headers: req.headers 
+  });
+  
+  try {
+    // Convertir la request de Express a una Request estándar
+    const url = new URL(req.url, `${req.protocol}://${req.get('host')}`);
+    const request = new Request(url.toString(), {
+      method: req.method,
+      headers: req.headers as any,
+      body: JSON.stringify(req.body)
+    });
+
+    const result = await handleProductAdAccountSync(request);
+    const responseData = await result.json();
+    
+    log('Product Ad Spend', 'Sincronización de producto completada', responseData);
+    return res.status(result.status).json(responseData);
+    
+  } catch (error) {
+    log('Product Ad Spend', 'Error en sincronización de gastos de producto', error);
     res.status(500).json({ 
       success: false, 
       error: 'Error interno del servidor' 
