@@ -769,7 +769,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // Consultar gasto publicitario usando ad_performance (datos reales y detallados)
       const { data: adPerformanceData, error: adPerformanceError } = await supabase
         .from('ad_performance')
-        .select('spend, date')
+        .select('spend, date, campaign_name')
         .gte('date', startDate)
         .lte('date', endDate)
         .in('product_ad_account_id', productAdAccountIds);
@@ -781,7 +781,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // Consultar gasto publicitario de hoy
       const { data: adPerformanceTodayData, error: adPerformanceTodayError } = await supabase
         .from('ad_performance')
-        .select('spend')
+        .select('spend, campaign_name')
         .eq('date', todayFormatted)
         .in('product_ad_account_id', productAdAccountIds);
 
@@ -789,20 +789,45 @@ export default function AnalyticsDashboard({ productId }: Props) {
         console.error('Error fetching today ad performance data:', adPerformanceTodayError);
       }
 
-      // Calcular totales de ad spend desde ad_performance
-      const totalAdSpend = adPerformanceData?.reduce((acc, item) => acc + (parseFloat(item.spend) || 0), 0) ?? 0;
-      const adSpendToday = adPerformanceTodayData?.reduce((acc, item) => acc + (parseFloat(item.spend) || 0), 0) ?? 0;
+      // Crear set de campañas con tracking para filtrar el gasto total
+      const campaignsWithTrackingForTotals = new Set<string>();
+      for (const stat of utmStats.values()) {
+        const cleanCampaignName = cleanUtmName(stat.campaign);
+        if (cleanCampaignName && cleanCampaignName !== 'none') {
+          campaignsWithTrackingForTotals.add(cleanCampaignName);
+        }
+      }
+
+      // Calcular totales de ad spend solo para campañas de este producto
+      const totalAdSpend = adPerformanceData?.reduce((acc, item) => {
+        const campaignName = item.campaign_name || '';
+        if (campaignsWithTrackingForTotals.has(campaignName)) {
+          return acc + (parseFloat(item.spend) || 0);
+        }
+        return acc;
+      }, 0) ?? 0;
+      
+      const adSpendToday = adPerformanceTodayData?.reduce((acc, item) => {
+        const campaignName = item.campaign_name || '';
+        if (campaignsWithTrackingForTotals.has(campaignName)) {
+          return acc + (parseFloat(item.spend) || 0);
+        }
+        return acc;
+      }, 0) ?? 0;
 
       // Calcular ROAS
       const totalRevenue = totalMainProductRevenue + totalOrderBumpRevenue;
       const roas = totalAdSpend > 0 ? totalRevenue / totalAdSpend : 0;
       const roasToday = adSpendToday > 0 ? revenueToday / adSpendToday : 0;
 
-      // Crear mapa de gasto por fecha para daily stats desde ad_performance
+      // Crear mapa de gasto por fecha para daily stats (también filtrado por producto)
       const adSpendByDate = new Map<string, number>();
       adPerformanceData?.forEach(item => {
-        const currentSpend = adSpendByDate.get(item.date) || 0;
-        adSpendByDate.set(item.date, currentSpend + (parseFloat(item.spend) || 0));
+        const campaignName = item.campaign_name || '';
+        if (campaignsWithTrackingForTotals.has(campaignName)) {
+          const currentSpend = adSpendByDate.get(item.date) || 0;
+          adSpendByDate.set(item.date, currentSpend + (parseFloat(item.spend) || 0));
+        }
       });
 
       // Actualizar daily stats con ad spend y ROAS
