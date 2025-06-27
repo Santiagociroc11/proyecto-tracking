@@ -803,12 +803,71 @@ export default function AnalyticsDashboard({ productId }: Props) {
         };
       }).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Actualizar UTM stats con ad spend y ROAS (distribuir proporcionalmente)
+      // Obtener las cuentas publicitarias del producto
+      const { data: productAdAccounts } = await supabase
+        .from('product_ad_accounts')
+        .select('id')
+        .eq('product_id', productId);
+
+      const productAdAccountIds = productAdAccounts?.map(acc => acc.id) || [];
+
+      // Obtener datos reales de ad performance por UTM
+      const { data: adPerformanceData, error: adPerformanceError } = await supabase
+        .from('ad_performance')
+        .select(`
+          ad_id,
+          campaign_id,
+          adset_id,
+          ad_name,
+          adset_name,
+          campaign_name,
+          spend,
+          date
+        `)
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .in('product_ad_account_id', productAdAccountIds);
+
+      // Crear mapa de gasto real por campaña/adset/ad
+      const adSpendByUtm = new Map<string, number>();
+      
+      if (adPerformanceData) {
+        adPerformanceData.forEach(adPerf => {
+          // Crear claves similares a las UTMs para hacer match
+          const campaignKey = adPerf.campaign_name || adPerf.campaign_id || '';
+          const adsetKey = adPerf.adset_name || adPerf.adset_id || '';
+          const adKey = adPerf.ad_name || adPerf.ad_id || '';
+          
+          // Intentar hacer match con los IDs extraídos de las UTMs
+          for (const [utmKey, utmStat] of utmStats.entries()) {
+            const campaignId = extractUtmId(utmStat.campaign);
+            const adsetId = extractUtmId(utmStat.medium);
+            const adId = extractUtmId(utmStat.content);
+            
+            let isMatch = false;
+            
+            // Match por IDs si están disponibles
+            if (campaignId && adPerf.campaign_id === campaignId) isMatch = true;
+            else if (adsetId && adPerf.adset_id === adsetId) isMatch = true;
+            else if (adId && adPerf.ad_id === adId) isMatch = true;
+            // Match por nombres si no hay IDs
+            else if (!campaignId && cleanUtmName(utmStat.campaign) === campaignKey) isMatch = true;
+            else if (!adsetId && cleanUtmName(utmStat.medium) === adsetKey) isMatch = true;
+            else if (!adId && cleanUtmName(utmStat.content) === adKey) isMatch = true;
+            
+            if (isMatch) {
+              const currentSpend = adSpendByUtm.get(utmKey) || 0;
+              adSpendByUtm.set(utmKey, currentSpend + (parseFloat(adPerf.spend) || 0));
+            }
+          }
+        });
+      }
+
+      // Actualizar UTM stats con ad spend real
       const utmStatsArrayWithAdSpend = Array.from(utmStats.values())
         .map((stat) => {
-          // Distribuir ad spend proporcionalmente basado en visitas
-          const totalVisitsForPeriod = totalVisits > 0 ? totalVisits : 1;
-          const utmAdSpend = totalAdSpend * (stat.visits / totalVisitsForPeriod);
+          const utmKey = getUtmGroupingKey(stat.campaign, stat.medium, stat.content);
+          const utmAdSpend = adSpendByUtm.get(utmKey) || 0;
           const utmRoas = utmAdSpend > 0 ? stat.revenue / utmAdSpend : 0;
           
           // Limpiar campos internos antes de enviar al frontend

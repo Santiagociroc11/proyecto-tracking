@@ -95,6 +95,116 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
   return results;
 }
 
+// Función para sincronizar datos detallados de ad performance
+async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string): Promise<{ synced: number; errors: number }> {
+  const log = (step: string, data: Record<string, any> = {}) => {
+    console.log(`[Ad Performance Sync] ${step}:`, data);
+  };
+
+  let totalSynced = 0;
+  let totalErrors = 0;
+
+  for (const accountId of adAccountIds) {
+    try {
+      log('Fetching ad performance data', { accountId, date: dateString });
+
+      // Llamar a Facebook Ads API para obtener datos detallados por anuncio
+      const facebookUrl = `https://graph.facebook.com/v22.0/act_${accountId}/insights`;
+      const params = new URLSearchParams({
+        access_token: accessToken,
+        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
+        level: 'ad',
+        time_range: JSON.stringify({ since: dateString, until: dateString }),
+        time_increment: '1',
+        limit: '2000'
+      });
+
+      const response = await fetch(`${facebookUrl}?${params}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        log('Error fetching ad performance', { accountId, status: response.status, error: errorText });
+        totalErrors++;
+        continue;
+      }
+
+      const facebookData = await response.json();
+      const insights = facebookData.data || [];
+
+      log('Ad performance data fetched', { accountId, adsCount: insights.length });
+
+      // Obtener product_ad_account_id para esta cuenta
+      const { data: productAdAccounts } = await supabase
+        .from('product_ad_accounts')
+        .select('id')
+        .eq('ad_account_id', accountId);
+
+      if (!productAdAccounts?.length) {
+        log('No product_ad_accounts found', { accountId });
+        continue;
+      }
+
+      // Procesar cada anuncio
+      for (const insight of insights) {
+        for (const productAdAccount of productAdAccounts) {
+          try {
+            const adPerformanceData = {
+              product_ad_account_id: productAdAccount.id,
+              date: dateString,
+              ad_id: insight.ad_id,
+              adset_id: insight.adset_id || null,
+              campaign_id: insight.campaign_id || null,
+              ad_name: insight.ad_name || null,
+              adset_name: insight.adset_name || null,
+              campaign_name: insight.campaign_name || null,
+              spend: parseFloat(insight.spend) || 0,
+              impressions: parseInt(insight.impressions) || 0,
+              clicks: parseInt(insight.clicks) || 0,
+              cpc: parseFloat(insight.cpc) || null,
+              cpm: parseFloat(insight.cpm) || null,
+              ctr: parseFloat(insight.ctr) || null,
+            };
+
+            // Insertar o actualizar en ad_performance
+            const { error: upsertError } = await supabase
+              .from('ad_performance')
+              .upsert(adPerformanceData, {
+                onConflict: 'product_ad_account_id,ad_id,date',
+                ignoreDuplicates: false
+              });
+
+            if (upsertError) {
+              log('Error upserting ad performance', { 
+                adId: insight.ad_id, 
+                error: upsertError.message 
+              });
+              totalErrors++;
+            } else {
+              totalSynced++;
+            }
+          } catch (error) {
+            log('Error processing individual ad', { 
+              adId: insight.ad_id, 
+              error: error instanceof Error ? error.message : 'Unknown error' 
+            });
+            totalErrors++;
+          }
+        }
+      }
+
+    } catch (error) {
+      log('Error processing account', { 
+        accountId, 
+        error: error instanceof Error ? error.message : 'Unknown error' 
+      });
+      totalErrors++;
+    }
+  }
+
+  log('Ad performance sync completed', { totalSynced, totalErrors });
+  return { synced: totalSynced, errors: totalErrors };
+}
+
 export async function handleAdSpendSync() {
   const log = (step: string, data: Record<string, any> = {}) => {
     console.log(`[Ad Spend Sync] ${step}:`, data);
@@ -114,7 +224,7 @@ export async function handleAdSpendSync() {
     
     log('Syncing for date (DAILY SYNC - current day only)', { 
       date: dateString,
-      note: 'Only syncing current day. Historical data requires manual backfill.'
+      note: 'Only syncing current day. Overwrites existing data for today. Historical data requires manual backfill.'
     });
 
     // Obtener todas las integraciones activas de Meta
@@ -153,6 +263,8 @@ export async function handleAdSpendSync() {
 
     let totalProcessed = 0;
     let totalErrors = 0;
+    let totalAdPerformanceSynced = 0;
+    let totalAdPerformanceErrors = 0;
 
     for (const integration of integrations) {
       try {
@@ -212,6 +324,19 @@ export async function handleAdSpendSync() {
           integrationId: integration.id,
           dataCount: adSpendData.length 
         });
+
+        // También sincronizar datos detallados de ad performance
+        const adPerformanceResult = await syncAdPerformance(accessToken, activeAdAccounts, dateString);
+        
+        log('Ad performance sync completed', {
+          integrationId: integration.id,
+          synced: adPerformanceResult.synced,
+          errors: adPerformanceResult.errors
+        });
+
+        // Acumular estadísticas de ad performance
+        totalAdPerformanceSynced += adPerformanceResult.synced;
+        totalAdPerformanceErrors += adPerformanceResult.errors;
 
         // Guardar los datos en la base de datos
         for (const spendData of adSpendData) {
@@ -294,14 +419,18 @@ export async function handleAdSpendSync() {
     log('Ad spend sync completed', { 
       totalProcessed,
       totalErrors,
+      totalAdPerformanceSynced,
+      totalAdPerformanceErrors,
       date: dateString
     });
 
     return new Response(JSON.stringify({
       success: true,
-      message: 'Ad spend sync completed',
+      message: 'Ad spend and performance sync completed',
       processed: totalProcessed,
       errors: totalErrors,
+      adPerformanceSynced: totalAdPerformanceSynced,
+      adPerformanceErrors: totalAdPerformanceErrors,
       date: dateString
     }), {
       status: 200,
