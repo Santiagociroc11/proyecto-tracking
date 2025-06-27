@@ -802,7 +802,36 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // ===== NUEVA LÓGICA UTM: BASADA EN AD_PERFORMANCE =====
       console.log('=== CONSTRUYENDO NUEVA TABLA UTM ===');
       
-      // 1. Obtener campañas, adsets y ads que gastaron en el período
+      // 1. Primero, identificar qué campañas/adsets/ads generaron tracking events para este producto
+      const campaignsWithTracking = new Set<string>();
+      const adsetsWithTracking = new Set<string>();
+      const adsWithTracking = new Set<string>();
+      
+      events.forEach(event => {
+        if (event.event_data?.utm_data) {
+          const utmData = event.event_data.utm_data;
+          
+          // Extraer IDs de los UTMs si están disponibles
+          const campaignId = extractUtmId(utmData.utm_campaign || '');
+          const adsetId = extractUtmId(utmData.utm_medium || '');
+          const adId = extractUtmId(utmData.utm_content || '');
+          
+          if (campaignId) campaignsWithTracking.add(campaignId);
+          if (adsetId) adsetsWithTracking.add(adsetId);
+          if (adId) adsWithTracking.add(adId);
+          
+          // También agregar por nombres para matching secundario
+          if (utmData.utm_campaign) campaignsWithTracking.add(utmData.utm_campaign);
+          if (utmData.utm_medium) adsetsWithTracking.add(utmData.utm_medium);
+          if (utmData.utm_content) adsWithTracking.add(utmData.utm_content);
+        }
+      });
+      
+      console.log(`Campañas con tracking: ${campaignsWithTracking.size}`);
+      console.log(`Adsets con tracking: ${adsetsWithTracking.size}`);
+      console.log(`Ads con tracking: ${adsWithTracking.size}`);
+      
+      // 2. Obtener campañas, adsets y ads que gastaron en el período
       const { data: adPerformanceForUtm } = await supabase
         .from('ad_performance')
         .select(`
@@ -820,13 +849,34 @@ export default function AnalyticsDashboard({ productId }: Props) {
         .in('product_ad_account_id', productAdAccountIds)
         .gt('spend', 0); // Solo los que gastaron
       
-      console.log(`Ads que gastaron: ${adPerformanceForUtm?.length || 0}`);
+      console.log(`Ads que gastaron (total): ${adPerformanceForUtm?.length || 0}`);
       
-      if (adPerformanceForUtm && adPerformanceForUtm.length > 0) {
-        // 2. Crear la base de la tabla UTM con las campañas que gastaron
+      // 3. Filtrar solo los ads que generaron tracking events para este producto
+      const filteredAdPerformance = adPerformanceForUtm?.filter(ad => {
+        // Verificar por ID exacto (más preciso)
+        const hasTrackingById = (
+          campaignsWithTracking.has(ad.campaign_id) ||
+          adsetsWithTracking.has(ad.adset_id) ||
+          adsWithTracking.has(ad.ad_id)
+        );
+        
+        // Verificar por nombre (fallback)
+        const hasTrackingByName = (
+          campaignsWithTracking.has(ad.campaign_name || '') ||
+          adsetsWithTracking.has(ad.adset_name || '') ||
+          adsWithTracking.has(ad.ad_name || '')
+        );
+        
+        return hasTrackingById || hasTrackingByName;
+      }) || [];
+      
+      console.log(`Ads filtrados con tracking para este producto: ${filteredAdPerformance.length}`);
+      
+      if (filteredAdPerformance.length > 0) {
+        // 4. Crear la base de la tabla UTM con las campañas filtradas que gastaron
         const utmBaseStats = new Map();
         
-        adPerformanceForUtm.forEach(ad => {
+        filteredAdPerformance.forEach(ad => {
           const key = `${ad.campaign_id}|${ad.adset_id}|${ad.ad_id}`;
           
           if (!utmBaseStats.has(key)) {
@@ -854,9 +904,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           stats.ad_spend += parseFloat(ad.spend) || 0;
         });
         
-        console.log(`Grupos UTM base creados: ${utmBaseStats.size}`);
+        console.log(`Grupos UTM base creados (filtrados): ${utmBaseStats.size}`);
         
-        // 3. Mapear tracking events por sesión para rastrear el flujo UTM
+        // 5. Mapear tracking events por sesión para rastrear el flujo UTM
         const sessionUtmMap = new Map(); // session_id -> utm_data de la visita
         const clickUtmMap = new Map();   // session_id -> utm_data del click
         
@@ -881,7 +931,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         console.log(`Sesiones con UTM de visita: ${sessionUtmMap.size}`);
         console.log(`Sesiones con UTM de click: ${clickUtmMap.size}`);
         
-        // 4. Procesar eventos y asignar a las campañas correspondientes
+        // 6. Procesar eventos y asignar a las campañas correspondientes
         events.forEach(event => {
           const sessionId = event.session_id || event.visitor_id;
           let utmData = null;
@@ -941,7 +991,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           }
         });
         
-        // 5. Convertir a array final con métricas calculadas
+        // 7. Convertir a array final con métricas calculadas
         newUtmStats = Array.from(utmBaseStats.values()).map(stat => {
           stat.unique_visits = stat.visitorSet.size;
           stat.unique_clicks = stat.clickSet.size;
