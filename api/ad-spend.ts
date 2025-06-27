@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase-server.js';
 import crypto from 'crypto';
+import { formatDateToTimezone } from '../src/utils/date.js';
 
 // Función para descifrar tokens (compatible con el formato de auth.ts)
 function decryptToken(encryptedText: string, key: string): string {
@@ -38,8 +39,46 @@ interface AdSpendData {
   date: string;
 }
 
-async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[], dateString: string): Promise<AdSpendData[]> {
+// Función auxiliar para obtener la fecha en la zona horaria del usuario
+async function getDateStringForUser(userId: string, baseDate?: Date): Promise<string> {
+  try {
+    // Obtener la zona horaria del usuario
+    const { data: settings, error } = await supabase
+      .from('user_settings')
+      .select('timezone')
+      .eq('user_id', userId)
+      .single();
+
+    if (error || !settings?.timezone) {
+      console.log(`No timezone found for user ${userId}, using UTC`);
+      const date = baseDate || new Date();
+      return date.toISOString().split('T')[0];
+    }
+
+    const date = baseDate || new Date();
+    const dateInUserTimezone = formatDateToTimezone(date, settings.timezone);
+    console.log(`Date for user ${userId} (${settings.timezone}): ${dateInUserTimezone}`);
+    return dateInUserTimezone;
+  } catch (error) {
+    console.error('Error getting user timezone, falling back to UTC:', error);
+    const date = baseDate || new Date();
+    return date.toISOString().split('T')[0];
+  }
+}
+
+async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<AdSpendData[]> {
   const results: AdSpendData[] = [];
+  
+  // Si tenemos userId, usar su zona horaria para las fechas de Facebook API
+  let facebookDateString = dateString;
+  if (userId) {
+    try {
+      facebookDateString = await getDateStringForUser(userId);
+      console.log(`[Ad Spend Debug] Using user timezone date: ${facebookDateString} (original: ${dateString})`);
+    } catch (error) {
+      console.log(`[Ad Spend Debug] Could not get user timezone, using provided date: ${dateString}`);
+    }
+  }
   
   // DEBUG: Log del token y la URL para depuración
   console.log(`[Ad Spend Debug] Using Access Token starting with: ${accessToken ? accessToken.substring(0, 10) : 'N/A'}...`);
@@ -53,7 +92,7 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
         access_token: accessToken,
         fields: 'spend,account_currency',
         level: 'account',
-        time_range: JSON.stringify({ since: dateString, until: dateString }),
+        time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
         limit: '1'
       });
 
@@ -96,13 +135,24 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
 }
 
 // Función para sincronizar datos detallados de ad performance
-async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string): Promise<{ synced: number; errors: number }> {
+async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<{ synced: number; errors: number }> {
   const log = (step: string, data: Record<string, any> = {}) => {
     console.log(`[Ad Performance Sync] ${step}:`, data);
   };
 
   let totalSynced = 0;
   let totalErrors = 0;
+
+  // Si tenemos userId, usar su zona horaria para las fechas de Facebook API
+  let facebookDateString = dateString;
+  if (userId) {
+    try {
+      facebookDateString = await getDateStringForUser(userId);
+      log('Using user timezone date', { userId, facebookDate: facebookDateString, originalDate: dateString });
+    } catch (error) {
+      log('Could not get user timezone, using provided date', { userId, error: error instanceof Error ? error.message : 'Unknown error' });
+    }
+  }
 
   for (const accountId of adAccountIds) {
     try {
@@ -114,7 +164,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
         access_token: accessToken,
         fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
         level: 'ad',
-        time_range: JSON.stringify({ since: dateString, until: dateString }),
+        time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
         time_increment: '1',
         limit: '2000'
       });
@@ -317,16 +367,16 @@ export async function handleAdSpendSync() {
           continue;
         }
 
-        // Obtener datos de gasto de Meta
-        const adSpendData = await fetchAdSpendFromMeta(accessToken, activeAdAccounts, dateString);
+        // Obtener datos de gasto de Meta (con zona horaria del usuario)
+        const adSpendData = await fetchAdSpendFromMeta(accessToken, activeAdAccounts, dateString, integration.user_id);
         
         log('Fetched ad spend data', { 
           integrationId: integration.id,
           dataCount: adSpendData.length 
         });
 
-        // También sincronizar datos detallados de ad performance
-        const adPerformanceResult = await syncAdPerformance(accessToken, activeAdAccounts, dateString);
+        // También sincronizar datos detallados de ad performance (con zona horaria del usuario)
+        const adPerformanceResult = await syncAdPerformance(accessToken, activeAdAccounts, dateString, integration.user_id);
         
         log('Ad performance sync completed', {
           integrationId: integration.id,
