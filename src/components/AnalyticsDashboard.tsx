@@ -70,6 +70,9 @@ interface AnalyticsData {
     medium: string;
     campaign: string;
     content: string;
+    medium_raw?: string; // Valor completo con ID
+    campaign_raw?: string; // Valor completo con ID
+    content_raw?: string; // Valor completo con ID
     visits: number;
     unique_visits: number;
     clicks: number;
@@ -112,6 +115,52 @@ const decodeName = (name: string) => {
   } catch (e) {
     return name;
   }
+};
+
+const cleanUtmName = (name: string) => {
+  try {
+    // Decodificar primero
+    const decoded = decodeName(name);
+    // Si contiene |, tomar solo la parte antes del |
+    const parts = decoded.split('|');
+    return parts[0].trim();
+  } catch (e) {
+    return name;
+  }
+};
+
+const extractUtmId = (utmValue: string) => {
+  try {
+    const decoded = decodeName(utmValue);
+    const parts = decoded.split('|');
+    // Si tiene ID (parte después del |), lo devuelve, sino devuelve null
+    return parts.length > 1 && parts[1].trim() ? parts[1].trim() : null;
+  } catch (e) {
+    return null;
+  }
+};
+
+const getUtmGroupingKey = (campaign: string, medium: string, content: string) => {
+  // Intentar extraer IDs
+  const campaignId = extractUtmId(campaign);
+  const mediumId = extractUtmId(medium);
+  const contentId = extractUtmId(content);
+  
+  // Si tiene IDs, usar los IDs para agrupar (más preciso)
+  if (campaignId || mediumId || contentId) {
+    return JSON.stringify({ 
+      campaign_id: campaignId || campaign || 'none',
+      medium_id: mediumId || medium || 'none', 
+      content_id: contentId || content || 'none'
+    });
+  }
+  
+  // Si no tiene IDs, usar nombres para agrupar (backward compatibility)
+  return JSON.stringify({ 
+    medium: medium || 'none', 
+    campaign: campaign || 'none', 
+    content: content || 'none' 
+  });
 };
 
 interface Props {
@@ -630,7 +679,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           const isInvalidUtm = campaign.includes('{{') || medium.includes('{{') || content.includes('{{');
 
           if (!isInvalidUtm) {
-            const utmKey = JSON.stringify({ medium: medium || 'none', campaign: campaign || 'none', content: content || 'none' });
+            // Agrupación inteligente: por ID si existe, por nombre si no
+            const utmKey = getUtmGroupingKey(campaign, medium, content);
 
             if (!utmStats.has(utmKey)) {
               utmStats.set(utmKey, {
@@ -638,10 +688,20 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0,
                 revenue: 0, ad_spend: 0, roas: 0,
                 visitorSet: new Set(), clickSet: new Set(),
+                lastEventDate: event.created_at, // Para rastrear el nombre más reciente
               });
             }
             
             const stats = utmStats.get(utmKey);
+            
+            // Actualizar nombres si este evento es más reciente
+            if (new Date(event.created_at) > new Date(stats.lastEventDate)) {
+              stats.campaign = campaign || 'none';
+              stats.medium = medium || 'none';
+              stats.content = content || 'none';
+              stats.lastEventDate = event.created_at;
+            }
+            
             stats.visitorSet.add(event.visitor_id);
 
             if (event.event_type === 'pageview') {
@@ -665,20 +725,27 @@ export default function AnalyticsDashboard({ productId }: Props) {
       });
 
       const utmStatsArray = Array.from(utmStats.values())
-        .map((stat) => ({
-          ...stat,
-          campaign: decodeName(stat.campaign),
-          medium: decodeName(stat.medium),
-          content: decodeName(stat.content),
-          revenue: stat.revenue,
-          conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
-          unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
-          persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
-          unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
-          checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
-          unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
-          order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
-        }))
+        .map((stat) => {
+          // Limpiar campos internos antes de enviar al frontend
+          const { lastEventDate, visitorSet, clickSet, ...cleanStat } = stat;
+          return {
+            ...cleanStat,
+            campaign: cleanUtmName(cleanStat.campaign),
+            medium: cleanUtmName(cleanStat.medium),
+            content: cleanUtmName(cleanStat.content),
+            campaign_raw: decodeName(cleanStat.campaign), // Mantener el valor completo para futuros análisis
+            medium_raw: decodeName(cleanStat.medium),
+            content_raw: decodeName(cleanStat.content),
+            revenue: cleanStat.revenue,
+            conversion_rate: cleanStat.visits > 0 ? (cleanStat.purchases / cleanStat.visits) * 100 : 0,
+            unique_conversion_rate: cleanStat.unique_visits > 0 ? (cleanStat.purchases / cleanStat.unique_visits) * 100 : 0,
+            persuasion_rate: cleanStat.visits > 0 ? (cleanStat.clicks / cleanStat.visits) * 100 : 0,
+            unique_persuasion_rate: cleanStat.unique_visits > 0 ? (cleanStat.unique_clicks / cleanStat.unique_visits) * 100 : 0,
+            checkout_conversion_rate: cleanStat.clicks > 0 ? (cleanStat.purchases / cleanStat.clicks) * 100 : 0,
+            unique_checkout_conversion_rate: cleanStat.unique_clicks > 0 ? (cleanStat.purchases / cleanStat.unique_clicks) * 100 : 0,
+            order_bump_rate: cleanStat.purchases > 0 ? (cleanStat.order_bumps / cleanStat.purchases) * 100 : 0,
+          };
+        })
         .sort((a, b) => b.visits - a.visits);
 
       const dailyStatsArray = Array.from(dailyStats.values()).sort((a, b) =>
@@ -744,21 +811,26 @@ export default function AnalyticsDashboard({ productId }: Props) {
           const utmAdSpend = totalAdSpend * (stat.visits / totalVisitsForPeriod);
           const utmRoas = utmAdSpend > 0 ? stat.revenue / utmAdSpend : 0;
           
+          // Limpiar campos internos antes de enviar al frontend
+          const { lastEventDate, visitorSet, clickSet, ...cleanStat } = stat;
           return {
-            ...stat,
-            campaign: decodeName(stat.campaign),
-            medium: decodeName(stat.medium),
-            content: decodeName(stat.content),
-            revenue: stat.revenue,
+            ...cleanStat,
+            campaign: cleanUtmName(cleanStat.campaign),
+            medium: cleanUtmName(cleanStat.medium),
+            content: cleanUtmName(cleanStat.content),
+            campaign_raw: decodeName(cleanStat.campaign), // Mantener el valor completo para futuros análisis
+            medium_raw: decodeName(cleanStat.medium),
+            content_raw: decodeName(cleanStat.content),
+            revenue: cleanStat.revenue,
             ad_spend: utmAdSpend,
             roas: utmRoas,
-            conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
-            unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
-            persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
-            unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
-            checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
-            unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
-            order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
+            conversion_rate: cleanStat.visits > 0 ? (cleanStat.purchases / cleanStat.visits) * 100 : 0,
+            unique_conversion_rate: cleanStat.unique_visits > 0 ? (cleanStat.purchases / cleanStat.unique_visits) * 100 : 0,
+            persuasion_rate: cleanStat.visits > 0 ? (cleanStat.clicks / cleanStat.visits) * 100 : 0,
+            unique_persuasion_rate: cleanStat.unique_visits > 0 ? (cleanStat.unique_clicks / cleanStat.unique_visits) * 100 : 0,
+            checkout_conversion_rate: cleanStat.clicks > 0 ? (cleanStat.purchases / cleanStat.clicks) * 100 : 0,
+            unique_checkout_conversion_rate: cleanStat.unique_clicks > 0 ? (cleanStat.purchases / cleanStat.unique_clicks) * 100 : 0,
+            order_bump_rate: cleanStat.purchases > 0 ? (cleanStat.order_bumps / cleanStat.purchases) * 100 : 0,
           };
         })
         .sort((a, b) => b.visits - a.visits);
