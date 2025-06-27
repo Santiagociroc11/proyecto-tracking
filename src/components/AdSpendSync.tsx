@@ -6,6 +6,9 @@ interface SyncResult {
   message?: string;
   processed?: number;
   errors?: number;
+  adPerformanceSynced?: number;
+  adPerformanceErrors?: number;
+  adPerformanceSkipped?: number;
   date?: string;
   error?: string;
 }
@@ -62,6 +65,15 @@ export default function AdSpendSync() {
         y los guarda en la base de datos para cada producto configurado.
       </p>
 
+      <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+        <h4 className="text-sm font-medium text-green-900 mb-2">🛡️ Protección de Datos Históricos</h4>
+        <div className="text-xs text-green-700 space-y-1">
+          <p>• Los datos del día actual se actualizarán cada vez que se ejecute</p>
+          <p>• Los datos de días anteriores están protegidos y NO se sobreescriben</p>
+          <p>• Esto preserva el historial exacto de gastos de cada día</p>
+        </div>
+      </div>
+
       <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
         <h4 className="text-sm font-medium text-blue-900 mb-2">🔍 Debug y Verificación</h4>
         <div className="space-y-2">
@@ -99,8 +111,17 @@ export default function AdSpendSync() {
                     <p>{result.message}</p>
                     {typeof result.processed !== 'undefined' && (
                       <div className="mt-2 space-y-1">
-                        <p>• Registros procesados: {result.processed}</p>
+                        <p>• Gastos procesados: {result.processed}</p>
                         <p>• Errores: {result.errors}</p>
+                        {typeof result.adPerformanceSynced !== 'undefined' && (
+                          <>
+                            <p>• Anuncios sincronizados: {result.adPerformanceSynced}</p>
+                            <p>• Errores en anuncios: {result.adPerformanceErrors}</p>
+                            {result.adPerformanceSkipped > 0 && (
+                              <p>• Datos históricos preservados: {result.adPerformanceSkipped}</p>
+                            )}
+                          </>
+                        )}
                         <p>• Fecha: {result.date}</p>
                       </div>
                     )}
@@ -118,8 +139,9 @@ export default function AdSpendSync() {
         <h4 className="text-sm font-medium text-gray-900 mb-2">Información del Cron Job</h4>
         <div className="text-sm text-gray-600 space-y-1">
           <p>• Se ejecuta automáticamente cada 5 minutos</p>
+          <p>• Solo sincroniza datos del día actual (protege historial)</p>
           <p>• Procesa todas las integraciones activas de Meta</p>
-          <p>• Guarda los gastos por producto y cuenta publicitaria</p>
+          <p>• Guarda gastos por producto y datos detallados por anuncio</p>
           <p>• Los datos se usan para calcular ROAS en el dashboard</p>
         </div>
       </div>

@@ -135,13 +135,14 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
 }
 
 // Función para sincronizar datos detallados de ad performance
-async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<{ synced: number; errors: number }> {
+async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<{ synced: number; errors: number; skipped: number }> {
   const log = (step: string, data: Record<string, any> = {}) => {
     console.log(`[Ad Performance Sync] ${step}:`, data);
   };
 
   let totalSynced = 0;
   let totalErrors = 0;
+  let totalSkipped = 0;
 
   // Si tenemos userId, usar su zona horaria para las fechas de Facebook API
   let facebookDateString = dateString;
@@ -153,6 +154,20 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
       log('Could not get user timezone, using provided date', { userId, error: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
+
+  // Obtener la fecha actual para comparación
+  const today = new Date();
+  const todayString = today.toISOString().split('T')[0];
+  
+  // Verificar si la fecha a sincronizar es del día actual
+  const isCurrentDay = facebookDateString === todayString;
+  
+  log('Date comparison for historical data protection', { 
+    syncDate: facebookDateString, 
+    today: todayString, 
+    isCurrentDay,
+    note: isCurrentDay ? 'Will upsert data (current day)' : 'Will preserve existing data (historical)'
+  });
 
   for (const accountId of adAccountIds) {
     try {
@@ -215,22 +230,62 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
               ctr: parseFloat(insight.ctr) || null,
             };
 
-            // Insertar o actualizar en ad_performance
-            const { error: upsertError } = await supabase
-              .from('ad_performance')
-              .upsert(adPerformanceData, {
-                onConflict: 'product_ad_account_id,ad_id,date',
-                ignoreDuplicates: false
-              });
+            if (isCurrentDay) {
+              // Solo hacer upsert si es el día actual
+              const { error: upsertError } = await supabase
+                .from('ad_performance')
+                .upsert(adPerformanceData, {
+                  onConflict: 'product_ad_account_id,ad_id,date',
+                  ignoreDuplicates: false
+                });
 
-            if (upsertError) {
-              log('Error upserting ad performance', { 
-                adId: insight.ad_id, 
-                error: upsertError.message 
-              });
-              totalErrors++;
+              if (upsertError) {
+                log('Error upserting ad performance', { 
+                  adId: insight.ad_id, 
+                  error: upsertError.message 
+                });
+                totalErrors++;
+              } else {
+                totalSynced++;
+              }
             } else {
-              totalSynced++;
+              // Para días anteriores, verificar si ya existe antes de insertar
+              const { data: existingRecord } = await supabase
+                .from('ad_performance')
+                .select('id')
+                .eq('product_ad_account_id', productAdAccount.id)
+                .eq('ad_id', insight.ad_id)
+                .eq('date', facebookDateString)
+                .single();
+
+              if (existingRecord) {
+                // Ya existe un registro para este día anterior, no lo sobreescribimos
+                log('Preserving historical ad performance data', { 
+                  adId: insight.ad_id, 
+                  date: facebookDateString,
+                  note: 'Historical data protected from overwrite'
+                });
+                totalSkipped++;
+              } else {
+                // No existe, podemos insertarlo
+                const { error: insertError } = await supabase
+                  .from('ad_performance')
+                  .insert(adPerformanceData);
+
+                if (insertError) {
+                  log('Error inserting historical ad performance', { 
+                    adId: insight.ad_id, 
+                    error: insertError.message 
+                  });
+                  totalErrors++;
+                } else {
+                  log('Inserted historical ad performance data', { 
+                    adId: insight.ad_id, 
+                    date: facebookDateString 
+                  });
+                  totalSynced++;
+                }
+              }
             }
           } catch (error) {
             log('Error processing individual ad', { 
@@ -251,8 +306,8 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
     }
   }
 
-  log('Ad performance sync completed', { totalSynced, totalErrors });
-  return { synced: totalSynced, errors: totalErrors };
+  log('Ad performance sync completed', { totalSynced, totalErrors, totalSkipped });
+  return { synced: totalSynced, errors: totalErrors, skipped: totalSkipped };
 }
 
 export async function handleAdSpendSync() {
@@ -315,6 +370,7 @@ export async function handleAdSpendSync() {
     let totalErrors = 0;
     let totalAdPerformanceSynced = 0;
     let totalAdPerformanceErrors = 0;
+    let totalAdPerformanceSkipped = 0;
 
     for (const integration of integrations) {
       try {
@@ -381,12 +437,26 @@ export async function handleAdSpendSync() {
         log('Ad performance sync completed', {
           integrationId: integration.id,
           synced: adPerformanceResult.synced,
-          errors: adPerformanceResult.errors
+          errors: adPerformanceResult.errors,
+          skipped: adPerformanceResult.skipped
         });
 
         // Acumular estadísticas de ad performance
         totalAdPerformanceSynced += adPerformanceResult.synced;
         totalAdPerformanceErrors += adPerformanceResult.errors;
+        totalAdPerformanceSkipped += adPerformanceResult.skipped;
+
+        // Verificar si estamos sincronizando el día actual para ad_spend
+        const today = new Date();
+        const todayString = today.toISOString().split('T')[0];
+        const isCurrentDay = dateString === todayString;
+        
+        log('Ad spend date comparison for historical data protection', { 
+          syncDate: dateString, 
+          today: todayString, 
+          isCurrentDay,
+          note: isCurrentDay ? 'Will upsert ad spend data (current day)' : 'Will preserve existing ad spend data (historical)'
+        });
 
         // Guardar los datos en la base de datos
         for (const spendData of adSpendData) {
@@ -419,34 +489,85 @@ export async function handleAdSpendSync() {
 
             // Insertar/actualizar el gasto para cada relación producto-cuenta publicitaria
             for (const productAdAccount of productAdAccounts) {
-              const { error: upsertError } = await supabase
-                .from('ad_spend')
-                .upsert({
-                  product_id: productAdAccount.product_id,
-                  product_ad_account_id: productAdAccount.id,
-                  date: spendData.date,
-                  spend: spendData.spend,
-                  currency: spendData.currency,
-                  created_at: new Date().toISOString()
-                }, {
-                  onConflict: 'product_id, date'
-                });
+              if (isCurrentDay) {
+                // Solo hacer upsert si es el día actual
+                const { error: upsertError } = await supabase
+                  .from('ad_spend')
+                  .upsert({
+                    product_id: productAdAccount.product_id,
+                    product_ad_account_id: productAdAccount.id,
+                    date: spendData.date,
+                    spend: spendData.spend,
+                    currency: spendData.currency,
+                    created_at: new Date().toISOString()
+                  }, {
+                    onConflict: 'product_id, date'
+                  });
 
-              if (upsertError) {
-                log('Error upserting ad spend', {
-                  productId: productAdAccount.product_id,
-                  adAccountId: spendData.ad_account_id,
-                  error: upsertError.message
-                });
-                totalErrors++;
+                if (upsertError) {
+                  log('Error upserting ad spend', {
+                    productId: productAdAccount.product_id,
+                    adAccountId: spendData.ad_account_id,
+                    error: upsertError.message
+                  });
+                  totalErrors++;
+                } else {
+                  log('Ad spend saved (current day)', {
+                    productId: productAdAccount.product_id,
+                    adAccountId: spendData.ad_account_id,
+                    spend: spendData.spend,
+                    currency: spendData.currency
+                  });
+                  totalProcessed++;
+                }
               } else {
-                log('Ad spend saved', {
-                  productId: productAdAccount.product_id,
-                  adAccountId: spendData.ad_account_id,
-                  spend: spendData.spend,
-                  currency: spendData.currency
-                });
-                totalProcessed++;
+                // Para días anteriores, verificar si ya existe antes de insertar
+                const { data: existingSpend } = await supabase
+                  .from('ad_spend')
+                  .select('id')
+                  .eq('product_id', productAdAccount.product_id)
+                  .eq('date', spendData.date)
+                  .single();
+
+                if (existingSpend) {
+                  // Ya existe un registro para este día anterior, no lo sobreescribimos
+                  log('Preserving historical ad spend data', { 
+                    productId: productAdAccount.product_id, 
+                    adAccountId: spendData.ad_account_id,
+                    date: spendData.date,
+                    note: 'Historical data protected from overwrite'
+                  });
+                } else {
+                  // No existe, podemos insertarlo
+                  const { error: insertError } = await supabase
+                    .from('ad_spend')
+                    .insert({
+                      product_id: productAdAccount.product_id,
+                      product_ad_account_id: productAdAccount.id,
+                      date: spendData.date,
+                      spend: spendData.spend,
+                      currency: spendData.currency,
+                      created_at: new Date().toISOString()
+                    });
+
+                  if (insertError) {
+                    log('Error inserting historical ad spend', {
+                      productId: productAdAccount.product_id,
+                      adAccountId: spendData.ad_account_id,
+                      error: insertError.message
+                    });
+                    totalErrors++;
+                  } else {
+                    log('Inserted historical ad spend data', {
+                      productId: productAdAccount.product_id,
+                      adAccountId: spendData.ad_account_id,
+                      spend: spendData.spend,
+                      currency: spendData.currency,
+                      date: spendData.date
+                    });
+                    totalProcessed++;
+                  }
+                }
               }
             }
           } catch (error) {
@@ -471,6 +592,7 @@ export async function handleAdSpendSync() {
       totalErrors,
       totalAdPerformanceSynced,
       totalAdPerformanceErrors,
+      totalAdPerformanceSkipped,
       date: dateString
     });
 
@@ -481,6 +603,7 @@ export async function handleAdSpendSync() {
       errors: totalErrors,
       adPerformanceSynced: totalAdPerformanceSynced,
       adPerformanceErrors: totalAdPerformanceErrors,
+      adPerformanceSkipped: totalAdPerformanceSkipped,
       date: dateString
     }), {
       status: 200,
