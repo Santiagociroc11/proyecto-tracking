@@ -601,7 +601,6 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return;
       }
 
-      console.log(`Processing ${events.length} events. First event timestamp: ${events[0].created_at}, in local time: ${formatDateToTimezone(events[0].created_at, timezone)}`);
 
       // Inicializamos mapas y sets para estadísticas
       const uniqueVisitors = new Set<string>();
@@ -613,14 +612,18 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let totalMainProductRevenue = 0;
       let totalOrderBumpRevenue = 0;
 
-      // Para estadísticas por UTM (solo datos limpios)
-      const utmStats = new Map<string, any>();
-
       // Para estadísticas diarias (todos los datos)
       const dailyStats = new Map<string, any>();
       const dailyUniqueVisitors = new Map<string, Set<string>>();
       const dailyUniqueClicks = new Map<string, Set<string>>();
-      let utmStatsArrayWithAdSpend: any[] = [];
+      
+      // NUEVA LÓGICA UTM: Basada en ad_performance
+      let newUtmStats: any[] = [];
+
+      // Arrays para rastrear las ventas y sus fechas
+      const allPurchases: Array<{eventType: string, timestamp: string, localTime: string, hasUtm: boolean, utmData?: any}> = [];
+      let totalMainPurchases = 0;
+      let totalOrderBumpPurchases = 0;
 
       events.forEach((event) => {
         // --- Procesamiento para todos los eventos (cifras totales y diarias) ---
@@ -655,102 +658,48 @@ export default function AnalyticsDashboard({ productId }: Props) {
           dayUniqueClicks.add(event.visitor_id);
         } else if (event.event_type === 'compra_hotmart') {
           totalPurchases++;
+          totalMainPurchases++; // Contador separado para ventas principales
           dayStats.purchases++;
           const price = getEventPrice(event);
           totalMainProductRevenue += price;
           dayStats.revenue += price;
+          
+          // Rastrear esta venta
+          allPurchases.push({
+            eventType: 'compra_hotmart',
+            timestamp: event.created_at,
+            localTime: formatDateToTimezone(event.created_at, timezone),
+            hasUtm: !!event.event_data?.utm_data,
+            utmData: event.event_data?.utm_data
+          });
         } else if (event.event_type === 'compra_hotmart_orderbump') {
           totalOrderBumps++;
-          totalPurchases++; // Contar order bump como una compra
+          totalOrderBumpPurchases++; // Contador separado para order bumps
+          totalPurchases++; // Contar order bump como una compra total
           dayStats.order_bumps++;
           dayStats.purchases++; // Contar order bump como una compra en el día
           const price = getEventPrice(event);
           totalOrderBumpRevenue += price;
           dayStats.revenue += price;
+          
+          // Rastrear esta venta
+          allPurchases.push({
+            eventType: 'compra_hotmart_orderbump',
+            timestamp: event.created_at,
+            localTime: formatDateToTimezone(event.created_at, timezone),
+            hasUtm: !!event.event_data?.utm_data,
+            utmData: event.event_data?.utm_data
+          });
         }
 
         dayStats.unique_visits = dayUniqueVisitors.size;
         dayStats.unique_clicks = dayUniqueClicks.size;
         dailyStats.set(localDate, dayStats);
 
-        // --- Procesamiento solo para eventos con UTMs válidos (análisis de atribución) ---
-        const utmData = event.event_data?.utm_data;
-        if (utmData) {
-          const campaign = utmData.utm_campaign || '';
-          const medium = utmData.utm_medium || '';
-          const content = utmData.utm_content || '';
-          const isInvalidUtm = campaign.includes('{{') || medium.includes('{{') || content.includes('{{');
-
-          if (!isInvalidUtm) {
-            // Agrupación inteligente: por ID si existe, por nombre si no
-            const utmKey = getUtmGroupingKey(campaign, medium, content);
-
-            if (!utmStats.has(utmKey)) {
-              utmStats.set(utmKey, {
-                medium: medium || 'none', campaign: campaign || 'none', content: content || 'none',
-                visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0, purchases: 0, order_bumps: 0,
-                revenue: 0, ad_spend: 0, roas: 0,
-                visitorSet: new Set(), clickSet: new Set(),
-                lastEventDate: event.created_at, // Para rastrear el nombre más reciente
-              });
-            }
-            
-            const stats = utmStats.get(utmKey);
-            
-            // Actualizar nombres si este evento es más reciente
-            if (new Date(event.created_at) > new Date(stats.lastEventDate)) {
-              stats.campaign = campaign || 'none';
-              stats.medium = medium || 'none';
-              stats.content = content || 'none';
-              stats.lastEventDate = event.created_at;
-            }
-            
-            stats.visitorSet.add(event.visitor_id);
-
-            if (event.event_type === 'pageview') {
-              stats.visits++;
-            } else if (event.event_type === 'hotmart_click') {
-              stats.clicks++;
-              stats.clickSet.add(event.visitor_id);
-            } else if (event.event_type === 'compra_hotmart') {
-              stats.purchases++;
-              stats.revenue += getEventPrice(event);
-            } else if (event.event_type === 'compra_hotmart_orderbump') {
-              stats.order_bumps++;
-              stats.purchases++; // Contar order bump como una compra
-              stats.revenue += getEventPrice(event);
-            }
-
-            stats.unique_visits = stats.visitorSet.size;
-            stats.unique_clicks = stats.clickSet.size;
-            utmStats.set(utmKey, stats);
-          }
-        }
+        // La nueva lógica UTM se procesa después de obtener ad_performance
       });
 
-      const utmStatsArray = Array.from(utmStats.values())
-        .map((stat) => {
-          // Limpiar campos internos antes de enviar al frontend
-          const { lastEventDate, visitorSet, clickSet, ...cleanStat } = stat;
-          return {
-            ...cleanStat,
-            campaign: cleanUtmName(cleanStat.campaign),
-            medium: cleanUtmName(cleanStat.medium),
-            content: cleanUtmName(cleanStat.content),
-            campaign_raw: decodeName(cleanStat.campaign), // Mantener el valor completo para futuros análisis
-            medium_raw: decodeName(cleanStat.medium),
-            content_raw: decodeName(cleanStat.content),
-            revenue: cleanStat.revenue,
-            conversion_rate: cleanStat.visits > 0 ? (cleanStat.purchases / cleanStat.visits) * 100 : 0,
-            unique_conversion_rate: cleanStat.unique_visits > 0 ? (cleanStat.purchases / cleanStat.unique_visits) * 100 : 0,
-            persuasion_rate: cleanStat.visits > 0 ? (cleanStat.clicks / cleanStat.visits) * 100 : 0,
-            unique_persuasion_rate: cleanStat.unique_visits > 0 ? (cleanStat.unique_clicks / cleanStat.unique_visits) * 100 : 0,
-            checkout_conversion_rate: cleanStat.clicks > 0 ? (cleanStat.purchases / cleanStat.clicks) * 100 : 0,
-            unique_checkout_conversion_rate: cleanStat.unique_clicks > 0 ? (cleanStat.purchases / cleanStat.unique_clicks) * 100 : 0,
-            order_bump_rate: cleanStat.purchases > 0 ? (cleanStat.order_bumps / cleanStat.purchases) * 100 : 0,
-          };
-        })
-        .sort((a, b) => b.visits - a.visits);
+      // La nueva lógica UTM se construirá después de procesar ad_performance
 
       const dailyStatsArray = Array.from(dailyStats.values()).sort((a, b) =>
         a.date.localeCompare(b.date)
@@ -767,11 +716,16 @@ export default function AnalyticsDashboard({ productId }: Props) {
       const productAdAccountIds = productAdAccounts?.map(acc => acc.id) || [];
 
       // Consultar gasto publicitario usando ad_performance (datos reales y detallados)
+      // Convertir fechas locales a UTC para la consulta de ad_performance
+      const adStartUTC = startDate; // startDate ya está en formato YYYY-MM-DD local
+      const adEndUTC = endDate;     // endDate ya está en formato YYYY-MM-DD local
+      
+      
       const { data: adPerformanceData, error: adPerformanceError } = await supabase
         .from('ad_performance')
         .select('spend, date, campaign_name')
-        .gte('date', startDate)
-        .lte('date', endDate)
+        .gte('date', adStartUTC)
+        .lte('date', adEndUTC)
         .in('product_ad_account_id', productAdAccountIds);
 
       if (adPerformanceError) {
@@ -789,14 +743,18 @@ export default function AnalyticsDashboard({ productId }: Props) {
         console.error('Error fetching today ad performance data:', adPerformanceTodayError);
       }
 
-      // Crear set de campañas con tracking para filtrar el gasto total
+      // Para los totales, usar todas las campañas (simplificado por ahora)
       const campaignsWithTrackingForTotals = new Set<string>();
-      for (const stat of utmStats.values()) {
-        const cleanCampaignName = cleanUtmName(stat.campaign);
-        if (cleanCampaignName && cleanCampaignName !== 'none') {
-          campaignsWithTrackingForTotals.add(cleanCampaignName);
+      
+      // Crear set basado en eventos que tienen UTM para este producto
+      events.forEach(event => {
+        if (event.event_data?.utm_data?.utm_campaign) {
+          const cleanCampaignName = cleanUtmName(event.event_data.utm_data.utm_campaign);
+          if (cleanCampaignName && cleanCampaignName !== 'none') {
+            campaignsWithTrackingForTotals.add(cleanCampaignName);
+          }
         }
-      }
+      });
 
       // Calcular totales de ad spend solo para campañas de este producto
       const totalAdSpend = adPerformanceData?.reduce((acc, item) => {
@@ -841,8 +799,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
         };
       }).sort((a, b) => a.date.localeCompare(b.date));
 
-      // Obtener datos reales de ad performance por UTM (segunda consulta más específica)
-      const { data: adPerformanceDataForUtm } = await supabase
+      // ===== NUEVA LÓGICA UTM: BASADA EN AD_PERFORMANCE =====
+      console.log('=== CONSTRUYENDO NUEVA TABLA UTM ===');
+      
+      // 1. Obtener campañas, adsets y ads que gastaron en el período
+      const { data: adPerformanceForUtm } = await supabase
         .from('ad_performance')
         .select(`
           ad_id,
@@ -854,146 +815,151 @@ export default function AnalyticsDashboard({ productId }: Props) {
           spend,
           date
         `)
-        .gte('date', startDate)
-        .lte('date', endDate)
-        .in('product_ad_account_id', productAdAccountIds);
-
-      // Crear mapa de gasto real por campaña/adset/ad
-      const adSpendByUtm = new Map<string, number>();
+        .gte('date', adStartUTC)
+        .lte('date', adEndUTC)
+        .in('product_ad_account_id', productAdAccountIds)
+        .gt('spend', 0); // Solo los que gastaron
       
-      if (adPerformanceDataForUtm) {
-        console.log('=== DEBUG: Ad Performance Data ===');
-        console.log('Total ad performance records:', adPerformanceDataForUtm.length);
-        console.log('First 3 records:', adPerformanceDataForUtm.slice(0, 3));
+      console.log(`Ads que gastaron: ${adPerformanceForUtm?.length || 0}`);
+      
+      if (adPerformanceForUtm && adPerformanceForUtm.length > 0) {
+        // 2. Crear la base de la tabla UTM con las campañas que gastaron
+        const utmBaseStats = new Map();
         
-        console.log('=== DEBUG: UTM Stats Keys ===');
-        for (const [utmKey, utmStat] of utmStats.entries()) {
-          console.log('UTM Key:', utmKey);
-          console.log('UTM Campaign:', utmStat.campaign);
-          console.log('UTM Medium:', utmStat.medium);
-          console.log('UTM Content:', utmStat.content);
-          console.log('---');
-        }
-        
-        // Nueva lógica: cada registro de Facebook se usa solo UNA VEZ
-        const usedFacebookRecords = new Set<string>();
-        
-        console.log('=== DEBUG: Starting precise matching (SUMMING ALL MATCHES) ===');
-        console.log('Total Facebook records:', adPerformanceDataForUtm.length);
-        console.log('Total UTM groups:', utmStats.size);
-        
-        // Creamos un mapa de búsqueda para los datos de tracking
-        const trackingDataByUtm = new Map();
-        const campaignsWithTracking = new Set<string>();
-        
-        for (const stat of utmStats.values()) {
-          const utmKey = getUtmGroupingKey(stat.campaign, stat.medium, stat.content);
-          trackingDataByUtm.set(utmKey, stat);
+        adPerformanceForUtm.forEach(ad => {
+          const key = `${ad.campaign_id}|${ad.adset_id}|${ad.ad_id}`;
           
-          // Registrar las campañas que tienen tracking para este producto
-          const cleanCampaignName = cleanUtmName(stat.campaign);
-          if (cleanCampaignName && cleanCampaignName !== 'none') {
-            campaignsWithTracking.add(cleanCampaignName);
-          }
-        }
-
-        // La nueva base de la verdad: los datos de Facebook (filtrados por producto)
-        const combinedStats = new Map<string, any>();
-
-        adPerformanceDataForUtm.forEach(adPerf => {
-          // Solo incluir campañas que tienen eventos de tracking para este producto
-          const fbCampaignName = adPerf.campaign_name || '';
-          if (!campaignsWithTracking.has(fbCampaignName)) {
-            return; // Saltar esta campaña
-          }
-          
-          // Usamos el nombre limpio de FB para la clave de agrupación
-          const groupKey = JSON.stringify({
-            campaign: adPerf.campaign_name || 'none',
-            medium: adPerf.adset_name || 'none',
-            content: adPerf.ad_name || 'none'
-          });
-
-          if (!combinedStats.has(groupKey)) {
-            combinedStats.set(groupKey, {
-              campaign: adPerf.campaign_name,
-              medium: adPerf.adset_name,
-              content: adPerf.ad_name,
-              visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0,
-              purchases: 0, order_bumps: 0, revenue: 0, ad_spend: 0,
-              // Mantener IDs de FB si están disponibles
-              campaign_raw: `||${adPerf.campaign_id}`,
-              medium_raw: `||${adPerf.adset_id}`,
-              content_raw: `||${adPerf.ad_id}`,
+          if (!utmBaseStats.has(key)) {
+            utmBaseStats.set(key, {
+              campaign_id: ad.campaign_id,
+              adset_id: ad.adset_id,
+              ad_id: ad.ad_id,
+              campaign: ad.campaign_name || 'Sin nombre',
+              medium: ad.adset_name || 'Sin nombre',
+              content: ad.ad_name || 'Sin nombre',
+              ad_spend: 0,
+              visits: 0,
+              unique_visits: 0,
+              clicks: 0,
+              unique_clicks: 0,
+              purchases: 0,
+              order_bumps: 0,
+              revenue: 0,
+              visitorSet: new Set(),
+              clickSet: new Set(),
             });
           }
-
-          const stats = combinedStats.get(groupKey);
-          stats.ad_spend += parseFloat(adPerf.spend) || 0;
+          
+          const stats = utmBaseStats.get(key);
+          stats.ad_spend += parseFloat(ad.spend) || 0;
         });
-
-        // Ahora, atribuimos los datos de tracking a los datos de FB
-        for (const [key, fbStat] of combinedStats.entries()) {
-          // Intentar matchear por ID primero (más preciso)
-          const campaignId = extractUtmId(fbStat.campaign_raw);
-          const adsetId = extractUtmId(fbStat.medium_raw);
-          const adId = extractUtmId(fbStat.content_raw);
-
-          const idKey = getUtmGroupingKey(fbStat.campaign_raw, fbStat.medium_raw, fbStat.content_raw);
+        
+        console.log(`Grupos UTM base creados: ${utmBaseStats.size}`);
+        
+        // 3. Mapear tracking events por sesión para rastrear el flujo UTM
+        const sessionUtmMap = new Map(); // session_id -> utm_data de la visita
+        const clickUtmMap = new Map();   // session_id -> utm_data del click
+        
+        events.forEach(event => {
+          const sessionId = event.session_id || event.visitor_id;
           
-          // Intentar matchear por nombre después
-          const nameKey = getUtmGroupingKey(fbStat.campaign, fbStat.medium, fbStat.content);
-
-          const trackingStats = trackingDataByUtm.get(idKey) || trackingDataByUtm.get(nameKey);
+          if (event.event_type === 'pageview' && event.event_data?.utm_data) {
+            // La visita es la fuente más confiable de UTM
+            sessionUtmMap.set(sessionId, event.event_data.utm_data);
+          } else if (event.event_type === 'hotmart_click') {
+            // El click usa UTM del evento o hereda de la visita
+            let clickUtm = event.event_data?.utm_data;
+            if (!clickUtm && sessionUtmMap.has(sessionId)) {
+              clickUtm = sessionUtmMap.get(sessionId);
+            }
+            if (clickUtm) {
+              clickUtmMap.set(sessionId, clickUtm);
+            }
+          }
+        });
+        
+        console.log(`Sesiones con UTM de visita: ${sessionUtmMap.size}`);
+        console.log(`Sesiones con UTM de click: ${clickUtmMap.size}`);
+        
+        // 4. Procesar eventos y asignar a las campañas correspondientes
+        events.forEach(event => {
+          const sessionId = event.session_id || event.visitor_id;
+          let utmData = null;
           
-          if (trackingStats) {
-            fbStat.visits += trackingStats.visits;
-            fbStat.unique_visits += trackingStats.visitorSet.size;
-            fbStat.clicks += trackingStats.clicks;
-            fbStat.unique_clicks += trackingStats.clickSet.size;
-            fbStat.purchases += trackingStats.purchases;
-            fbStat.order_bumps += trackingStats.order_bumps;
-            fbStat.revenue += trackingStats.revenue;
-            
-            // "Consumir" el tracking data para que no se cuente dos veces
-            trackingDataByUtm.delete(idKey);
-            trackingDataByUtm.delete(nameKey);
+          // Determinar qué UTM usar según el tipo de evento
+          if (event.event_type === 'pageview') {
+            utmData = event.event_data?.utm_data;
+          } else if (event.event_type === 'hotmart_click') {
+            utmData = event.event_data?.utm_data || sessionUtmMap.get(sessionId);
+          } else if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
+            // Las compras usan UTM del click o de la visita
+            utmData = clickUtmMap.get(sessionId) || sessionUtmMap.get(sessionId);
+          }
+          
+          if (!utmData) return;
+          
+          // Buscar matching con ad_performance
+          // Primero por IDs exactos
+          const campaignId = extractUtmId(utmData.utm_campaign || '');
+          const adsetId = extractUtmId(utmData.utm_medium || '');
+          const adId = extractUtmId(utmData.utm_content || '');
+          
+          let matchingKey = null;
+          if (campaignId && adsetId && adId) {
+            matchingKey = `${campaignId}|${adsetId}|${adId}`;
+          }
+          
+          // Si no hay match por ID, intentar por nombres exactos
+          if (!matchingKey || !utmBaseStats.has(matchingKey)) {
+            for (const [key, stats] of utmBaseStats.entries()) {
+              if (stats.campaign === (utmData.utm_campaign || '') &&
+                  stats.medium === (utmData.utm_medium || '') &&
+                  stats.content === (utmData.utm_content || '')) {
+                matchingKey = key;
+                break;
               }
             }
+          }
+          
+          if (matchingKey && utmBaseStats.has(matchingKey)) {
+            const stats = utmBaseStats.get(matchingKey);
+            stats.visitorSet.add(event.visitor_id);
             
-        // Opcional: añadir datos de tracking que no encontraron match en FB
-        for (const [key, trackingStat] of trackingDataByUtm.entries()) {
-          const groupKey = JSON.stringify({
-            campaign: cleanUtmName(trackingStat.campaign),
-            medium: cleanUtmName(trackingStat.medium),
-            content: cleanUtmName(trackingStat.content)
-          });
-
-          if (!combinedStats.has(groupKey)) {
-             combinedStats.set(groupKey, {
-              campaign: cleanUtmName(trackingStat.campaign),
-              medium: cleanUtmName(trackingStat.medium),
-              content: cleanUtmName(trackingStat.content),
-              ad_spend: 0, // No tiene gasto de FB
-              visits: trackingStat.visits,
-              unique_visits: trackingStat.visitorSet ? trackingStat.visitorSet.size : 0,
-              clicks: trackingStat.clicks,
-              unique_clicks: trackingStat.clickSet ? trackingStat.clickSet.size : 0,
-              purchases: trackingStat.purchases,
-              order_bumps: trackingStat.order_bumps,
-              revenue: trackingStat.revenue,
-              campaign_raw: trackingStat.campaign,
-              medium_raw: trackingStat.medium,
-              content_raw: trackingStat.content,
-            });
-        }
-      }
-
-        // Convertir el mapa a un array y calcular métricas finales
-        utmStatsArrayWithAdSpend = Array.from(combinedStats.values()).map(stat => {
+            if (event.event_type === 'pageview') {
+              stats.visits++;
+            } else if (event.event_type === 'hotmart_click') {
+              stats.clicks++;
+              stats.clickSet.add(event.visitor_id);
+            } else if (event.event_type === 'compra_hotmart') {
+              stats.purchases++;
+              stats.revenue += getEventPrice(event);
+            } else if (event.event_type === 'compra_hotmart_orderbump') {
+              stats.order_bumps++;
+              stats.purchases++; // Contar order bump como compra
+              stats.revenue += getEventPrice(event);
+            }
+          }
+        });
+        
+        // 5. Convertir a array final con métricas calculadas
+        newUtmStats = Array.from(utmBaseStats.values()).map(stat => {
+          stat.unique_visits = stat.visitorSet.size;
+          stat.unique_clicks = stat.clickSet.size;
+          
+          // Limpiar sets antes de retornar
+          delete stat.visitorSet;
+          delete stat.clickSet;
+          
           const roas = stat.ad_spend > 0 ? stat.revenue / stat.ad_spend : 0;
+          
           return {
             ...stat,
+            campaign: cleanUtmName(stat.campaign),
+            medium: cleanUtmName(stat.medium),
+            content: cleanUtmName(stat.content),
+            campaign_raw: stat.campaign,
+            medium_raw: stat.medium,
+            content_raw: stat.content,
             roas,
             conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
             unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
@@ -1003,8 +969,67 @@ export default function AnalyticsDashboard({ productId }: Props) {
             unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
             order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
           };
-        }).filter(stat => stat.ad_spend > 0 || stat.visits > 3);
+        }).sort((a, b) => b.ad_spend - a.ad_spend); // Ordenar por gasto
+        
+        console.log(`Tabla UTM final creada con ${newUtmStats.length} elementos`);
+        console.log(`Total purchases en nueva tabla: ${newUtmStats.reduce((acc, utm) => acc + utm.purchases, 0)}`);
+        console.log(`Total order bumps en nueva tabla: ${newUtmStats.reduce((acc, utm) => acc + utm.order_bumps, 0)}`);
+      } else {
+        newUtmStats = [];
+        console.log('No hay datos de ad_performance para construir tabla UTM');
       }
+
+      // ===== LOGS DE DEBUG PARA VENTAS =====
+      console.log('=== SALES DEBUG INFO ===');
+      console.log(`Total purchases found in events: ${totalPurchases}`);
+      console.log(`  - Ventas principales: ${totalMainPurchases}`);
+      console.log(`  - Order bumps: ${totalOrderBumpPurchases}`);
+      console.log(`All purchases array length: ${allPurchases.length}`);
+      console.log(`Query range (local): ${startDate} to ${endDate}`);
+      console.log(`Query range (UTC): ${startUTC} to ${endUTC}`);
+      console.log(`User timezone: ${timezone}`);
+      
+      if (allPurchases.length > 0) {
+        // Ordenar por fecha
+        const sortedPurchases = [...allPurchases].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+        console.log('PRIMERA VENTA:');
+        console.log(`  Timestamp UTC: ${sortedPurchases[0].timestamp}`);
+        console.log(`  Hora local: ${sortedPurchases[0].localTime}`);
+        console.log(`  Tipo: ${sortedPurchases[0].eventType}`);
+        console.log(`  Tiene UTM: ${sortedPurchases[0].hasUtm}`);
+        
+        console.log('ÚLTIMA VENTA:');
+        const lastIndex = sortedPurchases.length - 1;
+        console.log(`  Timestamp UTC: ${sortedPurchases[lastIndex].timestamp}`);
+        console.log(`  Hora local: ${sortedPurchases[lastIndex].localTime}`);
+        console.log(`  Tipo: ${sortedPurchases[lastIndex].eventType}`);
+        console.log(`  Tiene UTM: ${sortedPurchases[lastIndex].hasUtm}`);
+        
+        // Contar ventas con y sin UTM
+        const ventasConUtm = allPurchases.filter(p => p.hasUtm).length;
+        const ventasSinUtm = allPurchases.filter(p => !p.hasUtm).length;
+        const ventasPrincipales = allPurchases.filter(p => p.eventType === 'compra_hotmart').length;
+        const ventasOrderBump = allPurchases.filter(p => p.eventType === 'compra_hotmart_orderbump').length;
+        
+        console.log(`Ventas CON UTM: ${ventasConUtm}`);
+        console.log(`Ventas SIN UTM: ${ventasSinUtm}`);
+        console.log(`Ventas por tipo:`);
+        console.log(`  - Principales: ${ventasPrincipales}`);
+        console.log(`  - Order bumps: ${ventasOrderBump}`);
+      }
+      
+      // Usar la nueva tabla UTM
+      const finalUtmStats = newUtmStats;
+      const totalUtmPurchases = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.purchases, 0);
+      const totalUtmOrderBumps = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.order_bumps, 0);
+      
+      console.log(`Usando NUEVA tabla UTM basada en ad_performance`);
+      console.log(`Ventas en tabla UTM final: ${totalUtmPurchases}`);
+      console.log(`  - Purchases totales: ${totalUtmPurchases}`);
+      console.log(`  - Order bumps: ${totalUtmOrderBumps}`);
+      console.log(`  - Ventas principales: ${totalUtmPurchases - totalUtmOrderBumps}`);
+      console.log(`UTM stats array length: ${finalUtmStats.length}`);
+      console.log('=============================');
 
       setData({
         total_visits: totalVisits,
@@ -1026,7 +1051,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         ad_spend_today: adSpendToday,
         roas: roas,
         roas_today: roasToday,
-        utm_stats: utmStatsArrayWithAdSpend,
+        utm_stats: finalUtmStats,
         daily_stats: dailyStatsArrayWithAdSpend,
         top_sources: sourceStatsArray,
       });
