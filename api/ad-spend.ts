@@ -159,7 +159,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
       log('Fetching ad performance data', { accountId, date: dateString });
 
       // Llamar a Facebook Ads API para obtener datos detallados por anuncio
-      const facebookUrl = `https://graph.facebook.com/v22.0/act_${accountId}/insights`;
+      const facebookUrl = `https://graph.facebook.com/v22.0/${accountId}/insights`;
       const params = new URLSearchParams({
         access_token: accessToken,
         fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
