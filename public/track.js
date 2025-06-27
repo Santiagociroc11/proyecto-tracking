@@ -224,16 +224,71 @@
   lt.__get_current_campaign = function () {
     lt.__log('Campaign', 'Obteniendo datos de campaña');
     try {
-      const campaign = {};
-      this.__config__.campaign_fields.forEach(field => {
-        const value = this.__url_params__[field];
-        if (value) campaign[field] = decodeURIComponent(value);
-      });
-      lt.__log('Campaign', 'Datos encontrados', campaign);
+      const campaign = this.__get_and_persist_utm_data();
+      lt.__log('Campaign', 'Datos de UTM persistidos para la campaña', campaign);
       return Object.keys(campaign).length ? btoa(JSON.stringify(campaign)) : '';
     } catch (e) {
       lt.__log('Campaign', 'Error obteniendo campaña', e);
       return '';
+    }
+  };
+
+  lt.__isUtmParamValid = function(param) {
+    if (!param) return false;
+    const parts = param.split('||');
+    return parts.some(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
+  };
+
+  lt.__cleanUtmParam = function(param) {
+    if (!param) return undefined;
+    const parts = param.split('||');
+    const validPart = parts.find(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
+    return validPart ? validPart.trim() : param;
+  };
+
+  lt.__get_and_persist_utm_data = function () {
+    lt.__log('Attribution', 'Getting and persisting UTM data');
+    const campaign_fields = this.__config__.campaign_fields;
+    const url_params = new URLSearchParams(window.location.search);
+    let utms_from_url = {};
+    let has_valid_utms_in_url = false;
+
+    campaign_fields.forEach(field => {
+        if (url_params.has(field)) {
+            const value = url_params.get(field);
+            utms_from_url[field] = value;
+            if (this.__isUtmParamValid(value)) {
+                has_valid_utms_in_url = true;
+            }
+        }
+    });
+
+    if (has_valid_utms_in_url) {
+        lt.__log('Attribution', 'Valid UTMs found in URL, cleaning and storing them.');
+        const cleaned_utms = {};
+        for (const field in utms_from_url) {
+            cleaned_utms[field] = this.__cleanUtmParam(utms_from_url[field]);
+        }
+        
+        lt.__log('Attribution', 'Storing cleaned UTMs', cleaned_utms);
+        this.__storage.set('_lt_utm', JSON.stringify(cleaned_utms), 30 * 24 * 60);
+        return cleaned_utms;
+    } else {
+        lt.__log('Attribution', 'No valid UTMs in URL, trying to load from storage.');
+        const stored_utms_str = this.__storage.get('_lt_utm');
+        if (stored_utms_str) {
+            try {
+                const stored_utms = JSON.parse(stored_utms_str);
+                lt.__log('Attribution', 'Loaded UTMs from storage.', stored_utms);
+                return stored_utms;
+            } catch (e) {
+                lt.__log('Attribution', 'Error parsing stored UTMs.', e);
+            }
+        }
+        
+        // Fallback: return raw (and likely invalid) UTMs from URL if no valid ones are stored.
+        lt.__log('Attribution', 'No valid stored UTMs found. Returning raw data from URL.', utms_from_url);
+        return utms_from_url;
     }
   };
 
@@ -381,16 +436,16 @@
   lt.__get_utm_data = function () {
     lt.__log('UTM', 'Obteniendo datos UTM');
     try {
-      const utmParams = {};
-      const searchParams = new URLSearchParams(window.location.search);
-      ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'].forEach(param => {
-        utmParams[param] = searchParams.get(param) || '-';
-      });
-      lt.__log('UTM', 'Parámetros encontrados', utmParams);
-      return utmParams;
+        const utms = this.__get_and_persist_utm_data();
+        const utmParams = {};
+        this.__config__.campaign_fields.forEach(param => {
+            utmParams[param] = utms[param] || '-';
+        });
+        lt.__log('UTM', 'Parámetros UTM para el evento', utmParams);
+        return utmParams;
     } catch (e) {
-      lt.__log('UTM', 'Error obteniendo datos UTM', e);
-      return {};
+        lt.__log('UTM', 'Error obteniendo datos UTM', e);
+        return {};
     }
   };
 

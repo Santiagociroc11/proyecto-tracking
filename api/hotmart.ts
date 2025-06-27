@@ -362,6 +362,37 @@ async function sendFacebookConversion(
   }
 }
 
+// Helper function to validate UTM parameters with fallback values
+const isUtmParamValid = (param: string | undefined): boolean => {
+  if (!param) return false;
+  const parts = param.split('||');
+  return parts.some(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
+};
+
+// Helper function to clean UTM data, selecting the valid part from a fallback string
+const cleanUtmParam = (param: string | undefined): string | undefined => {
+  if (!param) return param;
+  const parts = param.split('||');
+  const validPart = parts.find(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
+  return validPart ? validPart.trim() : param;
+};
+
+const cleanUtms = (utmData: any): any => {
+    if (!utmData || typeof utmData !== 'object') return utmData;
+    const cleaned: { [key: string]: string | undefined } = {};
+    for (const key in utmData) {
+      if (Object.prototype.hasOwnProperty.call(utmData, key)) {
+        const value = utmData[key];
+        if (typeof value === 'string') {
+          cleaned[key] = cleanUtmParam(value);
+        } else {
+          cleaned[key] = value;
+        }
+      }
+    }
+    return cleaned;
+};
+
 export async function handleHotmartWebhook(event: HotmartEvent) {
   const requestId = randomUUID();
   const log = (step: string, data: Record<string, any> = {}) => {
@@ -441,7 +472,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     log('xcod_extracted', { xcod });
 
     log('query_tracking_event_start', { visitor_id: xcod });
-    const { data: trackingEvent, error: trackingError } = await supabase
+    const { data: trackingEvents, error: trackingError } = await supabase
       .from('tracking_events')
       .select<string, TrackingEventWithProduct>(`
         product_id,
@@ -461,18 +492,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         )
       `)
       .eq('visitor_id', xcod)
-      .neq('event_type', 'compra_hotmart') 
+      .neq('event_type', 'compra_hotmart')
       .neq('event_type', 'compra_hotmart_orderbump')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
+      .order('created_at', { ascending: false });
 
-    log('query_tracking_event_end', { 
-      found: !!trackingEvent, 
+    log('query_tracking_event_end', {
+      found_count: trackingEvents?.length || 0,
       has_error: !!trackingError,
       error_details: trackingError?.message,
-      event_type: trackingEvent?.event_type,
-      utm_data: trackingEvent?.event_data?.utm_data 
     });
 
     if (trackingError) {
@@ -484,7 +511,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       return result;
     }
 
-    if (!trackingEvent) {
+    if (!trackingEvents || trackingEvents.length === 0) {
       const error = 'Tracking event no encontrado para el xcod proporcionado.';
       log('error', { context: 'Tracking event no encontrado', xcod });
       result.errors.push(error);
@@ -492,6 +519,34 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       result.processing_ended = new Date().toISOString();
       return result;
     }
+
+    const findValidEvent = (events: TrackingEventWithProduct[]) => {
+      for (const event of events) {
+        const utm = event.event_data?.utm_data;
+        if (utm && isUtmParamValid(utm.utm_campaign)) {
+          log('valid_utm_source_found', {
+            created_at: event.created_at,
+            event_type: event.event_type,
+            utm_data: utm
+          });
+          return event;
+        }
+      }
+      log('no_valid_utm_source_found', {
+        last_event_utm: events[0]?.event_data?.utm_data
+      });
+      return null;
+    };
+    
+    const validTrackingEvent = findValidEvent(trackingEvents);
+    const trackingEvent = validTrackingEvent || trackingEvents[0]; 
+
+    log('tracking_event_selected', {
+      created_at: trackingEvent.created_at,
+      event_type: trackingEvent.event_type,
+      using_fallback: !validTrackingEvent,
+      utm_data: trackingEvent.event_data?.utm_data
+    });
 
     result.tracking_info = {
       found: true,
@@ -546,6 +601,9 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       event_type_chosen: eventType
     });
     
+    const originalUtmData = trackingEvent.event_data?.utm_data;
+    const cleanedUtmData = cleanUtms(originalUtmData);
+
     log('insert_purchase_event_start', { event_type: eventType });
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
@@ -562,11 +620,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           is_order_bump: isOrderBump,
           parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
           utm_data:{
-            utm_term: trackingEvent.event_data.utm_data?.utm_term,
-            utm_medium: trackingEvent.event_data.utm_data?.utm_medium,
-            utm_source: trackingEvent.event_data.utm_data?.utm_source,
-            utm_content: trackingEvent.event_data.utm_data?.utm_content,
-            utm_campaign: trackingEvent.event_data.utm_data?.utm_campaign
+            utm_term: cleanedUtmData?.utm_term,
+            utm_medium: cleanedUtmData?.utm_medium,
+            utm_source: cleanedUtmData?.utm_source,
+            utm_content: cleanedUtmData?.utm_content,
+            utm_campaign: cleanedUtmData?.utm_campaign
           },
         }
       },
