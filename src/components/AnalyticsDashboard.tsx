@@ -121,8 +121,8 @@ const cleanUtmName = (name: string) => {
   try {
     // Decodificar primero
     const decoded = decodeName(name);
-    // Si contiene |, tomar solo la parte antes del |
-    const parts = decoded.split('|');
+    // Si contiene ||, tomar solo la parte antes del ||
+    const parts = decoded.split('||');
     return parts[0].trim();
   } catch (e) {
     return name;
@@ -132,8 +132,8 @@ const cleanUtmName = (name: string) => {
 const extractUtmId = (utmValue: string) => {
   try {
     const decoded = decodeName(utmValue);
-    const parts = decoded.split('|');
-    // Si tiene ID (parte después del |), lo devuelve, sino devuelve null
+    const parts = decoded.split('||');
+    // Si tiene ID (parte después del ||), lo devuelve, sino devuelve null
     return parts.length > 1 && parts[1].trim() ? parts[1].trim() : null;
   } catch (e) {
     return null;
