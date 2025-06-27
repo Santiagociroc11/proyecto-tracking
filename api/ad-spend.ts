@@ -115,7 +115,7 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
           ad_account_id: accountId,
           spend: parseFloat(data.spend || '0'),
           currency: data.account_currency || 'USD',
-          date: dateString
+          date: facebookDateString
         });
       } else {
         // Si no hay datos, crear entrada con gasto 0
@@ -123,7 +123,7 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
           ad_account_id: accountId,
           spend: 0,
           currency: 'USD',
-          date: dateString
+          date: facebookDateString
         });
       }
     } catch (error) {
@@ -200,7 +200,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
           try {
             const adPerformanceData = {
               product_ad_account_id: productAdAccount.id,
-              date: dateString,
+              date: facebookDateString,
               ad_id: insight.ad_id,
               adset_id: insight.adset_id || null,
               campaign_id: insight.campaign_id || null,
