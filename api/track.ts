@@ -313,7 +313,17 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
   };
 
   try {
-    // Decodificar UTMs al inicio
+    log('Init', 'Iniciando procesamiento de evento', { type: data.type });
+
+    if (data.url) {
+      try {
+        data.url = decodeURIComponent(data.url);
+      } catch (e) {
+        log('Decoding', 'Error decodificando URL, usando original', { url: data.url, error: e });
+      }
+    }
+
+    // Decodificar parámetros UTM
     if (data.event_data) {
       data.event_data = decodeUtmParameters(data.event_data);
     }
