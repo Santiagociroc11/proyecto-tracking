@@ -317,7 +317,16 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
 
     if (data.url) {
       try {
-        data.url = decodeURIComponent(data.url);
+        // Intentar decodificar una o dos veces
+        let decodedUrl = decodeURIComponent(data.url);
+        try {
+          // Intentar una segunda vez por si viene doblemente codificada
+          decodedUrl = decodeURIComponent(decodedUrl);
+        } catch (e) {
+          // No pasa nada si falla la segunda vez, nos quedamos con la primera
+        }
+        data.url = decodedUrl;
+        log('Decoding', 'URL decodificada exitosamente', { original: data.url, new: decodedUrl });
       } catch (e) {
         log('Decoding', 'Error decodificando URL, usando original', { url: data.url, error: e });
       }
