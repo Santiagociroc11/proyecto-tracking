@@ -620,6 +620,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       const dailyStats = new Map<string, any>();
       const dailyUniqueVisitors = new Map<string, Set<string>>();
       const dailyUniqueClicks = new Map<string, Set<string>>();
+      let utmStatsArrayWithAdSpend: any[] = [];
 
       events.forEach((event) => {
         // --- Procesamiento para todos los eventos (cifras totales y diarias) ---
@@ -660,7 +661,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           dayStats.revenue += price;
         } else if (event.event_type === 'compra_hotmart_orderbump') {
           totalOrderBumps++;
+          totalPurchases++; // Contar order bump como una compra
           dayStats.order_bumps++;
+          dayStats.purchases++; // Contar order bump como una compra en el día
           const price = getEventPrice(event);
           totalOrderBumpRevenue += price;
           dayStats.revenue += price;
@@ -714,6 +717,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               stats.revenue += getEventPrice(event);
             } else if (event.event_type === 'compra_hotmart_orderbump') {
               stats.order_bumps++;
+              stats.purchases++; // Contar order bump como una compra
               stats.revenue += getEventPrice(event);
             }
 
@@ -849,140 +853,133 @@ export default function AnalyticsDashboard({ productId }: Props) {
         // Nueva lógica: cada registro de Facebook se usa solo UNA VEZ
         const usedFacebookRecords = new Set<string>();
         
-        console.log('=== DEBUG: Starting precise matching (1:1) ===');
+        console.log('=== DEBUG: Starting precise matching (SUMMING ALL MATCHES) ===');
         console.log('Total Facebook records:', adPerformanceDataForUtm.length);
         console.log('Total UTM groups:', utmStats.size);
         
-        // Para cada UTM, encontrar su mejor match único
-        for (const [utmKey, utmStat] of utmStats.entries()) {
-          console.log('=== Finding best match for UTM ===');
-          console.log('UTM Key:', utmKey);
+        // Creamos un mapa de búsqueda para los datos de tracking
+        const trackingDataByUtm = new Map();
+        const campaignsWithTracking = new Set<string>();
+        
+        for (const stat of utmStats.values()) {
+          const utmKey = getUtmGroupingKey(stat.campaign, stat.medium, stat.content);
+          trackingDataByUtm.set(utmKey, stat);
           
-          const campaignId = extractUtmId(utmStat.campaign);
-          const adsetId = extractUtmId(utmStat.medium);
-          const adId = extractUtmId(utmStat.content);
+          // Registrar las campañas que tienen tracking para este producto
+          const cleanCampaignName = cleanUtmName(stat.campaign);
+          if (cleanCampaignName && cleanCampaignName !== 'none') {
+            campaignsWithTracking.add(cleanCampaignName);
+          }
+        }
+
+        // La nueva base de la verdad: los datos de Facebook (filtrados por producto)
+        const combinedStats = new Map<string, any>();
+
+        adPerformanceDataForUtm.forEach(adPerf => {
+          // Solo incluir campañas que tienen eventos de tracking para este producto
+          const fbCampaignName = adPerf.campaign_name || '';
+          if (!campaignsWithTracking.has(fbCampaignName)) {
+            return; // Saltar esta campaña
+          }
           
-          const cleanCampaign = cleanUtmName(utmStat.campaign);
-          const cleanMedium = cleanUtmName(utmStat.medium);
-          const cleanContent = cleanUtmName(utmStat.content);
+          // Usamos el nombre limpio de FB para la clave de agrupación
+          const groupKey = JSON.stringify({
+            campaign: adPerf.campaign_name || 'none',
+            medium: adPerf.adset_name || 'none',
+            content: adPerf.ad_name || 'none'
+          });
+
+          if (!combinedStats.has(groupKey)) {
+            combinedStats.set(groupKey, {
+              campaign: adPerf.campaign_name,
+              medium: adPerf.adset_name,
+              content: adPerf.ad_name,
+              visits: 0, unique_visits: 0, clicks: 0, unique_clicks: 0,
+              purchases: 0, order_bumps: 0, revenue: 0, ad_spend: 0,
+              // Mantener IDs de FB si están disponibles
+              campaign_raw: `||${adPerf.campaign_id}`,
+              medium_raw: `||${adPerf.adset_id}`,
+              content_raw: `||${adPerf.ad_id}`,
+            });
+          }
+
+          const stats = combinedStats.get(groupKey);
+          stats.ad_spend += parseFloat(adPerf.spend) || 0;
+        });
+
+        // Ahora, atribuimos los datos de tracking a los datos de FB
+        for (const [key, fbStat] of combinedStats.entries()) {
+          // Intentar matchear por ID primero (más preciso)
+          const campaignId = extractUtmId(fbStat.campaign_raw);
+          const adsetId = extractUtmId(fbStat.medium_raw);
+          const adId = extractUtmId(fbStat.content_raw);
+
+          const idKey = getUtmGroupingKey(fbStat.campaign_raw, fbStat.medium_raw, fbStat.content_raw);
           
-          console.log('UTM Campaign:', cleanCampaign, '(ID:', campaignId, ')');
-          console.log('UTM Medium:', cleanMedium, '(ID:', adsetId, ')');
-          console.log('UTM Content:', cleanContent, '(ID:', adId, ')');
+          // Intentar matchear por nombre después
+          const nameKey = getUtmGroupingKey(fbStat.campaign, fbStat.medium, fbStat.content);
+
+          const trackingStats = trackingDataByUtm.get(idKey) || trackingDataByUtm.get(nameKey);
           
-                     let bestMatch: { adPerf: any; recordId: string; reasons: string[]; score: number } | null = null;
-           let bestScore = 0;
-          
-          // Evaluar cada registro de Facebook disponible
-          adPerformanceDataForUtm.forEach((adPerf, index) => {
-            const recordId = `${adPerf.campaign_id}-${adPerf.adset_id}-${adPerf.ad_id}-${index}`;
+          if (trackingStats) {
+            fbStat.visits += trackingStats.visits;
+            fbStat.unique_visits += trackingStats.visitorSet.size;
+            fbStat.clicks += trackingStats.clicks;
+            fbStat.unique_clicks += trackingStats.clickSet.size;
+            fbStat.purchases += trackingStats.purchases;
+            fbStat.order_bumps += trackingStats.order_bumps;
+            fbStat.revenue += trackingStats.revenue;
             
-            // Skip si ya fue usado
-            if (usedFacebookRecords.has(recordId)) return;
-            
-            let score = 0;
-            const reasons = [];
-            
-            // 1. Match perfecto por IDs (máxima prioridad)
-            if (campaignId && adPerf.campaign_id === campaignId) {
-              score += 1000;
-              reasons.push('Campaign ID exact');
-            }
-            if (adsetId && adPerf.adset_id === adsetId) {
-              score += 500;
-              reasons.push('Adset ID exact');
-            }
-            if (adId && adPerf.ad_id === adId) {
-              score += 300;
-              reasons.push('Ad ID exact');
-            }
-            
-            // 2. Match por nombres (solo si no hay match por IDs)
-            if (score === 0) {
-              const campaignMatch = cleanCampaign === (adPerf.campaign_name || '');
-              const adsetMatch = cleanMedium === (adPerf.adset_name || '');
-              const adMatch = cleanContent === (adPerf.ad_name || '');
-              
-              if (campaignMatch && adsetMatch && adMatch) {
-                score = 100; // Match completo
-                reasons.push('Full name match');
-              } else if (campaignMatch && adsetMatch) {
-                score = 80; // Campaign + Adset
-                reasons.push('Campaign + Adset match');
-              } else if (campaignMatch && adMatch) {
-                score = 75; // Campaign + Ad
-                reasons.push('Campaign + Ad match');
-              } else if (adsetMatch && adMatch) {
-                score = 70; // Adset + Ad
-                reasons.push('Adset + Ad match');
+            // "Consumir" el tracking data para que no se cuente dos veces
+            trackingDataByUtm.delete(idKey);
+            trackingDataByUtm.delete(nameKey);
               }
             }
             
-            // Si es el mejor hasta ahora, guardarlo
-            if (score > bestScore) {
-              bestMatch = { adPerf, recordId, reasons, score };
-              bestScore = score;
-            }
+        // Opcional: añadir datos de tracking que no encontraron match en FB
+        for (const [key, trackingStat] of trackingDataByUtm.entries()) {
+          const groupKey = JSON.stringify({
+            campaign: cleanUtmName(trackingStat.campaign),
+            medium: cleanUtmName(trackingStat.medium),
+            content: cleanUtmName(trackingStat.content)
           });
-          
-                     // Asignar el mejor match (solo si tiene confianza suficiente)
-           if (bestMatch !== null && bestScore >= 70) {
-             const match = bestMatch; // TypeScript type assertion
-             usedFacebookRecords.add(match.recordId);
-             const spend = parseFloat(match.adPerf.spend) || 0;
-             adSpendByUtm.set(utmKey, spend);
-             
-             console.log('🎯 BEST MATCH assigned!');
-             console.log('Score:', match.score);
-             console.log('Reasons:', match.reasons.join(', '));
-             console.log('FB Data:', {
-               campaign: match.adPerf.campaign_name,
-               adset: match.adPerf.adset_name,
-               ad: match.adPerf.ad_name,
-               spend: spend
-             });
-           } else {
-             console.log('❌ No confident match (best score:', bestScore, ')');
-           }
-          console.log('---');
-        }
-        
-        console.log('=== DEBUG: Final Ad Spend by UTM ===');
-        for (const [key, spend] of adSpendByUtm.entries()) {
-          console.log('UTM Key:', key, 'Total Spend:', spend);
+
+          if (!combinedStats.has(groupKey)) {
+             combinedStats.set(groupKey, {
+              campaign: cleanUtmName(trackingStat.campaign),
+              medium: cleanUtmName(trackingStat.medium),
+              content: cleanUtmName(trackingStat.content),
+              ad_spend: 0, // No tiene gasto de FB
+              visits: trackingStat.visits,
+              unique_visits: trackingStat.visitorSet ? trackingStat.visitorSet.size : 0,
+              clicks: trackingStat.clicks,
+              unique_clicks: trackingStat.clickSet ? trackingStat.clickSet.size : 0,
+              purchases: trackingStat.purchases,
+              order_bumps: trackingStat.order_bumps,
+              revenue: trackingStat.revenue,
+              campaign_raw: trackingStat.campaign,
+              medium_raw: trackingStat.medium,
+              content_raw: trackingStat.content,
+            });
         }
       }
 
-      // Actualizar UTM stats con ad spend real
-      const utmStatsArrayWithAdSpend = Array.from(utmStats.values())
-        .map((stat) => {
-          const utmKey = getUtmGroupingKey(stat.campaign, stat.medium, stat.content);
-          const utmAdSpend = adSpendByUtm.get(utmKey) || 0;
-          const utmRoas = utmAdSpend > 0 ? stat.revenue / utmAdSpend : 0;
-          
-          // Limpiar campos internos antes de enviar al frontend
-          const { lastEventDate, visitorSet, clickSet, ...cleanStat } = stat;
+        // Convertir el mapa a un array y calcular métricas finales
+        utmStatsArrayWithAdSpend = Array.from(combinedStats.values()).map(stat => {
+          const roas = stat.ad_spend > 0 ? stat.revenue / stat.ad_spend : 0;
           return {
-            ...cleanStat,
-            campaign: cleanUtmName(cleanStat.campaign),
-            medium: cleanUtmName(cleanStat.medium),
-            content: cleanUtmName(cleanStat.content),
-            campaign_raw: decodeName(cleanStat.campaign), // Mantener el valor completo para futuros análisis
-            medium_raw: decodeName(cleanStat.medium),
-            content_raw: decodeName(cleanStat.content),
-            revenue: cleanStat.revenue,
-            ad_spend: utmAdSpend,
-            roas: utmRoas,
-            conversion_rate: cleanStat.visits > 0 ? (cleanStat.purchases / cleanStat.visits) * 100 : 0,
-            unique_conversion_rate: cleanStat.unique_visits > 0 ? (cleanStat.purchases / cleanStat.unique_visits) * 100 : 0,
-            persuasion_rate: cleanStat.visits > 0 ? (cleanStat.clicks / cleanStat.visits) * 100 : 0,
-            unique_persuasion_rate: cleanStat.unique_visits > 0 ? (cleanStat.unique_clicks / cleanStat.unique_visits) * 100 : 0,
-            checkout_conversion_rate: cleanStat.clicks > 0 ? (cleanStat.purchases / cleanStat.clicks) * 100 : 0,
-            unique_checkout_conversion_rate: cleanStat.unique_clicks > 0 ? (cleanStat.purchases / cleanStat.unique_clicks) * 100 : 0,
-            order_bump_rate: cleanStat.purchases > 0 ? (cleanStat.order_bumps / cleanStat.purchases) * 100 : 0,
+            ...stat,
+            roas,
+            conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
+            unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
+            persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
+            unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
+            checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
+            unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
+            order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
           };
-        })
-        .sort((a, b) => b.visits - a.visits);
+        }).filter(stat => stat.ad_spend > 0 || stat.visits > 3);
+      }
 
       setData({
         total_visits: totalVisits,
@@ -2448,6 +2445,72 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               </td>
             </tr>
           ))}
+          
+          {/* Fila de totales */}
+          {filteredAndSortedData.length > 0 && (() => {
+            const totals = filteredAndSortedData.reduce((acc, item) => ({
+              visits: acc.visits + (showUnique ? item.unique_visits : item.visits),
+              clicks: acc.clicks + (showUnique ? item.unique_clicks : item.clicks),
+              purchases: acc.purchases + item.purchases,
+              revenue: acc.revenue + (item.revenue || 0),
+              ad_spend: acc.ad_spend + (item.ad_spend || 0),
+            }), { visits: 0, clicks: 0, purchases: 0, revenue: 0, ad_spend: 0 });
+            
+            const totalPersuasionRate = totals.visits > 0 ? (totals.clicks / totals.visits) * 100 : 0;
+            const totalConversionRate = totals.visits > 0 ? (totals.purchases / totals.visits) * 100 : 0;
+            const totalCheckoutConversionRate = totals.clicks > 0 ? (totals.purchases / totals.clicks) * 100 : 0;
+            const totalRoas = totals.ad_spend > 0 ? totals.revenue / totals.ad_spend : 0;
+            
+            return (
+              <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
+                <td className="px-6 py-4">
+                  <span className="text-gray-500">📊</span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
+                  TOTALES ({filteredAndSortedData.length} {filteredAndSortedData.length === 1 ? 'elemento' : 'elementos'})
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
+                  {totals.visits.toLocaleString()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
+                  {totals.clicks.toLocaleString()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
+                    {totalPersuasionRate.toFixed(2)}%
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
+                  {totals.purchases.toLocaleString()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold text-right">
+                  ${totals.revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
+                  ${totals.ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${
+                    totalRoas >= 3 ? 'bg-green-100 text-green-800' : 
+                    totalRoas >= 2 ? 'bg-yellow-100 text-yellow-800' : 
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {totalRoas.toFixed(2)}x
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
+                    {totalConversionRate.toFixed(2)}%
+                  </span>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
+                    {totalCheckoutConversionRate.toFixed(2)}%
+                  </span>
+                </td>
+              </tr>
+            );
+          })()}
         </tbody>
       </table>
     </div>
