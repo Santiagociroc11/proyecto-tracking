@@ -1125,16 +1125,16 @@ fbq('track', 'PageView');
                           <h5 className="text-md font-medium text-gray-700 mb-2">Cómo Configurar:</h5>
                           <ol className="list-decimal list-inside space-y-3">
                             <li>Accede a tu cuenta de Facebook Ads y selecciona los anuncios deseados.</li>
-                            <li>Haz clic en "Editar" y localiza el campo "URL del sitio web" y pon esto al final:</li>
+                            <li>Haz clic en "Editar" y localiza el campo SEGUIMIENTO y en "parametros url" y pon esto:</li>
                           </ol>
                         </div>
                         <div className="mt-4">
                           <div className="flex items-center space-x-2">
                             <code className="bg-gray-100 px-3 py-2 rounded-md flex-grow text-sm">
-                              {`?utm_source=FB&utm_campaign={{campaign.name}}||{{campaign.id}}&utm_medium={{adset.name}}||{{adset.id}}&utm_content={{ad.name}}||{{ad.id}}&utm_term={{placement}}`}
+                              {`utm_source={{placement}}&utm_campaign={{campaign.name}}||{{campaign.id}}&utm_medium={{adset.name}}||{{adset.id}}&utm_content={{ad.name}}||{{ad.id}}&utm_term={{site_source_name}}`}
                             </code>
                             <button
-                              onClick={() => copyToClipboard(`?utm_source=FB&utm_campaign={{campaign.name}}||{{campaign.id}}&utm_medium={{adset.name}}||{{adset.id}}&utm_content={{ad.name}}||{{ad.id}}&utm_term={{placement}}`, 'utm')}
+                              onClick={() => copyToClipboard(`utm_source={{placement}}&utm_campaign={{campaign.name}}||{{campaign.id}}&utm_medium={{adset.name}}||{{adset.id}}&utm_content={{ad.name}}||{{ad.id}}&utm_term={{site_source_name}}`, 'utm')}
                               className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                             >
                               {copied === 'utm' ? (
