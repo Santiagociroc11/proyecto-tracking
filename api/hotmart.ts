@@ -521,17 +521,26 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     }
 
     const findValidEvent = (events: TrackingEventWithProduct[]) => {
+      const utmFields = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term'];
+
       for (const event of events) {
         const utm = event.event_data?.utm_data;
-        if (utm && isUtmParamValid(utm.utm_campaign)) {
-          log('valid_utm_source_found', {
-            created_at: event.created_at,
-            event_type: event.event_type,
-            utm_data: utm
-          });
-          return event;
+        if (utm) {
+          // Revisa si CUALQUIER campo UTM es válido
+          const hasAnyValidUtm = utmFields.some(field => isUtmParamValid((utm as any)[field]));
+
+          if (hasAnyValidUtm) {
+            log('valid_utm_source_found', {
+              created_at: event.created_at,
+              event_type: event.event_type,
+              utm_data: utm,
+              reason: 'At least one UTM parameter is valid'
+            });
+            return event;
+          }
         }
       }
+
       log('no_valid_utm_source_found', {
         last_event_utm: events[0]?.event_data?.utm_data
       });
