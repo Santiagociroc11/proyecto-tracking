@@ -177,7 +177,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
       const facebookUrl = `https://graph.facebook.com/v22.0/${accountId}/insights`;
       const params = new URLSearchParams({
         access_token: accessToken,
-        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
+        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,campaign{daily_budget,lifetime_budget},adset{daily_budget,lifetime_budget}',
         level: 'ad',
         time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
         time_increment: '1',
@@ -198,102 +198,57 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
 
       log('Ad performance data fetched', { accountId, adsCount: insights.length });
 
-      // Obtener product_ad_account_id para esta cuenta
-      const { data: productAdAccounts } = await supabase
-        .from('product_ad_accounts')
-        .select('id')
-        .eq('ad_account_id', accountId);
+      if (insights.length > 0) {
+        const recordsToUpsert = insights.map((ad: any) => {
+          
+          let budgetType = null;
+          let dailyBudget = null;
 
-      if (!productAdAccounts?.length) {
-        log('No product_ad_accounts found', { accountId });
-        continue;
-      }
-
-      // Procesar cada anuncio
-      for (const insight of insights) {
-        for (const productAdAccount of productAdAccounts) {
-          try {
-            const adPerformanceData = {
-              product_ad_account_id: productAdAccount.id,
-              date: facebookDateString,
-              ad_id: insight.ad_id,
-              adset_id: insight.adset_id || null,
-              campaign_id: insight.campaign_id || null,
-              ad_name: insight.ad_name || null,
-              adset_name: insight.adset_name || null,
-              campaign_name: insight.campaign_name || null,
-              spend: parseFloat(insight.spend) || 0,
-              impressions: parseInt(insight.impressions) || 0,
-              clicks: parseInt(insight.clicks) || 0,
-              cpc: parseFloat(insight.cpc) || null,
-              cpm: parseFloat(insight.cpm) || null,
-              ctr: parseFloat(insight.ctr) || null,
-            };
-
-            if (isCurrentDay) {
-              // Solo hacer upsert si es el día actual
-              const { error: upsertError } = await supabase
-                .from('ad_performance')
-                .upsert(adPerformanceData, {
-                  onConflict: 'product_ad_account_id,ad_id,date',
-                  ignoreDuplicates: false
-                });
-
-              if (upsertError) {
-                log('Error upserting ad performance', { 
-                  adId: insight.ad_id, 
-                  error: upsertError.message 
-                });
-                totalErrors++;
-              } else {
-                totalSynced++;
-              }
-            } else {
-              // Para días anteriores, verificar si ya existe antes de insertar
-              const { data: existingRecord } = await supabase
-                .from('ad_performance')
-                .select('id')
-                .eq('product_ad_account_id', productAdAccount.id)
-                .eq('ad_id', insight.ad_id)
-                .eq('date', facebookDateString)
-                .single();
-
-              if (existingRecord) {
-                // Ya existe un registro para este día anterior, no lo sobreescribimos
-                log('Preserving historical ad performance data', { 
-                  adId: insight.ad_id, 
-                  date: facebookDateString,
-                  note: 'Historical data protected from overwrite'
-                });
-                totalSkipped++;
-              } else {
-                // No existe, podemos insertarlo
-                const { error: insertError } = await supabase
-                  .from('ad_performance')
-                  .insert(adPerformanceData);
-
-                if (insertError) {
-                  log('Error inserting historical ad performance', { 
-                    adId: insight.ad_id, 
-                    error: insertError.message 
-                  });
-                  totalErrors++;
-                } else {
-                  log('Inserted historical ad performance data', { 
-                    adId: insight.ad_id, 
-                    date: facebookDateString 
-                  });
-                  totalSynced++;
-                }
-              }
-            }
-          } catch (error) {
-            log('Error processing individual ad', { 
-              adId: insight.ad_id, 
-              error: error instanceof Error ? error.message : 'Unknown error' 
-            });
-            totalErrors++;
+          // Determinar presupuesto y tipo (CBO vs ABO)
+          if (ad.campaign?.lifetime_budget || ad.campaign?.daily_budget) {
+            budgetType = 'CBO'; // Campaign Budget Optimization
+            dailyBudget = ad.campaign.daily_budget || (parseFloat(ad.campaign.lifetime_budget) / 30.4); // Aproximado si es lifetime
+          } else if (ad.adset?.lifetime_budget || ad.adset?.daily_budget) {
+            budgetType = 'ABO'; // Adset Budget Optimization
+            dailyBudget = ad.adset.daily_budget || (parseFloat(ad.adset.lifetime_budget) / 30.4); // Aproximado si es lifetime
           }
+
+          return {
+            product_ad_account_id: productAdAccountId,
+            ad_id: ad.ad_id,
+            date: ad.date_start,
+            ad_name: ad.ad_name,
+            adset_name: ad.adset_name,
+            campaign_name: ad.campaign_name,
+            adset_id: ad.adset_id,
+            campaign_id: ad.campaign_id,
+            spend: parseFloat(ad.spend || '0'),
+            impressions: parseInt(ad.impressions || '0', 10),
+            clicks: parseInt(ad.clicks || '0', 10),
+            cpc: parseFloat(ad.cpc || '0'),
+            cpm: parseFloat(ad.cpm || '0'),
+            ctr: parseFloat(ad.ctr || '0'),
+            currency: accountCurrency,
+            daily_budget: dailyBudget ? parseFloat(dailyBudget).toFixed(2) : null,
+            budget_type: budgetType,
+          };
+        });
+
+        // Upsert en Supabase
+        const { error } = await supabase
+          .from('ad_performance')
+          .upsert(recordsToUpsert, {
+            onConflict: 'product_ad_account_id,ad_id,date',
+            ignoreDuplicates: false
+          });
+
+        if (error) {
+          log('Error upserting ad performance', { 
+            error: error.message 
+          });
+          totalErrors++;
+        } else {
+          totalSynced += recordsToUpsert.length;
         }
       }
 
