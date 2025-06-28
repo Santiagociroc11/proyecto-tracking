@@ -81,6 +81,7 @@ interface AnalyticsData {
     order_bumps: number;
     revenue: number;
     ad_spend: number;
+    budget: number;
     roas: number;
     conversion_rate: number;
     unique_conversion_rate: number;
@@ -842,7 +843,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           adset_name,
           campaign_name,
           spend,
-          date
+          date,
+          campaign_budget,
+          adset_budget
         `)
         .gte('date', adStartUTC)
         .lte('date', adEndUTC)
@@ -880,6 +883,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           const key = `${ad.campaign_id}|${ad.adset_id}|${ad.ad_id}`;
           
           if (!utmBaseStats.has(key)) {
+            // Determinar el presupuesto según el nivel disponible
+            const budget = ad.adset_budget || ad.campaign_budget || 0;
+            
             utmBaseStats.set(key, {
               campaign_id: ad.campaign_id,
               adset_id: ad.adset_id,
@@ -888,6 +894,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               medium: ad.adset_name || 'Sin nombre',
               content: ad.ad_name || 'Sin nombre',
               ad_spend: 0,
+              budget: budget,
               visits: 0,
               unique_visits: 0,
               clicks: 0,
@@ -1010,6 +1017,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
             campaign_raw: stat.campaign,
             medium_raw: stat.medium,
             content_raw: stat.content,
+            budget: stat.budget || 0,
             roas,
             conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
             unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
@@ -1127,6 +1135,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Order Bumps': utm.order_bumps,
       'Ingresos ($)': utm.revenue.toFixed(2),
       'Gasto Publicitario ($)': utm.ad_spend.toFixed(2),
+      'Presupuesto ($)': (utm.budget || 0).toFixed(2),
       'ROAS': utm.roas.toFixed(2),
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
       'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
@@ -1350,7 +1359,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           purchases: 0,
           order_bumps: 0,
           revenue: 0,
-          ad_spend: 0
+          ad_spend: 0,
+          budget: 0
         });
       }
       
@@ -1363,6 +1373,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       stats.order_bumps += utm.order_bumps;
       stats.revenue += utm.revenue;
       stats.ad_spend += utm.ad_spend;
+      stats.budget += utm.budget || 0;
     });
 
     return Array.from(grouped.values()).map(stat => ({
@@ -2327,7 +2338,7 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
 };
 
 function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
-  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend';
+  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend' | 'budget';
   const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [nameFilter, setNameFilter] = useState('');
@@ -2351,6 +2362,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
         case 'purchases': return item.purchases;
         case 'revenue': return item.revenue;
         case 'ad_spend': return item.ad_spend;
+        case 'budget': return item.budget;
         case 'roas': return item.roas;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
         case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
@@ -2489,6 +2501,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
             <SortableHeader field="purchases" label="Compras" />
             <SortableHeader field="revenue" label="Ingresos" />
             <SortableHeader field="ad_spend" label="Gasto Pub." />
+            <SortableHeader field="budget" label="Presupuesto" />
             <SortableHeader field="roas" label="ROAS" />
             <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
@@ -2524,6 +2537,9 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                 ${(item.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold text-right">
+                ${(item.budget || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                   (item.roas || 0) >= 3 ? 'bg-green-100 text-green-800' : 
@@ -2554,7 +2570,8 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               purchases: acc.purchases + item.purchases,
               revenue: acc.revenue + (item.revenue || 0),
               ad_spend: acc.ad_spend + (item.ad_spend || 0),
-            }), { visits: 0, clicks: 0, purchases: 0, revenue: 0, ad_spend: 0 });
+              budget: acc.budget + (item.budget || 0),
+            }), { visits: 0, clicks: 0, purchases: 0, revenue: 0, ad_spend: 0, budget: 0 });
             
             const totalPersuasionRate = totals.visits > 0 ? (totals.clicks / totals.visits) * 100 : 0;
             const totalConversionRate = totals.visits > 0 ? (totals.purchases / totals.visits) * 100 : 0;
@@ -2588,6 +2605,9 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                   ${totals.ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold text-right">
+                  ${totals.budget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                   <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${

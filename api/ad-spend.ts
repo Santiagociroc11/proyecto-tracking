@@ -177,7 +177,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
       const facebookUrl = `https://graph.facebook.com/v22.0/${accountId}/insights`;
       const params = new URLSearchParams({
         access_token: accessToken,
-        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,campaign{daily_budget,lifetime_budget},adset{daily_budget,lifetime_budget}',
+        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
         level: 'ad',
         time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
         time_increment: '1',
@@ -198,57 +198,175 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
 
       log('Ad performance data fetched', { accountId, adsCount: insights.length });
 
-      if (insights.length > 0) {
-        const recordsToUpsert = insights.map((ad: any) => {
-          
-          let budgetType = null;
-          let dailyBudget = null;
+      // Obtener presupuestos únicos para campañas y adsets
+      const uniqueCampaignIds = [...new Set(insights.map((insight: any) => insight.campaign_id).filter(Boolean).map(String))];
+      const uniqueAdsetIds = [...new Set(insights.map((insight: any) => insight.adset_id).filter(Boolean).map(String))];
 
-          // Determinar presupuesto y tipo (CBO vs ABO)
-          if (ad.campaign?.lifetime_budget || ad.campaign?.daily_budget) {
-            budgetType = 'CBO'; // Campaign Budget Optimization
-            dailyBudget = ad.campaign.daily_budget || (parseFloat(ad.campaign.lifetime_budget) / 30.4); // Aproximado si es lifetime
-          } else if (ad.adset?.lifetime_budget || ad.adset?.daily_budget) {
-            budgetType = 'ABO'; // Adset Budget Optimization
-            dailyBudget = ad.adset.daily_budget || (parseFloat(ad.adset.lifetime_budget) / 30.4); // Aproximado si es lifetime
+      // Cache para presupuestos
+      const campaignBudgets = new Map<string, number>();
+      const adsetBudgets = new Map<string, number>();
+
+      // Obtener presupuestos de campañas
+      if (uniqueCampaignIds.length > 0) {
+        log('Fetching campaign budgets', { campaignCount: uniqueCampaignIds.length });
+        for (const campaignId of uniqueCampaignIds) {
+          if (typeof campaignId !== 'string') continue;
+          try {
+            const campaignUrl = `https://graph.facebook.com/v22.0/${campaignId}`;
+            const campaignParams = new URLSearchParams({
+              access_token: accessToken,
+              fields: 'daily_budget,lifetime_budget'
+            });
+
+            const campaignResponse = await fetch(`${campaignUrl}?${campaignParams}`);
+            if (campaignResponse.ok) {
+              const campaignData = await campaignResponse.json();
+              const dailyBudget = parseFloat(campaignData.daily_budget || 0) / 100; // Meta devuelve en centavos
+              const lifetimeBudget = parseFloat(campaignData.lifetime_budget || 0) / 100;
+              // Preferir daily_budget, usar lifetime_budget como fallback
+              const budget = dailyBudget || lifetimeBudget;
+              campaignBudgets.set(campaignId, budget);
+            }
+          } catch (error) {
+            log('Error fetching campaign budget', { campaignId, error: error instanceof Error ? error.message : 'Unknown error' });
           }
+        }
+      }
 
-          return {
-            product_ad_account_id: productAdAccountId,
-            ad_id: ad.ad_id,
-            date: ad.date_start,
-            ad_name: ad.ad_name,
-            adset_name: ad.adset_name,
-            campaign_name: ad.campaign_name,
-            adset_id: ad.adset_id,
-            campaign_id: ad.campaign_id,
-            spend: parseFloat(ad.spend || '0'),
-            impressions: parseInt(ad.impressions || '0', 10),
-            clicks: parseInt(ad.clicks || '0', 10),
-            cpc: parseFloat(ad.cpc || '0'),
-            cpm: parseFloat(ad.cpm || '0'),
-            ctr: parseFloat(ad.ctr || '0'),
-            currency: accountCurrency,
-            daily_budget: dailyBudget ? parseFloat(dailyBudget).toFixed(2) : null,
-            budget_type: budgetType,
-          };
-        });
+      // Obtener presupuestos de adsets
+      if (uniqueAdsetIds.length > 0) {
+        log('Fetching adset budgets', { adsetCount: uniqueAdsetIds.length });
+        for (const adsetId of uniqueAdsetIds) {
+          if (typeof adsetId !== 'string') continue;
+          try {
+            const adsetUrl = `https://graph.facebook.com/v22.0/${adsetId}`;
+            const adsetParams = new URLSearchParams({
+              access_token: accessToken,
+              fields: 'daily_budget,lifetime_budget'
+            });
 
-        // Upsert en Supabase
-        const { error } = await supabase
-          .from('ad_performance')
-          .upsert(recordsToUpsert, {
-            onConflict: 'product_ad_account_id,ad_id,date',
-            ignoreDuplicates: false
-          });
+            const adsetResponse = await fetch(`${adsetUrl}?${adsetParams}`);
+            if (adsetResponse.ok) {
+              const adsetData = await adsetResponse.json();
+              const dailyBudget = parseFloat(adsetData.daily_budget || 0) / 100; // Meta devuelve en centavos
+              const lifetimeBudget = parseFloat(adsetData.lifetime_budget || 0) / 100;
+              // Preferir daily_budget, usar lifetime_budget como fallback
+              const budget = dailyBudget || lifetimeBudget;
+              adsetBudgets.set(adsetId, budget);
+            }
+          } catch (error) {
+            log('Error fetching adset budget', { adsetId, error: error instanceof Error ? error.message : 'Unknown error' });
+          }
+        }
+      }
 
-        if (error) {
-          log('Error upserting ad performance', { 
-            error: error.message 
-          });
-          totalErrors++;
-        } else {
-          totalSynced += recordsToUpsert.length;
+      log('Budget data collected', { 
+        campaignBudgets: campaignBudgets.size, 
+        adsetBudgets: adsetBudgets.size 
+      });
+
+      // Obtener product_ad_account_id para esta cuenta
+      const { data: productAdAccounts } = await supabase
+        .from('product_ad_accounts')
+        .select('id')
+        .eq('ad_account_id', accountId);
+
+      if (!productAdAccounts?.length) {
+        log('No product_ad_accounts found', { accountId });
+        continue;
+      }
+
+      // Procesar cada anuncio
+      for (const insight of insights) {
+        for (const productAdAccount of productAdAccounts) {
+          try {
+            // Obtener presupuestos para este anuncio específico
+            const campaignBudget = campaignBudgets.get(String(insight.campaign_id)) || 0;
+            const adsetBudget = adsetBudgets.get(String(insight.adset_id)) || 0;
+
+            const adPerformanceData = {
+              product_ad_account_id: productAdAccount.id,
+              date: facebookDateString,
+              ad_id: insight.ad_id,
+              adset_id: insight.adset_id || null,
+              campaign_id: insight.campaign_id || null,
+              ad_name: insight.ad_name || null,
+              adset_name: insight.adset_name || null,
+              campaign_name: insight.campaign_name || null,
+              spend: parseFloat(insight.spend) || 0,
+              impressions: parseInt(insight.impressions) || 0,
+              clicks: parseInt(insight.clicks) || 0,
+              cpc: parseFloat(insight.cpc) || null,
+              cpm: parseFloat(insight.cpm) || null,
+              ctr: parseFloat(insight.ctr) || null,
+              campaign_budget: campaignBudget,
+              adset_budget: adsetBudget,
+            };
+
+            if (isCurrentDay) {
+              // Solo hacer upsert si es el día actual
+              const { error: upsertError } = await supabase
+                .from('ad_performance')
+                .upsert(adPerformanceData, {
+                  onConflict: 'product_ad_account_id,ad_id,date',
+                  ignoreDuplicates: false
+                });
+
+              if (upsertError) {
+                log('Error upserting ad performance', { 
+                  adId: insight.ad_id, 
+                  error: upsertError.message 
+                });
+                totalErrors++;
+              } else {
+                totalSynced++;
+              }
+            } else {
+              // Para días anteriores, verificar si ya existe antes de insertar
+              const { data: existingRecord } = await supabase
+                .from('ad_performance')
+                .select('id')
+                .eq('product_ad_account_id', productAdAccount.id)
+                .eq('ad_id', insight.ad_id)
+                .eq('date', facebookDateString)
+                .single();
+
+              if (existingRecord) {
+                // Ya existe un registro para este día anterior, no lo sobreescribimos
+                log('Preserving historical ad performance data', { 
+                  adId: insight.ad_id, 
+                  date: facebookDateString,
+                  note: 'Historical data protected from overwrite'
+                });
+                totalSkipped++;
+              } else {
+                // No existe, podemos insertarlo
+                const { error: insertError } = await supabase
+                  .from('ad_performance')
+                  .insert(adPerformanceData);
+
+                if (insertError) {
+                  log('Error inserting historical ad performance', { 
+                    adId: insight.ad_id, 
+                    error: insertError.message 
+                  });
+                  totalErrors++;
+                } else {
+                  log('Inserted historical ad performance data', { 
+                    adId: insight.ad_id, 
+                    date: facebookDateString 
+                  });
+                  totalSynced++;
+                }
+              }
+            }
+          } catch (error) {
+            log('Error processing individual ad', { 
+              adId: insight.ad_id, 
+              error: error instanceof Error ? error.message : 'Unknown error' 
+            });
+            totalErrors++;
+          }
         }
       }
 
