@@ -2418,7 +2418,7 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
 };
 
 function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange, showBudgetColumn = true }: UtmDetailTableProps): JSX.Element {
-  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend' | 'budget';
+  type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend' | 'budget' | 'profit';
   const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [nameFilter, setNameFilter] = useState('');
@@ -2445,8 +2445,8 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
         case 'budget': return item.budget_value || 0;
         case 'roas': return item.roas;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
-        case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
         case 'checkout_conversion_rate': return showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate;
+        case 'profit': return (item.revenue || 0) - (item.ad_spend || 0);
         default: return item[field];
       }
     };
@@ -2466,7 +2466,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
       return true;
     });
 
-    const metricsToScale: UtmSortField[] = ['persuasion_rate', 'conversion_rate', 'checkout_conversion_rate', 'roas'];
+    const metricsToScale: UtmSortField[] = ['conversion_rate', 'checkout_conversion_rate', 'roas'];
     const minMaxValues = metricsToScale.reduce((acc, field) => {
       const values = filteredData.map(item => getSortableValue(item, field)).filter(v => typeof v === 'number' && isFinite(v));
       acc[field] = {
@@ -2578,13 +2578,12 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
             {showBudgetColumn && <SortableHeader field="budget" label="Presupuesto" />}
             <SortableHeader field="visits" label="Visitas" />
             <SortableHeader field="clicks" label="Pagos Iniciados" />
-            <SortableHeader field="persuasion_rate" label="Persuasión" />
             <SortableHeader field="purchases" label="Compras" />
+            <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="revenue" label="Ingresos" />
             <SortableHeader field="ad_spend" label="Gasto Pub." />
+            <SortableHeader field="profit" label="Beneficio" />
             <SortableHeader field="roas" label="ROAS" />
-            <SortableHeader field="conversion_rate" label="Conversión" />
-            <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
           </tr>
         </thead>
         <tbody className="bg-white divide-y divide-gray-200">
@@ -2616,17 +2615,36 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               )}
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_visits : item.visits}</td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_clicks : item.clicks}</td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_persuasion_rate : item.persuasion_rate, minMaxValues.persuasion_rate.min, minMaxValues.persuasion_rate.max)}`}>
-                  {(showUnique ? item.unique_persuasion_rate : item.persuasion_rate).toFixed(2)}%
-                </span>
-              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{item.purchases}</td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <div className="space-y-1">
+                  <div>
+                    <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
+                      {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}% Total
+                    </span>
+                  </div>
+                  <div>
+                    <span className={`px-2 inline-flex text-xs leading-5 font-medium rounded-full ${getHeatmapPill(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate, minMaxValues.checkout_conversion_rate.min, minMaxValues.checkout_conversion_rate.max)} opacity-75`}>
+                      {(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate).toFixed(2)}% Checkout
+                    </span>
+                  </div>
+                </div>
+              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold text-right">
                 ${(item.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                 ${(item.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-right">
+                {(() => {
+                  const profit = (item.revenue || 0) - (item.ad_spend || 0);
+                  return (
+                    <span className={profit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                      {profit >= 0 ? '+' : ''}${profit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  );
+                })()}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -2635,16 +2653,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                   'bg-red-100 text-red-800'
                 }`}>
                   {(item.roas || 0).toFixed(2)}x
-                </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_conversion_rate : item.conversion_rate, minMaxValues.conversion_rate.min, minMaxValues.conversion_rate.max)}`}>
-                  {(showUnique ? item.unique_conversion_rate : item.conversion_rate).toFixed(2)}%
-                </span>
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getHeatmapPill(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate, minMaxValues.checkout_conversion_rate.min, minMaxValues.checkout_conversion_rate.max)}`}>
-                  {(showUnique ? item.unique_checkout_conversion_rate : item.checkout_conversion_rate).toFixed(2)}%
                 </span>
               </td>
             </tr>
@@ -2661,10 +2669,10 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               budget: acc.budget + (item.budget_value || 0),
             }), { visits: 0, clicks: 0, purchases: 0, revenue: 0, ad_spend: 0, budget: 0 });
             
-            const totalPersuasionRate = totals.visits > 0 ? (totals.clicks / totals.visits) * 100 : 0;
             const totalConversionRate = totals.visits > 0 ? (totals.purchases / totals.visits) * 100 : 0;
             const totalCheckoutConversionRate = totals.clicks > 0 ? (totals.purchases / totals.clicks) * 100 : 0;
             const totalRoas = totals.ad_spend > 0 ? totals.revenue / totals.ad_spend : 0;
+            const totalProfit = totals.revenue - totals.ad_spend;
             
             return (
               <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
@@ -2685,19 +2693,33 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
                   {totals.clicks.toLocaleString()}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
-                    {totalPersuasionRate.toFixed(2)}%
-                  </span>
-                </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
                   {totals.purchases.toLocaleString()}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <div className="space-y-1">
+                    <div>
+                      <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
+                        {totalConversionRate.toFixed(2)}% Total
+                      </span>
+                    </div>
+                    <div>
+                      <span className="px-2 inline-flex text-xs leading-5 font-medium rounded-full bg-blue-100 text-blue-800 opacity-75">
+                        {totalCheckoutConversionRate.toFixed(2)}% Checkout
+                      </span>
+                    </div>
+                  </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold text-right">
                   ${totals.revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                   ${totals.ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-right">
+                  <span className={totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}>
+                    {totalProfit >= 0 ? '+' : ''}${totalProfit.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                   <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${
@@ -2706,16 +2728,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                     'bg-red-100 text-red-800'
                   }`}>
                     {totalRoas.toFixed(2)}x
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
-                    {totalConversionRate.toFixed(2)}%
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                  <span className="px-2 inline-flex text-xs leading-5 font-bold rounded-full bg-blue-100 text-blue-800">
-                    {totalCheckoutConversionRate.toFixed(2)}%
                   </span>
                 </td>
               </tr>
