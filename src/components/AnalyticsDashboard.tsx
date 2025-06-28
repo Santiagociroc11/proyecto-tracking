@@ -81,7 +81,8 @@ interface AnalyticsData {
     order_bumps: number;
     revenue: number;
     ad_spend: number;
-    budget: number;
+    campaign_budget: number;
+    adset_budget: number;
     roas: number;
     conversion_rate: number;
     unique_conversion_rate: number;
@@ -883,8 +884,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           const key = `${ad.campaign_id}|${ad.adset_id}|${ad.ad_id}`;
           
           if (!utmBaseStats.has(key)) {
-            // Determinar el presupuesto según el nivel disponible
-            const budget = ad.adset_budget || ad.campaign_budget || 0;
+            // Pasar ambos tipos de presupuesto por separado
+            const campaignBudget = parseFloat(ad.campaign_budget) || 0;
+            const adsetBudget = parseFloat(ad.adset_budget) || 0;
             
             utmBaseStats.set(key, {
               campaign_id: ad.campaign_id,
@@ -894,7 +896,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
               medium: ad.adset_name || 'Sin nombre',
               content: ad.ad_name || 'Sin nombre',
               ad_spend: 0,
-              budget: budget,
+              campaign_budget: campaignBudget,
+              adset_budget: adsetBudget,
               visits: 0,
               unique_visits: 0,
               clicks: 0,
@@ -1017,7 +1020,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
             campaign_raw: stat.campaign,
             medium_raw: stat.medium,
             content_raw: stat.content,
-            budget: stat.budget || 0,
+            campaign_budget: stat.campaign_budget || 0,
+            adset_budget: stat.adset_budget || 0,
             roas,
             conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
             unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
@@ -1135,7 +1139,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
       'Order Bumps': utm.order_bumps,
       'Ingresos ($)': utm.revenue.toFixed(2),
       'Gasto Publicitario ($)': utm.ad_spend.toFixed(2),
-      'Presupuesto ($)': (utm.budget || 0).toFixed(2),
+      'Presupuesto Campaña ($)': (utm.campaign_budget || 0).toFixed(2),
+      'Presupuesto Adset ($)': (utm.adset_budget || 0).toFixed(2),
       'ROAS': utm.roas.toFixed(2),
       'Conversión (%)': (showUnique ? utm.unique_conversion_rate : utm.conversion_rate).toFixed(2),
       'Persuasión (%)': (showUnique ? utm.unique_persuasion_rate : utm.persuasion_rate).toFixed(2),
@@ -1360,7 +1365,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
           order_bumps: 0,
           revenue: 0,
           ad_spend: 0,
-          budget: 0
+          campaign_budget_values: [],
+          adset_budget_values: [],
+          budget_display: '',
+          budget_value: 0
         });
       }
       
@@ -1373,7 +1381,60 @@ export default function AnalyticsDashboard({ productId }: Props) {
       stats.order_bumps += utm.order_bumps;
       stats.revenue += utm.revenue;
       stats.ad_spend += utm.ad_spend;
-      stats.budget += utm.budget || 0;
+      
+      // Recolectar valores de presupuesto
+      if (utm.campaign_budget > 0) {
+        stats.campaign_budget_values.push(utm.campaign_budget);
+      }
+      if (utm.adset_budget > 0) {
+        stats.adset_budget_values.push(utm.adset_budget);
+      }
+    });
+
+    // Procesar presupuestos y determinar qué mostrar según el nivel
+    Array.from(grouped.values()).forEach(stat => {
+      const campaignBudget = stat.campaign_budget_values.length > 0 ? Math.max(...stat.campaign_budget_values) : 0;
+      const adsetBudget = stat.adset_budget_values.length > 0 ? Math.max(...stat.adset_budget_values) : 0;
+      
+      if (key === 'campaign') {
+        // En tabla de CAMPAÑAS
+        if (campaignBudget > 0) {
+          stat.budget_display = `$${campaignBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          stat.budget_value = campaignBudget;
+        } else if (adsetBudget > 0) {
+          stat.budget_display = 'Presupuesto ABO';
+          stat.budget_value = 0; // Para ordenamiento
+        } else {
+          stat.budget_display = 'Sin presupuesto';
+          stat.budget_value = 0;
+        }
+      } else if (key === 'medium') {
+        // En tabla de CONJUNTOS (medium)
+        if (adsetBudget > 0) {
+          stat.budget_display = `$${adsetBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          stat.budget_value = adsetBudget;
+        } else if (campaignBudget > 0) {
+          stat.budget_display = 'Presupuesto CBO';
+          stat.budget_value = 0; // Para ordenamiento
+        } else {
+          stat.budget_display = 'Sin presupuesto';
+          stat.budget_value = 0;
+        }
+      } else {
+        // En tabla de ANUNCIOS (content)
+        const totalBudget = adsetBudget || campaignBudget || 0;
+        if (totalBudget > 0) {
+          stat.budget_display = `$${totalBudget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          stat.budget_value = totalBudget;
+        } else {
+          stat.budget_display = 'Sin presupuesto';
+          stat.budget_value = 0;
+        }
+      }
+      
+      // Limpiar arrays temporales
+      delete stat.campaign_budget_values;
+      delete stat.adset_budget_values;
     });
 
     return Array.from(grouped.values()).map(stat => ({
@@ -2362,7 +2423,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
         case 'purchases': return item.purchases;
         case 'revenue': return item.revenue;
         case 'ad_spend': return item.ad_spend;
-        case 'budget': return item.budget;
+        case 'budget': return item.budget_value || 0;
         case 'roas': return item.roas;
         case 'conversion_rate': return showUnique ? item.unique_conversion_rate : item.conversion_rate;
         case 'persuasion_rate': return showUnique ? item.unique_persuasion_rate : item.persuasion_rate;
@@ -2537,8 +2598,14 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                 ${(item.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold text-right">
-                ${(item.budget || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                <span className={`${
+                  item.budget_display?.includes('CBO') || item.budget_display?.includes('ABO') 
+                    ? 'text-gray-500 italic text-xs' 
+                    : 'text-blue-600 font-bold'
+                }`}>
+                  {item.budget_display || 'Sin presupuesto'}
+                </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -2570,7 +2637,7 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               purchases: acc.purchases + item.purchases,
               revenue: acc.revenue + (item.revenue || 0),
               ad_spend: acc.ad_spend + (item.ad_spend || 0),
-              budget: acc.budget + (item.budget || 0),
+              budget: acc.budget + (item.budget_value || 0),
             }), { visits: 0, clicks: 0, purchases: 0, revenue: 0, ad_spend: 0, budget: 0 });
             
             const totalPersuasionRate = totals.visits > 0 ? (totals.clicks / totals.visits) * 100 : 0;
