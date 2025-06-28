@@ -1353,10 +1353,28 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const grouped = new Map<string, any>();
 
     sourceData.forEach(utm => {
-      const groupKey = utm[key] || 'none';
+      // Crear clave compuesta para evitar mezclar elementos con el mismo nombre
+      let groupKey: string;
+      let displayName: string;
+      
+      if (key === 'campaign') {
+        // Para campañas: solo usar el nombre de campaña
+        groupKey = utm.campaign || 'none';
+        displayName = utm.campaign || 'none';
+      } else if (key === 'medium') {
+        // Para conjuntos: usar campaña + conjunto para evitar mezclar conjuntos con mismo nombre
+        groupKey = `${utm.campaign || 'none'}|${utm.medium || 'none'}`;
+        displayName = utm.medium || 'none';
+      } else {
+        // Para anuncios: usar campaña + conjunto + anuncio para máxima precisión
+        groupKey = `${utm.campaign || 'none'}|${utm.medium || 'none'}|${utm.content || 'none'}`;
+        displayName = utm.content || 'none';
+      }
+      
       if (!grouped.has(groupKey)) {
         grouped.set(groupKey, {
-          name: groupKey,
+          name: displayName, // Solo mostrar el nombre final, no la clave compuesta
+          fullKey: groupKey, // Guardar la clave completa para debugging
           visits: 0,
           unique_visits: 0,
           clicks: 0,
@@ -2257,9 +2275,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
               )}
             </div>
 
-            {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} />}
-            {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} />}
-            {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} />}
+            {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} showBudgetColumn={true} />}
+            {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} showBudgetColumn={true} />}
+            {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} showBudgetColumn={false} />}
           </div>
         )}
       </div>
@@ -2346,6 +2364,7 @@ interface UtmDetailTableProps {
   showUnique: boolean;
   selectedItems: Set<string>;
   onSelectionChange: (selection: Set<string>) => void;
+  showBudgetColumn?: boolean;
 }
 
 const getHeatmapPill = (value: number, min: number, max: number): string => {
@@ -2398,7 +2417,7 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
   );
 };
 
-function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange }: UtmDetailTableProps): JSX.Element {
+function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange, showBudgetColumn = true }: UtmDetailTableProps): JSX.Element {
   type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'persuasion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend' | 'budget';
   const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -2556,13 +2575,13 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 />
               </div>
             </th>
+            {showBudgetColumn && <SortableHeader field="budget" label="Presupuesto" />}
             <SortableHeader field="visits" label="Visitas" />
             <SortableHeader field="clicks" label="Pagos Iniciados" />
             <SortableHeader field="persuasion_rate" label="Persuasión" />
             <SortableHeader field="purchases" label="Compras" />
             <SortableHeader field="revenue" label="Ingresos" />
             <SortableHeader field="ad_spend" label="Gasto Pub." />
-            <SortableHeader field="budget" label="Presupuesto" />
             <SortableHeader field="roas" label="ROAS" />
             <SortableHeader field="conversion_rate" label="Conversión" />
             <SortableHeader field="checkout_conversion_rate" label="Conv. Checkout" />
@@ -2584,6 +2603,17 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 />
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.name}</td>
+              {showBudgetColumn && (
+                <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
+                  <span className={`${
+                    item.budget_display?.includes('CBO') || item.budget_display?.includes('ABO') 
+                      ? 'text-gray-500 italic text-xs' 
+                      : 'text-blue-600 font-bold'
+                  }`}>
+                    {item.budget_display || 'Sin presupuesto'}
+                  </span>
+                </td>
+              )}
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_visits : item.visits}</td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-medium text-right">{showUnique ? item.unique_clicks : item.clicks}</td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
@@ -2597,15 +2627,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                 ${(item.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
-                <span className={`${
-                  item.budget_display?.includes('CBO') || item.budget_display?.includes('ABO') 
-                    ? 'text-gray-500 italic text-xs' 
-                    : 'text-blue-600 font-bold'
-                }`}>
-                  {item.budget_display || 'Sin presupuesto'}
-                </span>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                 <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -2653,6 +2674,11 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">
                   TOTALES ({filteredAndSortedData.length} {filteredAndSortedData.length === 1 ? 'elemento' : 'elementos'})
                 </td>
+                {showBudgetColumn && (
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold text-right">
+                    ${totals.budget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                )}
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800 font-bold text-right">
                   {totals.visits.toLocaleString()}
                 </td>
@@ -2672,9 +2698,6 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-bold text-right">
                   ${totals.ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-blue-600 font-bold text-right">
-                  ${totals.budget.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                   <span className={`px-2 inline-flex text-xs leading-5 font-bold rounded-full ${
