@@ -725,7 +725,16 @@ export default function AnalyticsDashboard({ productId }: Props) {
       
       const { data: adPerformanceData, error: adPerformanceError } = await supabase
         .from('ad_performance')
-        .select('spend, date, campaign_name')
+        .select(`
+          ad_id,
+          campaign_id,
+          adset_id,
+          ad_name,
+          adset_name,
+          campaign_name,
+          spend,
+          date
+        `)
         .gte('date', adStartUTC)
         .lte('date', adEndUTC)
         .in('product_ad_account_id', productAdAccountIds);
@@ -737,7 +746,15 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // Consultar gasto publicitario de hoy
       const { data: adPerformanceTodayData, error: adPerformanceTodayError } = await supabase
         .from('ad_performance')
-        .select('spend, campaign_name')
+        .select(`
+          ad_id,
+          campaign_id,
+          adset_id,
+          ad_name,
+          adset_name,
+          campaign_name,
+          spend
+        `)
         .eq('date', todayFormatted)
         .in('product_ad_account_id', productAdAccountIds);
 
@@ -745,49 +762,93 @@ export default function AnalyticsDashboard({ productId }: Props) {
         console.error('Error fetching today ad performance data:', adPerformanceTodayError);
       }
 
-      // Para los totales, usar todas las campañas (simplificado por ahora)
+      // PRIMERO: Identificar TODOS los UTMs que generaron tracking para este producto
       const campaignsWithTrackingForTotals = new Set<string>();
+      const adsetsWithTrackingForTotals = new Set<string>();
+      const adsWithTrackingForTotals = new Set<string>();
       
-      // Crear set basado en eventos que tienen UTM para este producto
       events.forEach(event => {
-        if (event.event_data?.utm_data?.utm_campaign) {
-          const cleanCampaignName = cleanUtmName(event.event_data.utm_data.utm_campaign);
-          if (cleanCampaignName && cleanCampaignName !== 'none') {
-            campaignsWithTrackingForTotals.add(cleanCampaignName);
-          }
+        if (event.event_data?.utm_data) {
+          const utmData = event.event_data.utm_data;
+          
+          // Extraer IDs de los UTMs si están disponibles
+          const campaignId = extractUtmId(utmData.utm_campaign || '');
+          const adsetId = extractUtmId(utmData.utm_medium || '');
+          const adId = extractUtmId(utmData.utm_content || '');
+          
+          if (campaignId) campaignsWithTrackingForTotals.add(campaignId);
+          if (adsetId) adsetsWithTrackingForTotals.add(adsetId);
+          if (adId) adsWithTrackingForTotals.add(adId);
+          
+          // También agregar por nombres para matching secundario
+          if (utmData.utm_campaign) campaignsWithTrackingForTotals.add(utmData.utm_campaign);
+          if (utmData.utm_medium) adsetsWithTrackingForTotals.add(utmData.utm_medium);
+          if (utmData.utm_content) adsWithTrackingForTotals.add(utmData.utm_content);
         }
       });
 
-      // Calcular totales de ad spend solo para campañas de este producto
-      const totalAdSpend = adPerformanceData?.reduce((acc, item) => {
-        const campaignName = item.campaign_name || '';
-        if (campaignsWithTrackingForTotals.has(campaignName)) {
-          return acc + (parseFloat(item.spend) || 0);
-        }
-        return acc;
-      }, 0) ?? 0;
+      console.log(`[KPI] Campañas con tracking: ${campaignsWithTrackingForTotals.size}`);
+      console.log(`[KPI] Adsets con tracking: ${adsetsWithTrackingForTotals.size}`);
+      console.log(`[KPI] Ads con tracking: ${adsWithTrackingForTotals.size}`);
+
+      // Filtrar ad_performance usando la misma lógica que la tabla UTM
+      const filteredAdPerformanceForKPIs = adPerformanceData?.filter((ad: any) => {
+        // Verificar por ID exacto (más preciso)
+        const hasTrackingById = (
+          campaignsWithTrackingForTotals.has(ad.campaign_id || '') ||
+          adsetsWithTrackingForTotals.has(ad.adset_id || '') ||
+          adsWithTrackingForTotals.has(ad.ad_id || '')
+        );
+        
+        // Verificar por nombre (fallback)
+        const hasTrackingByName = (
+          campaignsWithTrackingForTotals.has(ad.campaign_name || '') ||
+          adsetsWithTrackingForTotals.has(ad.adset_name || '') ||
+          adsWithTrackingForTotals.has(ad.ad_name || '')
+        );
+        
+        return hasTrackingById || hasTrackingByName;
+      }) || [];
+
+      // Calcular totales usando la misma lógica que la tabla UTM
+      const totalAdSpend = filteredAdPerformanceForKPIs.reduce((acc, item: any) => {
+        return acc + (parseFloat(item.spend) || 0);
+      }, 0);
+
+      const filteredAdPerformanceTodayForKPIs = adPerformanceTodayData?.filter((ad: any) => {
+        const hasTrackingById = (
+          campaignsWithTrackingForTotals.has(ad.campaign_id || '') ||
+          adsetsWithTrackingForTotals.has(ad.adset_id || '') ||
+          adsWithTrackingForTotals.has(ad.ad_id || '')
+        );
+        
+        const hasTrackingByName = (
+          campaignsWithTrackingForTotals.has(ad.campaign_name || '') ||
+          adsetsWithTrackingForTotals.has(ad.adset_name || '') ||
+          adsWithTrackingForTotals.has(ad.ad_name || '')
+        );
+        
+        return hasTrackingById || hasTrackingByName;
+      }) || [];
       
-      const adSpendToday = adPerformanceTodayData?.reduce((acc, item) => {
-        const campaignName = item.campaign_name || '';
-        if (campaignsWithTrackingForTotals.has(campaignName)) {
-          return acc + (parseFloat(item.spend) || 0);
-        }
-        return acc;
-      }, 0) ?? 0;
+      const adSpendToday = filteredAdPerformanceTodayForKPIs.reduce((acc, item: any) => {
+        return acc + (parseFloat(item.spend) || 0);
+      }, 0);
+
+      console.log(`[KPI] Total ad spend calculado: $${totalAdSpend.toFixed(2)}`);
+      console.log(`[KPI] Ad spend hoy: $${adSpendToday.toFixed(2)}`);
+      console.log(`[KPI] Ads filtrados para KPIs: ${filteredAdPerformanceForKPIs.length}`);
 
       // Calcular ROAS
       const totalRevenue = totalMainProductRevenue + totalOrderBumpRevenue;
       const roas = totalAdSpend > 0 ? totalRevenue / totalAdSpend : 0;
       const roasToday = adSpendToday > 0 ? revenueToday / adSpendToday : 0;
 
-      // Crear mapa de gasto por fecha para daily stats (también filtrado por producto)
+      // Crear mapa de gasto por fecha para daily stats usando los mismos datos filtrados
       const adSpendByDate = new Map<string, number>();
-      adPerformanceData?.forEach(item => {
-        const campaignName = item.campaign_name || '';
-        if (campaignsWithTrackingForTotals.has(campaignName)) {
-          const currentSpend = adSpendByDate.get(item.date) || 0;
-          adSpendByDate.set(item.date, currentSpend + (parseFloat(item.spend) || 0));
-        }
+      filteredAdPerformanceForKPIs.forEach((item: any) => {
+        const currentSpend = adSpendByDate.get(item.date) || 0;
+        adSpendByDate.set(item.date, currentSpend + (parseFloat(item.spend) || 0));
       });
 
       // Actualizar daily stats con ad spend y ROAS
@@ -1084,14 +1145,22 @@ export default function AnalyticsDashboard({ productId }: Props) {
       const finalUtmStats = newUtmStats;
       const totalUtmPurchases = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.purchases, 0);
       const totalUtmOrderBumps = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.order_bumps, 0);
+      const totalUtmAdSpend = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.ad_spend, 0);
+      const totalUtmRevenue = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.revenue, 0);
       
-      console.log(`Usando NUEVA tabla UTM basada en ad_performance`);
-      console.log(`Ventas en tabla UTM final: ${totalUtmPurchases}`);
-      console.log(`  - Purchases totales: ${totalUtmPurchases}`);
-      console.log(`  - Order bumps: ${totalUtmOrderBumps}`);
-      console.log(`  - Ventas principales: ${totalUtmPurchases - totalUtmOrderBumps}`);
-      console.log(`UTM stats array length: ${finalUtmStats.length}`);
-      console.log('=============================');
+      console.log(`=== COMPARACIÓN FINAL KPIs vs UTM ===`);
+      console.log(`[KPI] Total ad spend: $${totalAdSpend.toFixed(2)}`);
+      console.log(`[UTM] Total ad spend: $${totalUtmAdSpend.toFixed(2)}`);
+      console.log(`[DIFF] Diferencia: $${Math.abs(totalAdSpend - totalUtmAdSpend).toFixed(2)}`);
+      console.log(`[KPI] Total revenue: $${totalRevenue.toFixed(2)}`);
+      console.log(`[UTM] Total revenue: $${totalUtmRevenue.toFixed(2)}`);
+      console.log(`[DIFF] Diferencia: $${Math.abs(totalRevenue - totalUtmRevenue).toFixed(2)}`);
+      console.log(`[KPI] Total purchases: ${totalPurchases}`);
+      console.log(`[UTM] Total purchases: ${totalUtmPurchases}`);
+      console.log(`[DIFF] Diferencia: ${Math.abs(totalPurchases - totalUtmPurchases)}`);
+      console.log(`[KPI] ROAS: ${roas.toFixed(2)}x`);
+      console.log(`[UTM] ROAS: ${totalUtmAdSpend > 0 ? (totalUtmRevenue / totalUtmAdSpend).toFixed(2) : 0}x`);
+      console.log(`=============================`);
 
       setData({
         total_visits: totalVisits,
