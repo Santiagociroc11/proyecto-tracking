@@ -242,8 +242,21 @@
   lt.__cleanUtmParam = function(param) {
     if (!param) return undefined;
     const parts = param.split('||');
-    const validPart = parts.find(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
-    return validPart ? validPart.trim() : param;
+    
+    // Filtrar partes válidas (que no sean vacías ni contengan templates)
+    const validParts = parts.filter(part => 
+      part.trim() !== '' && 
+      !part.includes('{{') && 
+      !part.includes('}}')
+    );
+    
+    // Si tenemos partes válidas, las rejoins con ||
+    // Si solo hay una parte, la devuelve como está
+    if (validParts.length > 0) {
+      return validParts.join('||').trim();
+    }
+    
+    return param;
   };
 
   lt.__get_and_persist_utm_data = function () {
