@@ -408,7 +408,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
   log('start', { 
     hotmart_event: event.event, 
     transaction: event.data.purchase.transaction,
-    product_id: event.data.product.id
+    product_id: event.data.product.id,
+    commissions_count: event.data.commissions?.length || 0,
+    has_producer_commission: event.data.commissions?.some(c => c.source === 'PRODUCER') || false,
+    purchase_currency: event.data.purchase.price.currency_value,
+    purchase_value: event.data.purchase.price.value
   });
 
   const result: any = {
@@ -424,6 +428,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       product_id: event.data.product.id,
       product_name: event.data.product.name,
       xcod: null,
+      is_duplicate: false,
+      replaced_inferior_webhook: false,
+      webhook_quality_score: 0,
+      commissions_info: {
+        count: event.data.commissions?.length || 0,
+        has_producer_commission: event.data.commissions?.some(c => c.source === 'PRODUCER') || false,
+        currencies: [...new Set(event.data.commissions?.map(c => c.currency_value) || [])]
+      }
     },
     tracking_info: {
         found: false,
@@ -464,12 +476,165 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       result.processing_ended = new Date().toISOString();
       return result;
     }
+
+    // Validar que existe un transaction ID
+    if (!event.data.purchase.transaction) {
+      const error = 'transaction ID no encontrado en el evento';
+      log('validation_failed', { error, event_data: event.data.purchase });
+      result.errors.push(error);
+      result.final_status = 'validation_failed';
+      result.processing_ended = new Date().toISOString();
+      return result;
+    }
     log('validation_success');
 
     const xcod = event.data.purchase.origin.xcod;
+    const transactionId = event.data.purchase.transaction;
     result.event_info.xcod = xcod;
     result.steps_completed.push('xcod_extracted');
-    log('xcod_extracted', { xcod });
+    log('xcod_extracted', { xcod, transaction_id: transactionId });
+
+    /**
+     * Función para evaluar la calidad de un webhook de Hotmart
+     * 
+     * Sistema de puntuación:
+     * - Sin comisiones: 0 puntos (muy problemático)
+     * - Con comisiones: +10 puntos base
+     * - Con comisión PRODUCER: +50 puntos (esencial para cálculos)
+     * - PRODUCER en USD: +20 puntos extra (moneda preferida)
+     * - PRODUCER con valor > 0: +10 puntos extra
+     * - Múltiples comisiones: +2 puntos por comisión (máx. 10)
+     * 
+     * Ejemplo de scores:
+     * - commissions: [] → 0 puntos (problemático)
+     * - commissions: [marketplace] → 10-20 puntos
+     * - commissions: [marketplace, producer USD] → 90+ puntos (ideal)
+     */
+    const evaluateWebhookQuality = (commissions: any[]): number => {
+      let score = 0;
+      
+      // Sin comisiones = muy malo
+      if (!commissions || commissions.length === 0) {
+        return 0;
+      }
+      
+      // Tiene comisiones = +10 puntos base
+      score += 10;
+      
+      // Buscar comisión del productor
+      const producerCommission = commissions.find(c => c.source === 'PRODUCER');
+      if (producerCommission) {
+        score += 50; // +50 puntos por tener comisión del productor
+        
+        // Si la comisión del productor está en USD = +20 puntos extra
+        if (producerCommission.currency_value === 'USD') {
+          score += 20;
+        }
+        
+        // Si el valor de la comisión es > 0 = +10 puntos extra
+        if (producerCommission.value && producerCommission.value > 0) {
+          score += 10;
+        }
+      }
+      
+      // Más comisiones = mejor (máximo +10 puntos)
+      score += Math.min(commissions.length * 2, 10);
+      
+      return score;
+    };
+
+    // Verificar si la transacción ya fue procesada (tanto compras normales como order bumps)
+    log('duplicate_check_start', { transaction_id: transactionId });
+    const { data: existingTransaction, error: duplicateCheckError } = await supabase
+      .from('tracking_events')
+      .select('id, created_at, event_type, event_data')
+      .in('event_type', ['compra_hotmart', 'compra_hotmart_orderbump'])
+      .or(`event_data->>transaction.eq.${transactionId},event_data->data->purchase->>transaction.eq.${transactionId}`)
+      .limit(1);
+
+    if (duplicateCheckError) {
+      const error = `Error verificando transacción duplicada: ${duplicateCheckError.message}`;
+      log('duplicate_check_failed', { error, transaction_id: transactionId });
+      result.errors.push(error);
+      result.final_status = 'duplicate_check_failed';
+      result.processing_ended = new Date().toISOString();
+      return result;
+    }
+
+    if (existingTransaction && existingTransaction.length > 0) {
+      const existingEventData = existingTransaction[0].event_data as any;
+      const existingCommissions = existingEventData?.data?.commissions || [];
+      const currentCommissions = event.data.commissions || [];
+      
+      const existingQuality = evaluateWebhookQuality(existingCommissions);
+      const currentQuality = evaluateWebhookQuality(currentCommissions);
+      
+      log('webhook_quality_comparison', {
+        transaction_id: transactionId,
+        existing_event_id: existingTransaction[0].id,
+        existing_quality_score: existingQuality,
+        existing_commissions_count: existingCommissions.length,
+        existing_has_producer: existingCommissions.some((c: any) => c.source === 'PRODUCER'),
+        current_quality_score: currentQuality,
+        current_commissions_count: currentCommissions.length,
+        current_has_producer: currentCommissions.some((c: any) => c.source === 'PRODUCER'),
+        decision: currentQuality > existingQuality ? 'replace_existing' : 'skip_current'
+      });
+
+      if (currentQuality > existingQuality) {
+        // El webhook actual es mejor, eliminar el anterior y continuar con el procesamiento
+        log('replacing_inferior_webhook', {
+          transaction_id: transactionId,
+          existing_event_id: existingTransaction[0].id,
+          reason: 'Current webhook has better commission data',
+          quality_improvement: currentQuality - existingQuality
+        });
+        
+        const { error: deleteError } = await supabase
+          .from('tracking_events')
+          .delete()
+          .eq('id', existingTransaction[0].id);
+          
+        if (deleteError) {
+          log('error_deleting_inferior_webhook', { error: deleteError.message });
+          // Continuar anyway, mejor tener duplicado que perder el webhook bueno
+                 } else {
+           log('inferior_webhook_deleted_successfully');
+           result.steps_completed.push('inferior_webhook_replaced');
+           result.event_info.replaced_inferior_webhook = true;
+         }
+      } else {
+        // El webhook existente es igual o mejor, descartar el actual
+        const error = `Transacción ${transactionId} ya fue procesada con mejor o igual calidad de datos`;
+        log('duplicate_transaction_skipped', { 
+          transaction_id: transactionId,
+          existing_event_id: existingTransaction[0].id,
+          existing_created_at: existingTransaction[0].created_at,
+          existing_event_type: existingTransaction[0].event_type,
+          current_event_type: event.event,
+          existing_quality_score: existingQuality,
+          current_quality_score: currentQuality,
+          note: 'Webhook actual descartado porque el existente tiene mejor calidad de datos'
+        });
+        result.errors.push(error);
+        result.event_info.is_duplicate = true;
+        result.final_status = 'duplicate_transaction_skipped';
+        result.processing_ended = new Date().toISOString();
+        return result;
+      }
+    }
+
+    log('duplicate_check_passed', { transaction_id: transactionId });
+    result.steps_completed.push('duplicate_check_passed');
+    
+    // Calcular y asignar el quality score del webhook actual
+    const currentQuality = evaluateWebhookQuality(event.data.commissions || []);
+    result.event_info.webhook_quality_score = currentQuality;
+    log('webhook_quality_calculated', { 
+      transaction_id: transactionId,
+      quality_score: currentQuality,
+      commissions_count: event.data.commissions?.length || 0
+    });
 
     log('query_tracking_event_start', { visitor_id: xcod });
     const { data: trackingEvents, error: trackingError } = await supabase
