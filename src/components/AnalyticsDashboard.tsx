@@ -142,6 +142,84 @@ const extractUtmId = (utmValue: string) => {
   }
 };
 
+// Función para normalizar nombres de campaña para matching más flexible
+const normalizeCampaignName = (name: string): string => {
+  if (!name) return '';
+  
+  return name
+    // Remover emojis al inicio (🔴, 🟢, etc.)
+    .replace(/^[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')
+    // Normalizar barras escapadas
+    .replace(/\\\\+/g, '\\')
+    // NUEVO: Normalizar conectores y espacios múltiples
+    .replace(/\s*\+\s*/g, ' ')  // Convertir " + " o "+" a un espacio
+    .replace(/\s*-\s*/g, ' ')   // Convertir " - " o "-" a un espacio  
+    .replace(/\s*\|\s*/g, '|')  // Normalizar espacios alrededor de |
+    .replace(/\s+/g, ' ')       // Colapsar espacios múltiples
+    // Trim espacios al inicio y final
+    .trim()
+    // Convertir a lowercase para comparación case-insensitive
+    .toLowerCase();
+};
+
+// Función de matching más inteligente
+const findCampaignMatch = (utmData: any, utmBaseStats: Map<any, any>): string | null => {
+  const utmCampaign = utmData.utm_campaign || '';
+  const utmMedium = utmData.utm_medium || '';
+  const utmContent = utmData.utm_content || '';
+  
+  // 1. Intentar matching exacto primero
+  for (const [key, stats] of utmBaseStats.entries()) {
+    if (stats.campaign === utmCampaign &&
+        stats.medium === utmMedium &&
+        stats.content === utmContent) {
+      return key;
+    }
+  }
+  
+  // 2. Intentar matching normalizado
+  const normalizedUtmCampaign = normalizeCampaignName(utmCampaign);
+  const normalizedUtmMedium = normalizeCampaignName(utmMedium);
+  const normalizedUtmContent = normalizeCampaignName(utmContent);
+  
+  for (const [key, stats] of utmBaseStats.entries()) {
+    const normalizedStatsCampaign = normalizeCampaignName(stats.campaign);
+    const normalizedStatsMedium = normalizeCampaignName(stats.medium);
+    const normalizedStatsContent = normalizeCampaignName(stats.content);
+    
+    if (normalizedStatsCampaign === normalizedUtmCampaign &&
+        normalizedStatsMedium === normalizedUtmMedium &&
+        normalizedStatsContent === normalizedUtmContent) {
+      console.log(`[FUZZY MATCH] ✅ Found normalized match:`, {
+        original_utm: utmCampaign,
+        original_campaign: stats.campaign,
+        normalized_utm: normalizedUtmCampaign,
+        normalized_campaign: normalizedStatsCampaign,
+        match_type: 'campaign_medium_content'
+      });
+      return key;
+    }
+    
+    // Debug de campañas similares que no hicieron match
+    if (normalizedStatsCampaign === normalizedUtmCampaign) {
+      console.log(`[FUZZY DEBUG] Campaign match but medium/content differ:`, {
+        utm_campaign: utmCampaign,
+        utm_medium: utmMedium,
+        utm_content: utmContent,
+        stats_campaign: stats.campaign,
+        stats_medium: stats.medium,
+        stats_content: stats.content,
+        normalized_utm_medium: normalizedUtmMedium,
+        normalized_stats_medium: normalizedStatsMedium,
+        normalized_utm_content: normalizedUtmContent,
+        normalized_stats_content: normalizedStatsContent,
+      });
+    }
+  }
+  
+  return null;
+};
+
 const getUtmGroupingKey = (campaign: string, medium: string, content: string) => {
   // Intentar extraer IDs
   const campaignId = extractUtmId(campaign);
@@ -865,6 +943,20 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // ===== NUEVA LÓGICA UTM: BASADA EN AD_PERFORMANCE =====
       console.log('=== CONSTRUYENDO NUEVA TABLA UTM ===');
       
+      // Debug de eventos encontrados
+      const eventsSummary = {
+        total: events.length,
+        pageviews: events.filter(e => e.event_type === 'pageview').length,
+        hotmart_clicks: events.filter(e => e.event_type === 'hotmart_click').length,
+        compra_hotmart: events.filter(e => e.event_type === 'compra_hotmart').length,
+        compra_hotmart_orderbump: events.filter(e => e.event_type === 'compra_hotmart_orderbump').length,
+        pageviews_with_utm: events.filter(e => e.event_type === 'pageview' && e.event_data?.utm_data).length,
+        clicks_with_utm: events.filter(e => e.event_type === 'hotmart_click' && e.event_data?.utm_data).length,
+        compras_with_utm: events.filter(e => e.event_type === 'compra_hotmart' && e.event_data?.utm_data).length,
+        orderBumps_with_utm: events.filter(e => e.event_type === 'compra_hotmart_orderbump' && e.event_data?.utm_data).length,
+      };
+      console.log('[EVENTOS] Resumen de eventos encontrados:', eventsSummary);
+      
       // 1. Primero, identificar qué campañas/adsets/ads generaron tracking events para este producto
       const campaignsWithTracking = new Set<string>();
       const adsetsWithTracking = new Set<string>();
@@ -935,9 +1027,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
         return hasTrackingById || hasTrackingByName;
       }) || [];
       
-      console.log(`Ads filtrados con tracking para este producto: ${filteredAdPerformance.length}`);
-      
-      if (filteredAdPerformance.length > 0) {
+              console.log(`Ads filtrados con tracking para este producto: ${filteredAdPerformance.length}`);
+        
+        // Debug: Mostrar todas las campañas disponibles en ad_performance
+        const availableCampaigns = [...new Set(filteredAdPerformance.map(ad => ad.campaign_name))];
+        console.log('[AD_PERFORMANCE] Campañas disponibles para matching:', availableCampaigns);
+        
+        if (filteredAdPerformance.length > 0) {
         // 4. Crear la base de la tabla UTM con las campañas filtradas que gastaron
         const utmBaseStats = new Map();
         
@@ -1013,11 +1109,30 @@ export default function AnalyticsDashboard({ productId }: Props) {
           } else if (event.event_type === 'hotmart_click') {
             utmData = event.event_data?.utm_data || sessionUtmMap.get(sessionId);
           } else if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
-            // Las compras usan UTM del click o de la visita
-            utmData = clickUtmMap.get(sessionId) || sessionUtmMap.get(sessionId);
+            // CORREGIDO: Las compras primero usan UTM del propio evento, luego del click, luego de la visita
+            utmData = event.event_data?.utm_data || clickUtmMap.get(sessionId) || sessionUtmMap.get(sessionId);
+            
+            // Debug para ventas
+            if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
+              console.log(`[VENTA] ${event.event_type} - Session: ${sessionId}`, {
+                hasDirectUtm: !!event.event_data?.utm_data,
+                hasClickUtm: !!clickUtmMap.get(sessionId),
+                hasVisitUtm: !!sessionUtmMap.get(sessionId),
+                finalUtm: utmData ? 'SÍ' : 'NO',
+                utmCampaign: utmData?.utm_campaign || 'NINGUNA',
+                utmMedium: utmData?.utm_medium || 'NINGUNA',
+                utmContent: utmData?.utm_content || 'NINGUNA',
+              });
+            }
           }
           
-          if (!utmData) return;
+          if (!utmData) {
+            // Debug para eventos sin UTM
+            if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
+              console.log(`[VENTA SIN UTM] ${event.event_type} - Session: ${sessionId} - NO SE ATRIBUIRÁ`);
+            }
+            return;
+          }
           
           // Buscar matching con ad_performance
           // Primero por IDs exactos
@@ -1030,16 +1145,36 @@ export default function AnalyticsDashboard({ productId }: Props) {
             matchingKey = `${campaignId}|${adsetId}|${adId}`;
           }
           
-          // Si no hay match por ID, intentar por nombres exactos
+          // Si no hay match por ID, usar la función de matching inteligente
           if (!matchingKey || !utmBaseStats.has(matchingKey)) {
-            for (const [key, stats] of utmBaseStats.entries()) {
-              if (stats.campaign === (utmData.utm_campaign || '') &&
-                  stats.medium === (utmData.utm_medium || '') &&
-                  stats.content === (utmData.utm_content || '')) {
-                matchingKey = key;
-                break;
-              }
-            }
+            matchingKey = findCampaignMatch(utmData, utmBaseStats);
+          }
+          
+          // Debug adicional para ventas que fallan en matching
+          if ((event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') && !matchingKey) {
+            const availableCampaignNames = Array.from(utmBaseStats.values()).map(s => s.campaign);
+            console.log(`[MATCHING FAILED] ${event.event_type}`, {
+              buscando_campaign: utmData.utm_campaign,
+              buscando_medium: utmData.utm_medium,
+              buscando_content: utmData.utm_content,
+              campaigns_disponibles: availableCampaignNames,
+              exact_matches: availableCampaignNames.filter(c => c.includes(utmData.utm_campaign?.split('|')[0] || '')),
+              total_campaigns_en_tabla: utmBaseStats.size
+            });
+          }
+          
+          // Debug del matching para ventas
+          if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
+            console.log(`[MATCHING] ${event.event_type} - Session: ${sessionId}`, {
+              utmCampaign: utmData.utm_campaign,
+              utmMedium: utmData.utm_medium,
+              utmContent: utmData.utm_content,
+              extractedIds: { campaignId, adsetId, adId },
+              matchingKeyByIds: campaignId && adsetId && adId ? `${campaignId}|${adsetId}|${adId}` : 'NO',
+              matchingKeyFinal: matchingKey || 'NO MATCH',
+              utmStatsSize: utmBaseStats.size,
+              availableKeys: Array.from(utmBaseStats.keys()).slice(0, 3), // Primeras 3 keys para debug
+            });
           }
           
           if (matchingKey && utmBaseStats.has(matchingKey)) {
@@ -1052,13 +1187,21 @@ export default function AnalyticsDashboard({ productId }: Props) {
               stats.clicks++;
               stats.clickSet.add(event.visitor_id);
             } else if (event.event_type === 'compra_hotmart') {
+              const price = getEventPrice(event);
               stats.purchases++;
-              stats.revenue += getEventPrice(event);
+              stats.revenue += price;
+              console.log(`[VENTA ATRIBUIDA] compra_hotmart - Campaign: ${stats.campaign} - Revenue: $${price.toFixed(2)}`);
             } else if (event.event_type === 'compra_hotmart_orderbump') {
+              const price = getEventPrice(event);
               stats.order_bumps++;
               stats.purchases++; // Contar order bump como compra
-              stats.revenue += getEventPrice(event);
+              stats.revenue += price;
+              console.log(`[ORDER BUMP ATRIBUIDO] orderbump - Campaign: ${stats.campaign} - Revenue: $${price.toFixed(2)}`);
             }
+          } else if (event.event_type === 'compra_hotmart' || event.event_type === 'compra_hotmart_orderbump') {
+            // Venta que NO se pudo atribuir
+            const price = getEventPrice(event);
+            console.log(`[VENTA NO ATRIBUIDA] ${event.event_type} - Revenue perdido: $${price.toFixed(2)} - UTM: ${JSON.stringify(utmData)}`);
           }
         });
         
@@ -1148,19 +1291,25 @@ export default function AnalyticsDashboard({ productId }: Props) {
       const totalUtmAdSpend = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.ad_spend, 0);
       const totalUtmRevenue = finalUtmStats.reduce((acc: number, utm: any) => acc + utm.revenue, 0);
       
-      console.log(`=== COMPARACIÓN FINAL KPIs vs UTM ===`);
-      console.log(`[KPI] Total ad spend: $${totalAdSpend.toFixed(2)}`);
-      console.log(`[UTM] Total ad spend: $${totalUtmAdSpend.toFixed(2)}`);
-      console.log(`[DIFF] Diferencia: $${Math.abs(totalAdSpend - totalUtmAdSpend).toFixed(2)}`);
-      console.log(`[KPI] Total revenue: $${totalRevenue.toFixed(2)}`);
-      console.log(`[UTM] Total revenue: $${totalUtmRevenue.toFixed(2)}`);
-      console.log(`[DIFF] Diferencia: $${Math.abs(totalRevenue - totalUtmRevenue).toFixed(2)}`);
-      console.log(`[KPI] Total purchases: ${totalPurchases}`);
-      console.log(`[UTM] Total purchases: ${totalUtmPurchases}`);
-      console.log(`[DIFF] Diferencia: ${Math.abs(totalPurchases - totalUtmPurchases)}`);
-      console.log(`[KPI] ROAS: ${roas.toFixed(2)}x`);
-      console.log(`[UTM] ROAS: ${totalUtmAdSpend > 0 ? (totalUtmRevenue / totalUtmAdSpend).toFixed(2) : 0}x`);
-      console.log(`=============================`);
+              console.log(`=== COMPARACIÓN FINAL KPIs vs UTM ===`);
+        console.log(`[KPI] Total ad spend: $${totalAdSpend.toFixed(2)}`);
+        console.log(`[UTM] Total ad spend: $${totalUtmAdSpend.toFixed(2)}`);
+        console.log(`[DIFF] Diferencia: $${Math.abs(totalAdSpend - totalUtmAdSpend).toFixed(2)}`);
+        console.log(`[KPI] Total revenue: $${totalRevenue.toFixed(2)}`);
+        console.log(`[UTM] Total revenue: $${totalUtmRevenue.toFixed(2)}`);
+        console.log(`[DIFF] Diferencia revenue: $${Math.abs(totalRevenue - totalUtmRevenue).toFixed(2)}`);
+        console.log(`[KPI] Total purchases: ${totalPurchases}`);
+        console.log(`[UTM] Total purchases: ${totalUtmPurchases}`);
+        console.log(`[DIFF] Diferencia purchases: ${Math.abs(totalPurchases - totalUtmPurchases)}`);
+        console.log(`[KPI] ROAS: ${roas.toFixed(2)}x`);
+        console.log(`[UTM] ROAS: ${totalUtmAdSpend > 0 ? (totalUtmRevenue / totalUtmAdSpend).toFixed(2) : 0}x`);
+        console.log(`=== ANÁLISIS DE ATRIBUCIÓN ===`);
+        console.log(`[ATRIBUCIÓN] Revenue atribuido a UTMs: $${totalUtmRevenue.toFixed(2)} de $${totalRevenue.toFixed(2)}`);
+        console.log(`[ATRIBUCIÓN] Porcentaje atribuido: ${totalRevenue > 0 ? ((totalUtmRevenue / totalRevenue) * 100).toFixed(1) : 0}%`);
+        console.log(`[ATRIBUCIÓN] Revenue perdido (sin atribuir): $${(totalRevenue - totalUtmRevenue).toFixed(2)}`);
+        console.log(`[ATRIBUCIÓN] Purchases atribuidas: ${totalUtmPurchases} de ${totalPurchases}`);
+        console.log(`[ATRIBUCIÓN] Purchases perdidas: ${totalPurchases - totalUtmPurchases}`);
+        console.log(`=============================`);
 
       setData({
         total_visits: totalVisits,
