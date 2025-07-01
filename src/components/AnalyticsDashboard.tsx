@@ -1704,72 +1704,22 @@ export default function AnalyticsDashboard({ productId }: Props) {
               <DollarSign className="h-7 w-7 text-green-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Ingresos de Hoy</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                ${data.revenue_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <TrendingDown className="h-7 w-7 text-red-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Gasto Publicitario Hoy</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                ${data.ad_spend_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-indigo-100 rounded-lg">
-              <Target className="h-7 w-7 text-indigo-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">ROAS Hoy</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {data.roas_today.toFixed(2)}x
-              </h3>
-              <p className="text-xs text-gray-400">
-                {data.roas_today >= 3 ? '🟢 Excelente' : data.roas_today >= 2 ? '🟡 Bueno' : '🔴 Mejorar'}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <Target className="h-7 w-7 text-purple-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">ROAS Total</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {data.roas.toFixed(2)}x
-              </h3>
-              <p className="text-xs text-gray-400">
-                {data.roas >= 3 ? '🟢 Excelente' : data.roas >= 2 ? '🟡 Bueno' : '🔴 Mejorar'}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* KPIs Secundarios */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-blue-100 rounded-lg">
-              <DollarSign className="h-7 w-7 text-blue-600" />
-            </div>
-            <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Ingresos Totales</p>
               <h3 className="text-2xl font-bold text-gray-900">
                 ${data.total_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-gray-500">
+                  📦 Principal: <span className="font-semibold text-green-700">
+                    ${data.total_main_product_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  🚀 Order Bump: <span className="font-semibold text-orange-600">
+                    ${data.total_order_bump_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
@@ -1789,31 +1739,46 @@ export default function AnalyticsDashboard({ productId }: Props) {
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="flex items-center">
             <div className="p-3 bg-purple-100 rounded-lg">
-              <DollarSign className="h-7 w-7 text-purple-600" />
+              <Target className="h-7 w-7 text-purple-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Ingresos Prod. Principal</p>
+              <p className="text-sm font-medium text-gray-500">ROAS</p>
               <h3 className="text-2xl font-bold text-gray-900">
-                ${data.total_main_product_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {data.roas.toFixed(2)}x
               </h3>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-gray-500">
+                  📦 Principal: <span className="font-semibold text-purple-700">
+                    {(data.total_ad_spend > 0 ? data.total_main_product_revenue / data.total_ad_spend : 0).toFixed(2)}x
+                  </span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  🎯 Total: <span className="font-semibold text-indigo-600">{data.roas.toFixed(2)}x</span>
+                  <span className="ml-1">
+                    {data.roas >= 3 ? '🟢' : data.roas >= 2 ? '🟡' : '🔴'}
+                  </span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
         <div className="bg-white p-6 rounded-lg shadow-sm border">
           <div className="flex items-center">
-            <div className="p-3 bg-orange-100 rounded-lg">
-              <DollarSign className="h-7 w-7 text-orange-600" />
+            <div className="p-3 bg-indigo-100 rounded-lg">
+              <DollarSign className="h-7 w-7 text-indigo-600" />
             </div>
             <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Ingresos Order Bump</p>
+              <p className="text-sm font-medium text-gray-500">Beneficio Neto</p>
               <h3 className="text-2xl font-bold text-gray-900">
-                ${data.total_order_bump_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                ${(data.total_revenue - data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </h3>
             </div>
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
+
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-blue-100 rounded">
@@ -1844,20 +1809,18 @@ export default function AnalyticsDashboard({ productId }: Props) {
             <div className="ml-4">
               <p className="text-sm font-medium text-gray-500">Compras</p>
               <h3 className="text-2xl font-bold text-gray-900">{data.total_purchases}</h3>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-xs text-gray-500">
+                  📦 Principal: <span className="font-semibold text-purple-700">{data.total_purchases - data.total_order_bumps}</span>
+                </p>
+                <p className="text-xs text-gray-500">
+                  🚀 Order Bump: <span className="font-semibold text-orange-600">{data.total_order_bumps}</span>
+                </p>
+              </div>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-orange-100 rounded">
-              <Rocket className="h-6 w-6 text-orange-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Order Bumps</p>
-              <h3 className="text-2xl font-bold text-gray-900">{data.total_order_bumps}</h3>
-            </div>
-          </div>
-        </div>
+
         <div className="bg-white p-6 rounded-lg shadow">
           <div className="flex items-center">
             <div className="p-2 bg-yellow-100 rounded">
@@ -2107,20 +2070,20 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 Análisis de Rentabilidad
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* ROAS por período */}
+                {/* ROAS y Rentabilidad */}
                 <div className="bg-gradient-to-br from-purple-50 to-indigo-50 p-6 rounded-lg border border-purple-200">
-                  <h4 className="text-lg font-semibold text-gray-800 mb-4">ROAS por Período</h4>
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4">ROAS y Rentabilidad</h4>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">ROAS Total:</span>
+                      <span className="text-sm text-gray-600">ROAS:</span>
                       <span className={`text-lg font-bold ${data.roas >= 3 ? 'text-green-600' : data.roas >= 2 ? 'text-yellow-600' : 'text-red-600'}`}>
                         {data.roas.toFixed(2)}x
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">ROAS Hoy:</span>
-                      <span className={`text-lg font-bold ${data.roas_today >= 3 ? 'text-green-600' : data.roas_today >= 2 ? 'text-yellow-600' : 'text-red-600'}`}>
-                        {data.roas_today.toFixed(2)}x
+                      <span className="text-sm text-gray-600">ROI:</span>
+                      <span className="text-lg font-bold text-purple-600">
+                        {(data.total_ad_spend > 0 ? (((data.total_revenue - data.total_ad_spend) / data.total_ad_spend) * 100) : 0).toFixed(1)}%
                       </span>
                     </div>
                     <div className="text-xs text-gray-500 mt-2">
@@ -2129,9 +2092,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
                   </div>
                 </div>
 
-                {/* Distribución de gastos */}
+                {/* Costos y Eficiencia */}
                 <div className="bg-gradient-to-br from-red-50 to-pink-50 p-6 rounded-lg border border-red-200">
-                  <h4 className="text-lg font-semibold text-gray-800 mb-4">Distribución de Gastos</h4>
+                  <h4 className="text-lg font-semibold text-gray-800 mb-4">Costos y Eficiencia</h4>
                   <div className="space-y-3">
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">Gasto Total:</span>
@@ -2140,15 +2103,15 @@ export default function AnalyticsDashboard({ productId }: Props) {
                       </span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-600">Gasto Hoy:</span>
-                      <span className="text-lg font-bold text-red-600">
-                        ${data.ad_spend_today.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center">
                       <span className="text-sm text-gray-600">CPV (Costo/Visita):</span>
                       <span className="text-sm font-medium text-gray-700">
                         ${((showUnique ? data.unique_visits : data.total_visits) > 0 ? data.total_ad_spend / (showUnique ? data.unique_visits : data.total_visits) : 0).toFixed(2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-600">CPC (Costo/Click):</span>
+                      <span className="text-sm font-medium text-gray-700">
+                        ${((showUnique ? data.unique_clicks : data.total_clicks) > 0 ? data.total_ad_spend / (showUnique ? data.unique_clicks : data.total_clicks) : 0).toFixed(2)}
                       </span>
                     </div>
                   </div>
