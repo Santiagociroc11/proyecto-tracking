@@ -369,12 +369,24 @@ const isUtmParamValid = (param: string | undefined): boolean => {
   return parts.some(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
 };
 
-// Helper function to clean UTM data, selecting the valid part from a fallback string
+// Helper function to clean UTM data, preserving both name and ID when available
 const cleanUtmParam = (param: string | undefined): string | undefined => {
   if (!param) return param;
   const parts = param.split('||');
-  const validPart = parts.find(part => part.trim() !== '' && !part.includes('{{') && !part.includes('}}'));
-  return validPart ? validPart.trim() : param;
+  
+  // Filtrar partes válidas (que no sean vacías ni contengan templates)
+  const validParts = parts.filter(part => 
+    part.trim() !== '' && 
+    !part.includes('{{') && 
+    !part.includes('}}')
+  );
+  
+  // Si tenemos partes válidas, las rejoins con ||
+  if (validParts.length > 0) {
+    return validParts.join('||').trim();
+  }
+  
+  return param;
 };
 
 const cleanUtms = (utmData: any): any => {

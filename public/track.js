@@ -451,10 +451,29 @@
     try {
         const utms = this.__get_and_persist_utm_data();
         const utmParams = {};
+        let hasValidUtms = false;
+        let onlyFallbacks = 0;
+        
         this.__config__.campaign_fields.forEach(param => {
-            utmParams[param] = utms[param] || '-';
+            const value = utms[param] || '-';
+            utmParams[param] = value;
+            
+            if (value !== '-') {
+                hasValidUtms = true;
+            } else {
+                onlyFallbacks++;
+            }
         });
-        lt.__log('UTM', 'Parámetros UTM para el evento', utmParams);
+        
+        // Debug y alertas para casos edge
+        if (!hasValidUtms) {
+            lt.__log('UTM', '⚠️ WARNING: No se encontraron UTMs válidos, todos son fallbacks (-)', utmParams);
+        } else if (onlyFallbacks > 0) {
+            lt.__log('UTM', `⚠️ WARNING: ${onlyFallbacks} parámetros UTM son fallbacks (-), posible pérdida de datos`, utmParams);
+        } else {
+            lt.__log('UTM', '✅ UTMs válidos encontrados', utmParams);
+        }
+        
         return utmParams;
     } catch (e) {
         lt.__log('UTM', 'Error obteniendo datos UTM', e);

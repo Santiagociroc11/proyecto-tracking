@@ -120,12 +120,31 @@ const decodeName = (name: string) => {
 };
 
 const cleanUtmName = (name: string) => {
+  if (!name || name === '-') return 'none';
   try {
     // Decodificar primero
     const decoded = decodeName(name);
+    
     // Si contiene ||, tomar solo la parte antes del ||
-    const parts = decoded.split('||');
-    return parts[0].trim();
+    if (decoded.includes('||')) {
+      const parts = decoded.split('||');
+      const namePart = parts[0].trim();
+      const idPart = parts[1]?.trim();
+      
+      // Si solo tenemos ID sin nombre, formatear para display
+      if (!namePart && idPart) {
+        return `[ID: ${idPart.substring(0, 8)}...]`;
+      }
+      
+      return namePart || decoded;
+    }
+    
+    // Verificar si es solo un ID numérico largo (posible Facebook ID)
+    if (/^\d{15,}$/.test(decoded)) {
+      return `[ID: ${decoded.substring(0, 8)}...]`;
+    }
+    
+    return decoded;
   } catch (e) {
     return name;
   }
@@ -956,6 +975,31 @@ export default function AnalyticsDashboard({ productId }: Props) {
         orderBumps_with_utm: events.filter(e => e.event_type === 'compra_hotmart_orderbump' && e.event_data?.utm_data).length,
       };
       console.log('[EVENTOS] Resumen de eventos encontrados:', eventsSummary);
+      
+      // Debug específico para casos edge de UTMs
+      const utmEdgeCases = {
+        utms_with_fallback_dash: events.filter(e => 
+          e.event_data?.utm_data && 
+          Object.values(e.event_data.utm_data).some((val: any) => val === '-')
+        ).length,
+        utms_only_ids: events.filter(e => {
+          const utm = e.event_data?.utm_data;
+          if (!utm) return false;
+          // Verificar si algún valor parece ser solo un ID (15+ dígitos)
+          return Object.values(utm).some((val: any) => 
+            typeof val === 'string' && /^\d{15,}$/.test(val)
+          );
+        }).length,
+        utms_with_ids: events.filter(e => {
+          const utm = e.event_data?.utm_data;
+          if (!utm) return false;
+          // Verificar si algún valor contiene ||
+          return Object.values(utm).some((val: any) => 
+            typeof val === 'string' && val.includes('||')
+          );
+        }).length,
+      };
+      console.log('[UTM EDGE CASES] Casos especiales encontrados:', utmEdgeCases);
       
       // 1. Primero, identificar qué campañas/adsets/ads generaron tracking events para este producto
       const campaignsWithTracking = new Set<string>();
