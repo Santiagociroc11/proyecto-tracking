@@ -1610,6 +1610,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   }
 
   const aov = data.total_purchases > 0 ? data.total_revenue / data.total_purchases : 0;
+  const mainProductPurchases = data.total_purchases - data.total_order_bumps;
   const rpv = showUnique 
     ? (data.unique_visits > 0 ? data.total_revenue / data.unique_visits : 0)
     : (data.total_visits > 0 ? data.total_revenue / data.total_visits : 0);
@@ -1697,153 +1698,185 @@ export default function AnalyticsDashboard({ productId }: Props) {
       </div>
 
       {/* KPIs Principales */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-green-100 rounded-lg">
-              <DollarSign className="h-7 w-7 text-green-600" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        {/* Ingresos */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600 mb-1">Ingresos Totales</p>
+            <h3 className="text-3xl font-bold text-gray-900">
+              ${data.total_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-green-700 font-semibold">Principal:</span>
+              <span className="font-bold text-gray-800">${data.total_main_product_revenue.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Ingresos Totales</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                ${data.total_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
-              <div className="mt-1 space-y-0.5">
-                <p className="text-xs text-gray-500">
-                  📦 Principal: <span className="font-semibold text-green-700">
-                    ${data.total_main_product_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </p>
-                <p className="text-xs text-gray-500">
-                  🚀 Order Bump: <span className="font-semibold text-orange-600">
-                    ${data.total_order_bump_revenue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </p>
-              </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-orange-600 font-semibold">Order Bumps:</span>
+              <span className="font-bold text-gray-800">${data.total_order_bump_revenue.toLocaleString('es-ES', { maximumFractionDigits: 0 })}</span>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-red-100 rounded-lg">
-              <TrendingDown className="h-7 w-7 text-red-600" />
+
+        {/* Beneficios */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600 mb-1">Beneficio Neto</p>
+            <h3 className={`text-3xl font-bold ${(data.total_revenue - data.total_ad_spend) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              ${(data.total_revenue - data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </h3>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Gasto Pub.:</span>
+              <span className="font-semibold text-red-600">${data.total_ad_spend.toLocaleString('es-ES', { maximumFractionDigits: 2 })}</span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Gasto Publicitario Total</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                ${data.total_ad_spend.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
+             <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Margen:</span>
+              <span className="font-semibold text-gray-800">{(data.total_revenue > 0 ? ((data.total_revenue - data.total_ad_spend) / data.total_revenue * 100) : 0).toFixed(1)}%</span>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-purple-100 rounded-lg">
-              <Target className="h-7 w-7 text-purple-600" />
+
+        {/* ROAS */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
+          <div>
+            <div className="flex justify-between items-baseline">
+              <p className="text-sm font-medium text-gray-600 mb-1">ROAS Total</p>
+              <div className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                  data.roas >= 3 ? 'bg-green-100 text-green-800' : 
+                  data.roas >= 2 ? 'bg-yellow-100 text-yellow-800' : 
+                  'bg-red-100 text-red-800'
+                }`}>
+                  {data.roas >= 3 ? 'Excelente' : data.roas >= 2 ? 'Bueno' : 'Crítico'}
+                </div>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">ROAS</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {data.roas.toFixed(2)}x
-              </h3>
-              <div className="mt-1 space-y-0.5">
-                <p className="text-xs text-gray-500">
-                  📦 Principal: <span className="font-semibold text-purple-700">
-                    {(data.total_ad_spend > 0 ? data.total_main_product_revenue / data.total_ad_spend : 0).toFixed(2)}x
-                  </span>
-                </p>
-                <p className="text-xs text-gray-500">
-                  🎯 Total: <span className="font-semibold text-indigo-600">{data.roas.toFixed(2)}x</span>
-                  <span className="ml-1">
-                    {data.roas >= 3 ? '🟢' : data.roas >= 2 ? '🟡' : '🔴'}
-                  </span>
-                </p>
-              </div>
+            <h3 className="text-3xl font-bold text-gray-900">{data.roas.toFixed(2)}x</h3>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-purple-700 font-semibold">ROAS Principal:</span>
+              <span className="font-bold text-gray-800">{(data.total_ad_spend > 0 ? data.total_main_product_revenue / data.total_ad_spend : 0).toFixed(2)}x</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-indigo-700 font-semibold">ROAS Total:</span>
+              <span className="font-bold text-gray-800">{data.roas.toFixed(2)}x</span>
             </div>
           </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-sm border">
-          <div className="flex items-center">
-            <div className="p-3 bg-indigo-100 rounded-lg">
-              <DollarSign className="h-7 w-7 text-indigo-600" />
+        
+        {/* Costos Clave */}
+        <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 flex flex-col justify-between">
+          <div>
+            <p className="text-sm font-medium text-gray-600 mb-1">CPA (Principal)</p>
+            <h3 className="text-3xl font-bold text-gray-900">
+              ${(mainProductPurchases > 0 ? data.total_ad_spend / mainProductPurchases : 0).toFixed(2)}
+            </h3>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">CPV:</span>
+              <span className="font-semibold text-gray-800">
+                ${((showUnique ? data.unique_visits : data.total_visits) > 0 ? data.total_ad_spend / (showUnique ? data.unique_visits : data.total_visits) : 0).toFixed(2)}
+              </span>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Beneficio Neto</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                ${(data.total_revenue - data.total_ad_spend).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </h3>
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Costo / Click:</span>
+              <span className="font-semibold text-gray-800">
+                ${((showUnique ? data.unique_clicks : data.total_clicks) > 0 ? data.total_ad_spend / (showUnique ? data.unique_clicks : data.total_clicks) : 0).toFixed(2)}
+              </span>
             </div>
           </div>
         </div>
       </div>
 
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-blue-100 rounded">
-              <Users className="h-6 w-6 text-blue-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}</p>
-              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_visits : data.total_visits}</h3>
-            </div>
-          </div>
+      {/* KPIs de Rendimiento */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden mb-6">
+        <div className="px-6 py-4 bg-gray-50 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Métricas de Rendimiento</h3>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-green-100 rounded">
-              <BarChartIcon className="h-6 w-6 text-green-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}</p>
-              <h3 className="text-2xl font-bold text-gray-900">{showUnique ? data.unique_clicks : data.total_clicks}</h3>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-purple-100 rounded">
-              <DollarSign className="h-6 w-6 text-purple-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Compras</p>
-              <h3 className="text-2xl font-bold text-gray-900">{data.total_purchases}</h3>
-              <div className="mt-1 space-y-0.5">
-                <p className="text-xs text-gray-500">
-                  📦 Principal: <span className="font-semibold text-purple-700">{data.total_purchases - data.total_order_bumps}</span>
-                </p>
-                <p className="text-xs text-gray-500">
-                  🚀 Order Bump: <span className="font-semibold text-orange-600">{data.total_order_bumps}</span>
-                </p>
+        <div className="p-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
+            {/* Visitas */}
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-3">
+                <div className="p-3 bg-blue-50 rounded-lg">
+                  <Users className="h-6 w-6 text-blue-600" />
+                </div>
               </div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Visitas {showUnique ? 'Únicas' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                {(showUnique ? data.unique_visits : data.total_visits).toLocaleString()}
+              </h3>
+                             <p className="text-sm font-medium text-blue-600">
+                 CPV: ${((showUnique ? data.unique_visits : data.total_visits) > 0 ? data.total_ad_spend / (showUnique ? data.unique_visits : data.total_visits) : 0).toFixed(2)}
+               </p>
             </div>
-          </div>
-        </div>
 
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-yellow-100 rounded">
-              <LineChartIcon className="h-6 w-6 text-yellow-600" />
+            {/* Pagos Iniciados */}
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-3">
+                <div className="p-3 bg-green-50 rounded-lg">
+                  <BarChartIcon className="h-6 w-6 text-green-600" />
+                </div>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                {(showUnique ? data.unique_clicks : data.total_clicks).toLocaleString()}
+              </h3>
+                             <p className="text-sm font-medium text-green-600">
+                 Persuasión: {((showUnique ? data.unique_clicks : data.total_clicks) / (showUnique ? data.unique_visits : data.total_visits) * 100).toFixed(1)}%
+               </p>
             </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Tasa de Conversión</p>
-              <h3 className="text-2xl font-bold text-gray-900">
+
+            {/* Compras */}
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-3">
+                <div className="p-3 bg-purple-50 rounded-lg">
+                  <DollarSign className="h-6 w-6 text-purple-600" />
+                </div>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Compras Totales</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                {data.total_purchases.toLocaleString()}
+              </h3>
+                             <div className="text-sm space-y-1 mt-2">
+                 <p className="text-purple-600 font-semibold">Principal: {data.total_purchases - data.total_order_bumps}</p>
+                 <p className="text-orange-600 font-semibold">Order Bump: {data.total_order_bumps}</p>
+               </div>
+            </div>
+
+            {/* Tasa de Conversión */}
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-3">
+                <div className="p-3 bg-yellow-50 rounded-lg">
+                  <LineChartIcon className="h-6 w-6 text-yellow-600" />
+                </div>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Tasa de Conversión</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
                 {(showUnique ? data.unique_conversion_rate : data.conversion_rate).toFixed(2)}%
               </h3>
+                             <p className="text-sm font-medium text-yellow-600">
+                 Checkout: {((showUnique ? data.unique_clicks : data.total_clicks) > 0 ? (data.total_purchases / (showUnique ? data.unique_clicks : data.total_clicks) * 100) : 0).toFixed(1)}%
+               </p>
             </div>
-          </div>
-        </div>
-        <div className="bg-white p-6 rounded-lg shadow">
-          <div className="flex items-center">
-            <div className="p-2 bg-indigo-100 rounded">
-              <TrendingUp className="h-6 w-6 text-indigo-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm font-medium text-gray-500">Tasa Order Bump</p>
-              <h3 className="text-2xl font-bold text-gray-900">
-                {data.order_bump_rate.toFixed(2)}%
+
+            {/* AOV y Order Bump */}
+            <div className="text-center">
+              <div className="flex items-center justify-center mb-3">
+                <div className="p-3 bg-indigo-50 rounded-lg">
+                  <TrendingUp className="h-6 w-6 text-indigo-600" />
+                </div>
+              </div>
+              <p className="text-xs font-medium text-gray-500 mb-2">Valor Promedio</p>
+              <h3 className="text-2xl font-bold text-gray-900 mb-1">
+                ${aov.toFixed(0)}
               </h3>
+                             <p className="text-sm font-medium text-indigo-600">
+                 OB Rate: {data.order_bump_rate.toFixed(1)}%
+               </p>
             </div>
           </div>
         </div>
