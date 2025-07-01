@@ -66,17 +66,61 @@ async function getDateStringForUser(userId: string, baseDate?: Date): Promise<st
   }
 }
 
-async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<AdSpendData[]> {
+// Nueva función auxiliar para generar los últimos N días
+function getLastNDays(days: number, userTimezone?: string): string[] {
+  const dates: string[] = [];
+  const today = new Date();
+  
+  for (let i = days - 1; i >= 0; i--) {
+    const date = new Date(today);
+    date.setDate(date.getDate() - i);
+    
+    if (userTimezone) {
+      dates.push(formatDateToTimezone(date, userTimezone));
+    } else {
+      dates.push(date.toISOString().split('T')[0]);
+    }
+  }
+  
+  return dates;
+}
+
+// Función modificada para manejar múltiples fechas o un solo día
+async function fetchAdSpendFromMeta(
+  accessToken: string, 
+  adAccountIds: string[], 
+  dateInput: string | string[], // Puede ser un string (un día) o array (múltiples días)
+  userId?: string
+): Promise<AdSpendData[]> {
   const results: AdSpendData[] = [];
   
+  // Determinar si es un solo día o múltiples días
+  const isMultipleDays = Array.isArray(dateInput);
+  const dates = isMultipleDays ? dateInput : [dateInput];
+  
   // Si tenemos userId, usar su zona horaria para las fechas de Facebook API
-  let facebookDateString = dateString;
+  let facebookDates = dates;
   if (userId) {
     try {
-      facebookDateString = await getDateStringForUser(userId);
-      console.log(`[Ad Spend Debug] Using user timezone date: ${facebookDateString} (original: ${dateString})`);
+      if (isMultipleDays) {
+        // Para múltiples días, necesitamos obtener la zona horaria del usuario
+        const { data: settings } = await supabase
+          .from('user_settings')
+          .select('timezone')
+          .eq('user_id', userId)
+          .single();
+        
+        if (settings?.timezone) {
+          facebookDates = getLastNDays(dates.length, settings.timezone);
+        }
+      } else {
+        // Para un solo día, usar la función existente
+        const userDate = await getDateStringForUser(userId);
+        facebookDates = [userDate];
+      }
+      console.log(`[Ad Spend Debug] Using user timezone dates: ${facebookDates.join(', ')} (original: ${dates.join(', ')})`);
     } catch (error) {
-      console.log(`[Ad Spend Debug] Could not get user timezone, using provided date: ${dateString}`);
+      console.log(`[Ad Spend Debug] Could not get user timezone, using provided dates: ${dates.join(', ')}`);
     }
   }
   
@@ -88,43 +132,92 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
       const baseUrl = 'https://graph.facebook.com';
       const version = 'v23.0';
       
-      const params = new URLSearchParams({
-        access_token: accessToken,
-        fields: 'spend,account_currency',
-        level: 'account',
-        time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
-        limit: '1'
-      });
-
-      const url = `${baseUrl}/${version}/${accountId}/insights?${params.toString()}`;
-      
-      // DEBUG: Log de la URL
-      console.log(`[Ad Spend Debug] Requesting URL for account ${accountId}: ${url}`);
-
-      const response = await fetch(url);
-      const result = await response.json(); // Siempre parsear el JSON para obtener el error completo
-
-      if (!response.ok) {
-        console.error(`Error fetching spend for account ${accountId}: ${response.status}`, JSON.stringify(result, null, 2));
-        continue;
-      }
-
-      if (result.data && result.data.length > 0) {
-        const data = result.data[0];
-        results.push({
-          ad_account_id: accountId,
-          spend: parseFloat(data.spend || '0'),
-          currency: data.account_currency || 'USD',
-          date: facebookDateString
+      if (isMultipleDays && facebookDates.length > 1) {
+        // Para múltiples días, usar una sola llamada con time_increment
+        const params = new URLSearchParams({
+          access_token: accessToken,
+          fields: 'spend,account_currency,date_start',
+          level: 'account',
+          time_range: JSON.stringify({ 
+            since: facebookDates[0], 
+            until: facebookDates[facebookDates.length - 1] 
+          }),
+          time_increment: '1',
+          limit: '1000'
         });
+
+        const url = `${baseUrl}/${version}/${accountId}/insights?${params.toString()}`;
+        
+        console.log(`[Ad Spend Debug] Requesting URL for account ${accountId} (${facebookDates.length} days): ${url}`);
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!response.ok) {
+          console.error(`Error fetching spend for account ${accountId}: ${response.status}`, JSON.stringify(result, null, 2));
+          continue;
+        }
+
+        if (result.data && result.data.length > 0) {
+          for (const data of result.data) {
+            results.push({
+              ad_account_id: accountId,
+              spend: parseFloat(data.spend || '0'),
+              currency: data.account_currency || 'USD',
+              date: data.date_start
+            });
+          }
+        } else {
+          // Si no hay datos, crear entradas con gasto 0 para cada día
+          for (const date of facebookDates) {
+            results.push({
+              ad_account_id: accountId,
+              spend: 0,
+              currency: 'USD',
+              date: date
+            });
+          }
+        }
       } else {
-        // Si no hay datos, crear entrada con gasto 0
-        results.push({
-          ad_account_id: accountId,
-          spend: 0,
-          currency: 'USD',
-          date: facebookDateString
+        // Para un solo día, usar la lógica original
+        const facebookDate = facebookDates[0];
+        const params = new URLSearchParams({
+          access_token: accessToken,
+          fields: 'spend,account_currency',
+          level: 'account',
+          time_range: JSON.stringify({ since: facebookDate, until: facebookDate }),
+          limit: '1'
         });
+
+        const url = `${baseUrl}/${version}/${accountId}/insights?${params.toString()}`;
+        
+        console.log(`[Ad Spend Debug] Requesting URL for account ${accountId}: ${url}`);
+
+        const response = await fetch(url);
+        const result = await response.json();
+
+        if (!response.ok) {
+          console.error(`Error fetching spend for account ${accountId}: ${response.status}`, JSON.stringify(result, null, 2));
+          continue;
+        }
+
+        if (result.data && result.data.length > 0) {
+          const data = result.data[0];
+          results.push({
+            ad_account_id: accountId,
+            spend: parseFloat(data.spend || '0'),
+            currency: data.account_currency || 'USD',
+            date: facebookDate
+          });
+        } else {
+          // Si no hay datos, crear entrada con gasto 0
+          results.push({
+            ad_account_id: accountId,
+            spend: 0,
+            currency: 'USD',
+            date: facebookDate
+          });
+        }
       }
     } catch (error) {
       console.error(`[Ad Spend Debug] Network or other error for account ${accountId}:`, error);
@@ -135,7 +228,12 @@ async function fetchAdSpendFromMeta(accessToken: string, adAccountIds: string[],
 }
 
 // Función para sincronizar datos detallados de ad performance
-async function syncAdPerformance(accessToken: string, adAccountIds: string[], dateString: string, userId?: string): Promise<{ synced: number; errors: number; skipped: number }> {
+async function syncAdPerformance(
+  accessToken: string, 
+  adAccountIds: string[], 
+  dateInput: string | string[], // Puede ser un string (un día) o array (múltiples días)
+  userId?: string
+): Promise<{ synced: number; errors: number; skipped: number }> {
   const log = (step: string, data: Record<string, any> = {}) => {
     console.log(`[Ad Performance Sync] ${step}:`, data);
   };
@@ -144,14 +242,33 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
   let totalErrors = 0;
   let totalSkipped = 0;
 
+  // Determinar si es un solo día o múltiples días
+  const isMultipleDays = Array.isArray(dateInput);
+  const dates = isMultipleDays ? dateInput : [dateInput];
+
   // Si tenemos userId, usar su zona horaria para las fechas de Facebook API
-  let facebookDateString = dateString;
+  let facebookDates = dates;
   if (userId) {
     try {
-      facebookDateString = await getDateStringForUser(userId);
-      log('Using user timezone date', { userId, facebookDate: facebookDateString, originalDate: dateString });
+      if (isMultipleDays) {
+        // Para múltiples días, necesitamos obtener la zona horaria del usuario
+        const { data: settings } = await supabase
+          .from('user_settings')
+          .select('timezone')
+          .eq('user_id', userId)
+          .single();
+        
+        if (settings?.timezone) {
+          facebookDates = getLastNDays(dates.length, settings.timezone);
+        }
+      } else {
+        // Para un solo día, usar la función existente
+        const userDate = await getDateStringForUser(userId);
+        facebookDates = [userDate];
+      }
+      log('Using user timezone dates', { userId, facebookDates, originalDates: dates });
     } catch (error) {
-      log('Could not get user timezone, using provided date', { userId, error: error instanceof Error ? error.message : 'Unknown error' });
+      log('Could not get user timezone, using provided dates', { userId, error: error instanceof Error ? error.message : 'Unknown error' });
     }
   }
 
@@ -159,30 +276,45 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
   const today = new Date();
   const todayString = today.toISOString().split('T')[0];
   
-  // Verificar si la fecha a sincronizar es del día actual
-  const isCurrentDay = facebookDateString === todayString;
-  
-  log('Date comparison for historical data protection', { 
-    syncDate: facebookDateString, 
-    today: todayString, 
-    isCurrentDay,
-    note: isCurrentDay ? 'Will upsert data (current day)' : 'Will preserve existing data (historical)'
+  log('Date range for ad performance sync', { 
+    dates: facebookDates, 
+    today: todayString,
+    isMultipleDays,
+    note: isMultipleDays ? 'Syncing multiple days (historical + current)' : 'Syncing single day'
   });
 
   for (const accountId of adAccountIds) {
     try {
-      log('Fetching ad performance data', { accountId, date: dateString });
+      log('Fetching ad performance data', { accountId, dates: facebookDates.join(', ') });
 
       // Llamar a Facebook Ads API para obtener datos detallados por anuncio
       const facebookUrl = `https://graph.facebook.com/v22.0/${accountId}/insights`;
-      const params = new URLSearchParams({
-        access_token: accessToken,
-        fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
-        level: 'ad',
-        time_range: JSON.stringify({ since: facebookDateString, until: facebookDateString }),
-        time_increment: '1',
-        limit: '2000'
-      });
+      
+      let params: URLSearchParams;
+      if (isMultipleDays && facebookDates.length > 1) {
+        // Para múltiples días, usar un rango con time_increment
+        params = new URLSearchParams({
+          access_token: accessToken,
+          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,date_start',
+          level: 'ad',
+          time_range: JSON.stringify({ 
+            since: facebookDates[0], 
+            until: facebookDates[facebookDates.length - 1] 
+          }),
+          time_increment: '1',
+          limit: '2000'
+        });
+      } else {
+        // Para un solo día, usar la lógica original
+        params = new URLSearchParams({
+          access_token: accessToken,
+          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
+          level: 'ad',
+          time_range: JSON.stringify({ since: facebookDates[0], until: facebookDates[0] }),
+          time_increment: '1',
+          limit: '2000'
+        });
+      }
 
       const response = await fetch(`${facebookUrl}?${params}`);
       
@@ -280,13 +412,19 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
       for (const insight of insights) {
         for (const productAdAccount of productAdAccounts) {
           try {
+            // Determinar la fecha del insight (usar date_start si existe para múltiples días, o la primera fecha)
+            const insightDate = insight.date_start || facebookDates[0];
+            
+            // Verificar si esta fecha específica es el día actual
+            const isCurrentDay = insightDate === todayString;
+            
             // Obtener presupuestos para este anuncio específico
             const campaignBudget = campaignBudgets.get(String(insight.campaign_id)) || 0;
             const adsetBudget = adsetBudgets.get(String(insight.adset_id)) || 0;
 
             const adPerformanceData = {
               product_ad_account_id: productAdAccount.id,
-              date: facebookDateString,
+              date: insightDate,
               ad_id: insight.ad_id,
               adset_id: insight.adset_id || null,
               campaign_id: insight.campaign_id || null,
@@ -315,6 +453,7 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
               if (upsertError) {
                 log('Error upserting ad performance', { 
                   adId: insight.ad_id, 
+                  date: insightDate,
                   error: upsertError.message 
                 });
                 totalErrors++;
@@ -328,14 +467,14 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
                 .select('id')
                 .eq('product_ad_account_id', productAdAccount.id)
                 .eq('ad_id', insight.ad_id)
-                .eq('date', facebookDateString)
+                .eq('date', insightDate)
                 .single();
 
               if (existingRecord) {
                 // Ya existe un registro para este día anterior, no lo sobreescribimos
                 log('Preserving historical ad performance data', { 
                   adId: insight.ad_id, 
-                  date: facebookDateString,
+                  date: insightDate,
                   note: 'Historical data protected from overwrite'
                 });
                 totalSkipped++;
@@ -348,13 +487,14 @@ async function syncAdPerformance(accessToken: string, adAccountIds: string[], da
                 if (insertError) {
                   log('Error inserting historical ad performance', { 
                     adId: insight.ad_id, 
+                    date: insightDate,
                     error: insertError.message 
                   });
                   totalErrors++;
                 } else {
                   log('Inserted historical ad performance data', { 
                     adId: insight.ad_id, 
-                    date: facebookDateString 
+                    date: insightDate 
                   });
                   totalSynced++;
                 }
@@ -809,16 +949,28 @@ export async function handleProductAdAccountSync(request: Request) {
     // Descifrar el access token
     const accessToken = userIntegration.access_token_encrypted; // DEBUG: Reading plaintext
     
-    // Obtener la fecha actual en la zona horaria del usuario
-    const dateString = await getDateStringForUser(userId);
+    // Obtener los últimos 30 días en la zona horaria del usuario
+    const { data: settings } = await supabase
+      .from('user_settings')
+      .select('timezone')
+      .eq('user_id', userId)
+      .single();
     
-    log('Fetching ad spend data', { dateString, adAccountIds });
+    const userTimezone = settings?.timezone;
+    const last30Days = getLastNDays(30, userTimezone);
+    
+    log('Fetching ad spend data for last 30 days', { 
+      dateRange: `${last30Days[0]} to ${last30Days[last30Days.length - 1]}`, 
+      adAccountIds,
+      daysCount: last30Days.length,
+      userTimezone 
+    });
 
-    // Obtener datos de gasto de Meta
-    const adSpendData = await fetchAdSpendFromMeta(accessToken, adAccountIds, dateString, userId);
+    // Obtener datos de gasto de Meta para los últimos 30 días
+    const adSpendData = await fetchAdSpendFromMeta(accessToken, adAccountIds, last30Days, userId);
     
-    // También sincronizar datos detallados de ad performance
-    const adPerformanceResult = await syncAdPerformance(accessToken, adAccountIds, dateString, userId);
+    // También sincronizar datos detallados de ad performance para los últimos 30 días
+    const adPerformanceResult = await syncAdPerformance(accessToken, adAccountIds, last30Days, userId);
     
     log('Ad performance sync completed', {
       synced: adPerformanceResult.synced,
@@ -913,7 +1065,8 @@ export async function handleProductAdAccountSync(request: Request) {
       adPerformanceErrors: adPerformanceResult.errors,
       adPerformanceSkipped: adPerformanceResult.skipped,
       productId,
-      date: dateString
+      dateRange: `${last30Days[0]} to ${last30Days[last30Days.length - 1]}`,
+      daysProcessed: last30Days.length
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
