@@ -374,19 +374,35 @@ const cleanUtmParam = (param: string | undefined): string | undefined => {
   if (!param) return param;
   const parts = param.split('||');
   
-  // Filtrar partes válidas (que no sean vacías ni contengan templates)
-  const validParts = parts.filter(part => 
-    part.trim() !== '' && 
-    !part.includes('{{') && 
-    !part.includes('}}')
-  );
+  // Crear array de 2 posiciones: [nombre, id]
+  const cleanedParts: (string | null)[] = [null, null];
   
-  // Si tenemos partes válidas, las rejoins con ||
-  if (validParts.length > 0) {
-    return validParts.join('||').trim();
+  parts.forEach((part, index) => {
+    const isValid = part.trim() !== '' && 
+                   !part.includes('{{') && 
+                   !part.includes('}}');
+    
+    if (isValid) {
+      // Preservar la posición semántica
+      if (index === 0) {
+        cleanedParts[0] = part.trim(); // Nombre
+      } else if (index === 1) {
+        cleanedParts[1] = part.trim(); // ID
+      }
+    }
+  });
+  
+  // Reconstruir manteniendo estructura
+  if (cleanedParts[0] && cleanedParts[1]) {
+    return `${cleanedParts[0]}||${cleanedParts[1]}`;
+  } else if (cleanedParts[1]) {
+    // ¡CLAVE! Si solo tenemos ID, preservar contexto
+    return `[SIN NOMBRE]||${cleanedParts[1]}`;
+  } else if (cleanedParts[0]) {
+    return cleanedParts[0]; // Solo nombre
   }
   
-  return param;
+  return param; // Fallback
 };
 
 const cleanUtms = (utmData: any): any => {
