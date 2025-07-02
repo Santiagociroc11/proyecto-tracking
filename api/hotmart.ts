@@ -641,7 +641,14 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     const originalUtmData = trackingEvent.event_data?.utm_data;
     const cleanedUtmData = cleanUtms(originalUtmData);
 
-    log('insert_purchase_event_start', { event_type: eventType });
+    const realPurchaseDate = new Date(event.creation_date);
+    const processingDate = new Date();
+    log('insert_purchase_event_start', { 
+      event_type: eventType,
+      real_purchase_date: realPurchaseDate.toISOString(),
+      processing_date: processingDate.toISOString(),
+      delay_minutes: Math.round((processingDate.getTime() - realPurchaseDate.getTime()) / (1000 * 60))
+    });
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
     .insert([
@@ -650,6 +657,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         event_type: eventType,
         visitor_id: xcod,
         session_id: trackingEvent.event_data.session_id,
+        created_at: new Date(event.creation_date).toISOString(),
         event_data: {
           type: 'hotmart_event',
           event: event.event,
