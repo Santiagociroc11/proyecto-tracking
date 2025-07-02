@@ -166,8 +166,8 @@ const normalizeCampaignName = (name: string): string => {
   if (!name) return '';
   
   return name
-    // Remover emojis al inicio (🔴, 🟢, etc.)
-    .replace(/^[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '')
+    // Remover emojis usando rangos de surrogate pairs (según lo solicitado)
+    .replace(/(\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff])/gu, '')
     // Normalizar barras escapadas
     .replace(/\\\\+/g, '\\')
     // NUEVO: Normalizar conectores y espacios múltiples
