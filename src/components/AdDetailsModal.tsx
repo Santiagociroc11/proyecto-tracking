@@ -119,9 +119,12 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
 
   const chartData = ad.dailyData.map(day => ({
     ...day,
-    // [y1, y2] para el área entre curvas
+    // [y1, y2] para el área entre curvas de rentabilidad
     profitArea: day.profit >= 0 ? [day.spend, day.revenue] : [day.revenue, day.revenue],
     lossArea: day.profit < 0 ? [day.revenue, day.spend] : [day.spend, day.spend],
+    // Áreas para el gráfico de ROAS
+    roasProfitArea: day.roas >= 1 ? [1, day.roas] : [1, 1],
+    roasLossArea: day.roas < 1 ? [day.roas, 1] : [1, 1],
   }));
 
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -448,15 +451,19 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
             <div className="mt-0">
               <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart 
-                    data={ad.dailyData} 
+                  <ComposedChart
+                    data={chartData}
                     margin={{ top: 10, right: 95, left: 30, bottom: 20 }}
                     syncId="finance"
                   >
                     <defs>
-                      <linearGradient id="roasGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
-                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.05}/>
+                      <linearGradient id="roasProfitGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#10B981" stopOpacity={0.05}/>
+                      </linearGradient>
+                      <linearGradient id="roasLossGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#EF4444" stopOpacity={0.05}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
@@ -464,37 +471,50 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                       dataKey="date" 
                       tick={{ fontSize: 12, fill: '#6b7280' }}
                     />
-                    <Tooltip 
-                      content={({ active, payload, label }) => {
-                        if (active && payload && payload.length) {
-                          const value = payload[0].value as number;
-                          return (
-                            <div className="bg-white p-2 rounded shadow border text-sm">
-                              <p>{label}</p>
-                              <p className="font-bold text-blue-600">ROAS: {value?.toFixed(2)}x</p>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
                     <YAxis
                       hide={true}
                       domain={[0, 'dataMax + 0.5']}
                     />
-                    <ReferenceLine 
-                      y={1.2} 
-                      stroke="#f59e0b" 
-                      strokeDasharray="3 3"
-                      label={{ value: "1.2x", position: "insideTopLeft", fill: "#f59e0b", fontSize: 10 }}
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          const roasPayload = payload.find(p => p.dataKey === 'roas');
+                          if (roasPayload) {
+                            const value = roasPayload.value as number;
+                            return (
+                              <div className="bg-white p-2 rounded shadow border text-sm">
+                                <p>{label}</p>
+                                <p className="font-bold text-blue-600">ROAS: {value?.toFixed(2)}x</p>
+                              </div>
+                            );
+                          }
+                        }
+                        return null;
+                      }}
                     />
-                     <Area 
+                    <ReferenceLine y={1} stroke="#B45309" strokeDasharray="3 3" />
+
+                    <Area
+                      type="monotone"
+                      dataKey="roasProfitArea"
+                      stroke="none"
+                      fill="url(#roasProfitGradient)"
+                      name="ROAS > 1"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="roasLossArea"
+                      stroke="none"
+                      fill="url(#roasLossGradient)"
+                      name="ROAS < 1"
+                    />
+
+                    <Line 
                       type="monotone" 
                       dataKey="roas" 
                       name="ROAS"
                       stroke="#3B82F6" 
                       strokeWidth={3}
-                      fill="url(#roasGradient)"
                       dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#3B82F6' }}
                       activeDot={{ r: 5, strokeWidth: 2 }}
                     >
@@ -505,8 +525,8 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                         formatter={(value: number) => `${value.toFixed(1)}x`} 
                         offset={8} 
                       />
-                    </Area>
-                  </AreaChart>
+                    </Line>
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             </div>

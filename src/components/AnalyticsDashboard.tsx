@@ -34,7 +34,10 @@ import {
   Line,
   ComposedChart,
   Area,
+  AreaChart,
   Label,
+  LabelList,
+  ReferenceLine,
 } from 'recharts';
 import { useTimezone } from '../hooks/useTimezone';
 import { formatDateToTimezone, getDateInTimezone, getStartEndDatesInUTC } from '../utils/date';
@@ -371,53 +374,80 @@ const TIMEFRAME_OPTIONS = [
 
 const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
 
-const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
-  if (active && payload && payload.length) {
-      const data = payload[0].payload;
-      return (
-          <div className="bg-white p-4 rounded-lg shadow-lg border border-gray-200">
-              <p className="font-bold text-gray-800">{label}</p>
-              <div className="mt-2 space-y-1 text-sm">
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">Visitas {showUnique ? 'Únicas' : 'Totales'}:</span>
-                      <span className="font-medium text-blue-600 ml-4">{showUnique ? data.unique_visits : data.visits}</span>
-                  </p>
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">Pagos Iniciados {showUnique ? 'Únicos' : 'Totales'}:</span>
-                      <span className="font-medium text-green-600 ml-4">{showUnique ? data.unique_clicks : data.clicks}</span>
-                  </p>
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">Compras:</span>
-                      <span className="font-medium text-purple-600 ml-4">{data.purchases}</span>
-                  </p>
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">Order Bumps:</span>
-                      <span className="font-medium text-orange-600 ml-4">{data.order_bumps}</span>
-                  </p>
-                  <p className="flex justify-between mt-2 pt-2 border-t">
-                      <span className="text-gray-500">Ingresos del Día:</span>
-                      <span className="font-bold text-emerald-600 ml-4">
-                        ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                  </p>
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">Gasto Publicitario:</span>
-                      <span className="font-bold text-red-600 ml-4">
-                        ${(data.ad_spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
-                  </p>
-                  <p className="flex justify-between">
-                      <span className="text-gray-500">ROAS:</span>
-                      <span className="font-bold text-indigo-600 ml-4">
-                        {(data.roas || 0).toFixed(2)}x
-                      </span>
-                  </p>
-              </div>
+const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    
+    const data = payload[0].payload;
+    
+    return (
+      <div className="bg-white p-4 rounded-lg shadow-xl border border-gray-200 text-sm max-w-xs">
+        <div className="font-bold text-gray-900 mb-3 border-b pb-2">{label}</div>
+        
+        <div className="space-y-2">
+          {/* Ventas */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">🛒 Ventas:</span>
+            <span className="font-bold text-blue-700">{data.sales}</span>
           </div>
-      );
-  }
-
-  return null;
+          
+          {/* Ingresos */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">💰 Ingresos:</span>
+            <span className="font-bold text-emerald-600">
+              ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* Gasto */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">📈 Gasto:</span>
+            <span className="font-bold text-red-600">
+              ${(data.spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* Beneficio */}
+          <div className="flex justify-between items-center border-t pt-2">
+            <span className="text-gray-600">💸 Beneficio:</span>
+            <span className={`font-bold ${data.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {data.profit >= 0 ? '+' : ''}${(data.profit || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* ROAS */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">🎯 ROAS:</span>
+            <span className={`font-bold px-2 py-1 rounded text-xs ${
+              data.roas >= 2.0 ? 'bg-green-100 text-green-800' : 
+              data.roas >= 1.2 ? 'bg-yellow-100 text-yellow-800' : 
+              'bg-red-100 text-red-800'
+            }`}>
+              {(data.roas || 0).toFixed(2)}x
+            </span>
+          </div>
+          
+          {/* CPA (si hay ventas) */}
+          {data.sales > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">🎪 CPA:</span>
+              <span className="font-medium text-purple-600">
+                ${((data.spend || 0) / data.sales).toFixed(2)}
+              </span>
+            </div>
+          )}
+          
+          {/* AOV (si hay ventas) */}
+          {data.sales > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">💳 AOV:</span>
+              <span className="font-medium text-indigo-600">
+                ${((data.revenue || 0) / data.sales).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
 };
 
 const getEventPrice = (event: any): number => {
@@ -1799,10 +1829,20 @@ export default function AnalyticsDashboard({ productId }: Props) {
 
   const chartData = useMemo(() => {
     if (!data?.daily_stats) return [];
-    return data.daily_stats.map(day => ({
-        ...day
-    }));
-  }, [data?.daily_stats, showUnique]);
+    return data.daily_stats.map(day => {
+      const profit = day.revenue - day.ad_spend;
+      return {
+        ...day,
+        spend: day.ad_spend,
+        profit: profit,
+        sales: day.purchases,
+        profitArea: profit >= 0 ? [day.ad_spend, day.revenue] : [day.revenue, day.revenue],
+        lossArea: profit < 0 ? [day.revenue, day.ad_spend] : [day.ad_spend, day.ad_spend],
+        roasProfitArea: day.roas >= 1 ? [1, day.roas] : [1, 1],
+        roasLossArea: day.roas < 1 ? [day.roas, 1] : [1, 1],
+      }
+    });
+  }, [data?.daily_stats]);
 
   const handleOpenModal = async (item: any, type: 'campaign' | 'adset' | 'ad') => {
     // Replicar la lógica de atribución completa para obtener datos diarios precisos
@@ -2367,67 +2407,188 @@ export default function AnalyticsDashboard({ productId }: Props) {
         </div>
       </div>
 
-      {/* Gráfica de Tendencias Diarias */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-        <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center">
-          <TrendingUp className="h-6 w-6 text-indigo-600 mr-3" />
-          Rendimiento a lo largo del tiempo
-        </h3>
-        <div className="h-96">
+      {/* Gráfica de Rentabilidad y ROAS */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Análisis de Rentabilidad</h3>
+          {/* Aquí podrías poner el rango de fechas si quieres */}
+        </div>
+        
+        <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 5 }}>
+            <ComposedChart 
+              data={chartData} 
+              margin={{ top: 5, right: 30, left: 30, bottom: 0 }}
+              syncId="finance"
+            >
               <defs>
-                <linearGradient id="colorVisits" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0.1}/>
+                <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#10B981" stopOpacity={0.05}/>
                 </linearGradient>
-                <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#FFFFFF" stopOpacity={0.1}/>
+                <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
+                  <stop offset="95%" stopColor="#EF4444" stopOpacity={0.05}/>
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-              <YAxis yAxisId="left" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+              
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis 
+                dataKey="date" 
+                hide={true}
+              />
+              
               <YAxis 
-                yAxisId="right" 
-                orientation="right" 
-                tick={{ fontSize: 12 }} 
-                axisLine={false} tickLine={false} 
-                tickFormatter={(value) => `$${new Intl.NumberFormat('es-ES', { notation: "compact", compactDisplay: "short" }).format(value as number)}`} 
-              >
-                <Label value="Ingresos" angle={-90} position="insideRight" style={{ textAnchor: 'middle', fill: '#6b7280' }} />
-              </YAxis>
-              <Tooltip content={<CustomTooltip showUnique={showUnique} />} />
-              <Legend verticalAlign="top" wrapperStyle={{ top: -10 }}/>
-              <Area yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_visits' : 'visits'} name={`Visitas ${showUnique ? 'Únicas' : 'Totales'}`} fill="url(#colorVisits)" stroke="#3B82F6" strokeWidth={2} />
-              <Line yAxisId="left" type="monotone" dataKey={showUnique ? 'unique_clicks' : 'clicks'} name={`Pagos Iniciados ${showUnique ? 'Únicos' : 'Totales'}`} stroke="#10B981" strokeWidth={2} dot={false} />
-              <Line yAxisId="left" type="monotone" dataKey="purchases" name="Compras" stroke="#8B5CF6" strokeWidth={2.5} />
-              <Line yAxisId="left" type="monotone" dataKey="order_bumps" name="Order Bumps" stroke="#F97316" strokeWidth={2.5} />
+                yAxisId="money" 
+                orientation="right"
+                tick={{ fontSize: 12, fill: '#6b7280' }}
+                tickLine={{ stroke: '#d1d5db' }}
+                axisLine={{ stroke: '#d1d5db' }}
+                tickFormatter={(value) => `$${value.toLocaleString('es-ES', { maximumFractionDigits: 0 })}`}
+                label={{ value: 'Dinero ($)', angle: 90, position: 'insideRight', style: { textAnchor: 'middle', fill: '#6b7280' } }}
+              />
+              
+              <Tooltip content={<CustomTooltip />} />
+              <Legend wrapperStyle={{ paddingTop: '20px' }} />
+              
+              <Area 
+                yAxisId="money" 
+                type="monotone" 
+                dataKey="profitArea" 
+                name="Beneficio"
+                stroke="none" 
+                fill="url(#profitGradient)"
+                connectNulls
+              />
+              <Area 
+                yAxisId="money" 
+                type="monotone" 
+                dataKey="lossArea" 
+                name="Pérdida"
+                stroke="none" 
+                fill="url(#lossGradient)"
+                connectNulls
+              />
               <Line 
-                yAxisId="right" 
+                yAxisId="money" 
                 type="monotone" 
                 dataKey="revenue" 
-                name="💰 Ingresos ($)" 
-                stroke="#059669" 
-                strokeWidth={4} 
-                dot={{ r: 6, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
-                activeDot={{ r: 8, strokeWidth: 3, fill: '#059669', stroke: '#fff' }} 
-                strokeDasharray="none"
-              />
+                name="Ingresos"
+                stroke="#10B981" 
+                strokeWidth={3}
+                dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#10B981' }}
+                activeDot={{ r: 5, strokeWidth: 2 }}
+              >
+                <LabelList 
+                  dataKey="revenue" 
+                  position="top" 
+                  style={{ fontSize: '10px', fill: '#374151' }} 
+                  formatter={(value: number) => `$${Math.round(value)}`} 
+                  offset={8} 
+                />
+              </Line>
               <Line 
-                yAxisId="right" 
+                yAxisId="money" 
                 type="monotone" 
-                dataKey="ad_spend" 
-                name="📈 Gasto Publicitario ($)" 
-                stroke="#DC2626" 
-                strokeWidth={3} 
-                dot={{ r: 4, strokeWidth: 2, fill: '#DC2626', stroke: '#fff' }} 
-                activeDot={{ r: 6, strokeWidth: 2, fill: '#DC2626', stroke: '#fff' }} 
-                strokeDasharray="5 5"
-              />
+                dataKey="spend" 
+                name="Gasto"
+                stroke="#EF4444" 
+                strokeWidth={3}
+                dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#EF4444' }}
+                activeDot={{ r: 5, strokeWidth: 2 }}
+              >
+                 <LabelList 
+                  dataKey="spend" 
+                  position="bottom" 
+                  style={{ fontSize: '10px', fill: '#374151' }} 
+                  formatter={(value: number) => `$${Math.round(value)}`} 
+                  offset={8} 
+                />
+              </Line>
             </ComposedChart>
           </ResponsiveContainer>
+        </div>
+
+        <div className="mt-0">
+          <div className="h-40">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart
+                data={chartData}
+                margin={{ top: 10, right: 95, left: 30, bottom: 20 }}
+                syncId="finance"
+              >
+                <defs>
+                  <linearGradient id="roasProfitGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#10B981" stopOpacity={0.05}/>
+                  </linearGradient>
+                  <linearGradient id="roasLossGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
+                    <stop offset="95%" stopColor="#EF4444" stopOpacity={0.05}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                <XAxis 
+                  dataKey="date" 
+                  tick={{ fontSize: 12, fill: '#6b7280' }}
+                />
+                <YAxis
+                  hide={true}
+                  domain={[0, 'dataMax + 0.5']}
+                />
+                <Tooltip 
+                  content={({ active, payload, label }) => {
+                    if (active && payload && payload.length) {
+                      const roasPayload = payload.find(p => p.dataKey === 'roas');
+                      if (roasPayload) {
+                        const value = roasPayload.value as number;
+                        return (
+                          <div className="bg-white p-2 rounded shadow border text-sm">
+                            <p>{label}</p>
+                            <p className="font-bold text-blue-600">ROAS: {value?.toFixed(2)}x</p>
+                          </div>
+                        );
+                      }
+                    }
+                    return null;
+                  }}
+                />
+                <ReferenceLine y={1} stroke="#B45309" strokeDasharray="3 3" />
+
+                <Area
+                  type="monotone"
+                  dataKey="roasProfitArea"
+                  stroke="none"
+                  fill="url(#roasProfitGradient)"
+                  name="ROAS > 1"
+                />
+                <Area
+                  type="monotone"
+                  dataKey="roasLossArea"
+                  stroke="none"
+                  fill="url(#roasLossGradient)"
+                  name="ROAS < 1"
+                />
+                <Line 
+                  type="monotone" 
+                  dataKey="roas" 
+                  name="ROAS"
+                  stroke="#3B82F6" 
+                  strokeWidth={3}
+                  dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#3B82F6' }}
+                  activeDot={{ r: 5, strokeWidth: 2 }}
+                >
+                  <LabelList 
+                    dataKey="roas" 
+                    position="top" 
+                    style={{ fontSize: '10px', fill: '#374151' }} 
+                    formatter={(value: number) => `${value.toFixed(1)}x`} 
+                    offset={8} 
+                  />
+                </Line>
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       </div>
 
