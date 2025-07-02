@@ -2602,7 +2602,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 activeTab === 'resumen' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'
               }`}
             >
-              Resumen
+              RESUMEN
             </button>
             <button
               onClick={() => setActiveTab('detalle')}
@@ -2610,7 +2610,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
                 activeTab === 'detalle' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'
               }`}
             >
-              Tabla UTM
+              TABLA CAMPAÑAS
             </button>
           </div>
         </div>
