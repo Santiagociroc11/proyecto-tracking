@@ -45,6 +45,31 @@ import 'react-resizable/css/styles.css';
 import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { uniqBy } from 'lodash';
+import { AdDetailsModal } from './AdDetailsModal';
+
+interface ModalItem {
+  id: string;
+  name: string;
+  parentName?: string;
+  grandParentName?: string;
+  type: 'campaign' | 'adset' | 'ad';
+  totalSales: number;
+  avgRoas: number;
+  lastWeekRoas: number;
+  maxRoas: number;
+  minRoas: number;
+  totalSpend: number;
+  totalProfit: number;
+  status: string; // 'ACTIVE', 'PAUSED', etc.
+  dailyData: {
+    date: string;
+    roas: number;
+    profit: number;
+    spend: number;
+    sales: number;
+    revenue: number;
+  }[];
+}
 
 interface AnalyticsData {
   total_visits: number;
@@ -395,6 +420,18 @@ const CustomTooltip = ({ active, payload, label, showUnique }: any) => {
   return null;
 };
 
+const getEventPrice = (event: any): number => {
+    const commissions = event.event_data?.data?.commissions;
+    const purchasePrice = event.event_data?.data?.purchase?.price;
+    if (!purchasePrice) return 0;
+  
+    const producerCommission = commissions?.find((c: any) => c.source === 'PRODUCER');
+    if (producerCommission) {
+      return producerCommission.value;
+    }
+    return purchasePrice.value;
+};
+
 export default function AnalyticsDashboard({ productId }: Props) {
   const { user } = useAuth();
   const { timezone } = useTimezone();
@@ -450,6 +487,10 @@ export default function AnalyticsDashboard({ productId }: Props) {
   // Estados para el filtrado jerárquico
   const [selectedCampaigns, setSelectedCampaigns] = useState<Set<string>>(new Set());
   const [selectedMediums, setSelectedMediums] = useState<Set<string>>(new Set());
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<ModalItem | null>(null);
+  const [rawEvents, setRawEvents] = useState<any[]>([]);
+  const [rawAdPerformance, setRawAdPerformance] = useState<any[]>([]);
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -636,19 +677,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
         setLoading(false);
         return;
       }
+      setRawEvents(events || []);
       
-      const getEventPrice = (event: any): number => {
-        const commissions = event.event_data?.data?.commissions;
-        const purchasePrice = event.event_data?.data?.purchase?.price;
-        if (!purchasePrice) return 0;
-      
-        const producerCommission = commissions?.find((c: any) => c.source === 'PRODUCER');
-        if (producerCommission) {
-          return producerCommission.value;
-        }
-        return purchasePrice.value;
-      };
-
       const today = new Date();
       const todayFormatted = formatLocalDate(today);
       const [todayYear, todayMonth, todayDay] = todayFormatted.split('-').map(Number);
@@ -840,6 +870,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       if (adPerformanceError) {
         console.error('Error fetching ad performance data:', adPerformanceError);
       }
+      setRawAdPerformance(adPerformanceData || []);
 
       // Consultar gasto publicitario de hoy
       const { data: adPerformanceTodayData, error: adPerformanceTodayError } = await supabase
@@ -1619,24 +1650,36 @@ export default function AnalyticsDashboard({ productId }: Props) {
       // Crear clave compuesta para evitar mezclar elementos con el mismo nombre
       let groupKey: string;
       let displayName: string;
-      
+      let id: string | null = null;
+      let parentName: string | undefined;
+      let grandParentName: string | undefined;
+
       if (key === 'campaign') {
-        // Para campañas: solo usar el nombre de campaña
-        groupKey = utm.campaign || 'none';
+        id = utm.campaign_id;
+        if (!id) return;
+        groupKey = id;
         displayName = utm.campaign || 'none';
       } else if (key === 'medium') {
-        // Para conjuntos: usar campaña + conjunto para evitar mezclar conjuntos con mismo nombre
-        groupKey = `${utm.campaign || 'none'}|${utm.medium || 'none'}`;
+        id = utm.adset_id;
+        if (!id) return;
+        groupKey = id;
         displayName = utm.medium || 'none';
-      } else {
-        // Para anuncios: usar campaña + conjunto + anuncio para máxima precisión
-        groupKey = `${utm.campaign || 'none'}|${utm.medium || 'none'}|${utm.content || 'none'}`;
+        parentName = utm.campaign;
+      } else { // content
+        id = utm.ad_id;
+        if (!id) return;
+        groupKey = id;
         displayName = utm.content || 'none';
+        parentName = utm.medium;
+        grandParentName = utm.campaign;
       }
       
       if (!grouped.has(groupKey)) {
         grouped.set(groupKey, {
-          name: displayName, // Solo mostrar el nombre final, no la clave compuesta
+          id: id,
+          name: displayName,
+          parentName: parentName,
+          grandParentName: grandParentName,
           fullKey: groupKey, // Guardar la clave completa para debugging
           visits: 0,
           unique_visits: 0,
@@ -1760,6 +1803,185 @@ export default function AnalyticsDashboard({ productId }: Props) {
         ...day
     }));
   }, [data?.daily_stats, showUnique]);
+
+  const handleOpenModal = async (item: any, type: 'campaign' | 'adset' | 'ad') => {
+    // Replicar la lógica de atribución completa para obtener datos diarios precisos
+    
+    // 1. Recrear el mapa base de UTMs desde el performance de anuncios
+    const campaignsWithTracking = new Set<string>();
+    const adsetsWithTracking = new Set<string>();
+    const adsWithTracking = new Set<string>();
+    
+    rawEvents.forEach(event => {
+      if (event.event_data?.utm_data) {
+        const utmData = event.event_data.utm_data;
+        const campaignId = extractUtmId(utmData.utm_campaign || '');
+        const adsetId = extractUtmId(utmData.utm_medium || '');
+        const adId = extractUtmId(utmData.utm_content || '');
+        if (campaignId) campaignsWithTracking.add(campaignId);
+        if (adsetId) adsetsWithTracking.add(adsetId);
+        if (adId) adsWithTracking.add(adId);
+        if (utmData.utm_campaign) campaignsWithTracking.add(utmData.utm_campaign);
+        if (utmData.utm_medium) adsetsWithTracking.add(utmData.utm_medium);
+        if (utmData.utm_content) adsWithTracking.add(utmData.utm_content);
+      }
+    });
+
+    const filteredAdPerformance = rawAdPerformance.filter(ad => {
+      const hasTrackingById = (
+        campaignsWithTracking.has(ad.campaign_id) ||
+        adsetsWithTracking.has(ad.adset_id) ||
+        adsWithTracking.has(ad.ad_id)
+      );
+      const hasTrackingByName = (
+        campaignsWithTracking.has(ad.campaign_name || '') ||
+        adsetsWithTracking.has(ad.adset_name || '') ||
+        adsWithTracking.has(ad.ad_name || '')
+      );
+      return hasTrackingById || hasTrackingByName;
+    });
+
+    const utmBaseStats = new Map();
+    filteredAdPerformance.forEach(ad => {
+        const key = `${ad.campaign_id}|${ad.adset_id}|${ad.ad_id}`;
+        if (!utmBaseStats.has(key)) {
+            utmBaseStats.set(key, {
+                campaign_id: ad.campaign_id,
+                adset_id: ad.adset_id,
+                ad_id: ad.ad_id,
+                campaign: ad.campaign_name || 'Sin nombre',
+                medium: ad.adset_name || 'Sin nombre',
+                content: ad.ad_name || 'Sin nombre',
+            });
+        }
+    });
+
+    // 2. Recrear mapas de sesión y click para atribución
+    const sessionUtmMap = new Map();
+    const clickUtmMap = new Map();
+    rawEvents.forEach(event => {
+      const sessionId = event.session_id || event.visitor_id;
+      if (event.event_type === 'pageview' && event.event_data?.utm_data) {
+        sessionUtmMap.set(sessionId, event.event_data.utm_data);
+      } else if (event.event_type === 'hotmart_click') {
+        let clickUtm = event.event_data?.utm_data;
+        if (!clickUtm && sessionUtmMap.has(sessionId)) {
+          clickUtm = sessionUtmMap.get(sessionId);
+        }
+        if (clickUtm) {
+          clickUtmMap.set(sessionId, clickUtm);
+        }
+      }
+    });
+
+    // 3. Filtrar eventos de compra usando la lógica de matching completa
+    const purchaseEvents = rawEvents.filter(e => 
+      e.event_type === 'compra_hotmart' || e.event_type === 'compra_hotmart_orderbump'
+    );
+
+    const relevantEvents = purchaseEvents.filter(e => {
+        const sessionId = e.session_id || e.visitor_id;
+        const utmData = e.event_data?.utm_data || clickUtmMap.get(sessionId) || sessionUtmMap.get(sessionId);
+        if (!utmData) return false;
+
+        const campaignId = extractUtmId(utmData.utm_campaign || '');
+        const adsetId = extractUtmId(utmData.utm_medium || '');
+        const adId = extractUtmId(utmData.utm_content || '');
+        
+        let matchingKey = null;
+        if (campaignId && adsetId && adId) {
+          matchingKey = `${campaignId}|${adsetId}|${adId}`;
+        }
+        if (!matchingKey || !utmBaseStats.has(matchingKey)) {
+          matchingKey = findCampaignMatch(utmData, utmBaseStats);
+        }
+
+        if (!matchingKey || !utmBaseStats.has(matchingKey)) return false;
+
+        const matchedStats = utmBaseStats.get(matchingKey);
+
+        if (type === 'campaign') {
+            return matchedStats.campaign_id === item.id;
+        }
+        if (type === 'adset') {
+            return matchedStats.adset_id === item.id;
+        }
+        if (type === 'ad') {
+            return matchedStats.ad_id === item.id;
+        }
+        return false;
+    });
+    
+    // 4. Filtrar datos de performance de anuncios
+    const relevantAdPerformance = rawAdPerformance.filter(p => {
+        if (type === 'campaign') return p.campaign_id === item.id;
+        if (type === 'adset') return p.adset_id === item.id;
+        if (type === 'ad') return p.ad_id === item.id;
+        return false;
+    });
+
+    // 5. Crear mapa de datos diarios
+    const dailyDataMap = new Map<string, { date: string; spend: number; sales: number; revenue: number }>();
+
+    relevantAdPerformance.forEach(p => {
+        const date = p.date;
+        if (!dailyDataMap.has(date)) {
+            dailyDataMap.set(date, { date, spend: 0, sales: 0, revenue: 0 });
+        }
+        const dayData = dailyDataMap.get(date)!;
+        dayData.spend += parseFloat(p.spend) || 0;
+    });
+
+    relevantEvents.forEach(e => {
+        const date = formatDateToTimezone(e.created_at, timezone).split(' ')[0];
+        if (!dailyDataMap.has(date)) {
+            dailyDataMap.set(date, { date, spend: 0, sales: 0, revenue: 0 });
+        }
+        const dayData = dailyDataMap.get(date)!;
+        dayData.sales += 1;
+        dayData.revenue += getEventPrice(e);
+    });
+
+    // 6. Calcular métricas y crear item para el modal
+    const dailyDataForModal = Array.from(dailyDataMap.values()).map(d => {
+        const profit = d.revenue - d.spend;
+        const roas = d.spend > 0 ? d.revenue / d.spend : 0;
+        return { ...d, profit, roas, revenue: d.revenue };
+    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const totals = dailyDataForModal.reduce((acc, day) => {
+        acc.totalSpend += day.spend;
+        acc.totalSales += day.sales;
+        acc.totalProfit += day.profit;
+        acc.totalRevenue += day.revenue;
+        return acc;
+    }, { totalSpend: 0, totalSales: 0, totalProfit: 0, totalRevenue: 0 });
+
+    const avgRoas = totals.totalSpend > 0 ? totals.totalRevenue / totals.totalSpend : 0;
+    const roasValues = dailyDataForModal.map(d => d.roas).filter(r => isFinite(r) && r > 0);
+    const maxRoas = roasValues.length > 0 ? Math.max(...roasValues) : 0;
+    const minRoas = roasValues.length > 0 ? Math.min(...roasValues) : 0;
+
+    const modalItem: ModalItem = {
+        id: item.id,
+        name: item.name,
+        parentName: item.parentName,
+        grandParentName: item.grandParentName,
+        type: type,
+        totalSales: totals.totalSales,
+        avgRoas: avgRoas,
+        maxRoas: maxRoas,
+        minRoas: minRoas,
+        totalSpend: totals.totalSpend,
+        totalProfit: totals.totalProfit,
+        dailyData: dailyDataForModal,
+        status: 'ACTIVE', 
+        lastWeekRoas: 0,
+    };
+
+    setSelectedItem(modalItem);
+    setIsModalOpen(true);
+};
 
   if (loading) {
     return (
@@ -2534,12 +2756,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
               )}
             </div>
 
-            {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} showBudgetColumn={true} />}
-            {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} showBudgetColumn={true} />}
-            {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} showBudgetColumn={false} />}
+            {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} showBudgetColumn={true} onItemClick={(item) => handleOpenModal(item, 'campaign')} />}
+            {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} showBudgetColumn={true} onItemClick={(item) => handleOpenModal(item, 'adset')} />}
+            {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} showBudgetColumn={false} onItemClick={(item) => handleOpenModal(item, 'ad')} />}
           </div>
         )}
       </div>
+      <AdDetailsModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} item={selectedItem} />
     </div>
   );
 }
@@ -2624,6 +2847,7 @@ interface UtmDetailTableProps {
   selectedItems: Set<string>;
   onSelectionChange: (selection: Set<string>) => void;
   showBudgetColumn?: boolean;
+  onItemClick: (item: any) => void;
 }
 
 const getHeatmapPill = (value: number, min: number, max: number): string => {
@@ -2676,7 +2900,7 @@ const FilterPopover = ({ onApply, onClear }: { onApply: (op: '>' | '<' | '=', va
   );
 };
 
-function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange, showBudgetColumn = true }: UtmDetailTableProps): JSX.Element {
+function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionChange, showBudgetColumn = true, onItemClick }: UtmDetailTableProps): JSX.Element {
   type UtmSortField = 'name' | 'visits' | 'clicks' | 'purchases' | 'revenue' | 'conversion_rate' | 'checkout_conversion_rate' | 'roas' | 'ad_spend' | 'budget' | 'profit';
   const [sortField, setSortField] = useState<UtmSortField>('revenue');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
@@ -2860,7 +3084,12 @@ function UtmDetailTable({ data, title, showUnique, selectedItems, onSelectionCha
                   readOnly // El click en la fila se encarga de la lógica
                 />
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{item.name}</td>
+              <td 
+                className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 cursor-pointer hover:text-indigo-600 hover:underline"
+                onClick={(e) => { e.stopPropagation(); onItemClick(item); }}
+              >
+                {item.name}
+              </td>
               {showBudgetColumn && (
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-right">
                   <span className={`${
