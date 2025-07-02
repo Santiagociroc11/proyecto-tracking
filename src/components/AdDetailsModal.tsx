@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { XCircle, ArrowUp, ArrowDown, Activity, DollarSign, TrendingUp, BarChart2, Calendar, Users, Layers, Eye, Loader2 } from 'lucide-react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ComposedChart, Area } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ComposedChart, Area, AreaChart } from 'recharts';
 import { supabase } from '../lib/supabase';
 
 interface DailyData {
@@ -9,6 +9,7 @@ interface DailyData {
   profit: number;
   spend: number;
   sales: number;
+  revenue: number;
 }
 
 interface ModalItem {
@@ -17,15 +18,15 @@ interface ModalItem {
   parentName?: string;
   grandParentName?: string;
   type: 'campaign' | 'adset' | 'ad';
-  totalSales: number;
-  avgRoas: number;
-  lastWeekRoas: number;
-  maxRoas: number;
-  minRoas: number;
-  totalSpend: number;
-  totalProfit: number;
+    totalSales: number;
+    avgRoas: number;
+    lastWeekRoas: number;
+    maxRoas: number;
+    minRoas: number;
+    totalSpend: number;
+    totalProfit: number;
   status: string; // 'ACTIVE', 'PAUSED', etc.
-  dailyData: DailyData[];
+    dailyData: DailyData[];
 }
 
 interface AdDetailsModalProps {
@@ -192,50 +193,153 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
 
   // Determinar la recomendación basada en el rendimiento
   const getRecommendation = () => {
-    if (!trends) return "Datos insuficientes para una recomendación.";
-
-    if (ad.avgRoas >= 1.5) {
-      if (trends.roasChange > 10) {
-        return "Incrementar el presupuesto: Excelente ROAS con tendencia positiva. Escalar gradualmente (10-15% más).";
-      } else if (trends.roasChange >= -5) {
-        return "Mantener: Buen rendimiento estable. Continuar monitoreando.";
-      } else {
-        return "Vigilar: Buen ROAS pero tendencia descendente. Revisar cambios recientes.";
-      }
-    } else if (ad.avgRoas >= 1.2) {
-      if (trends.roasChange > 10) {
-        return "Optimizar: ROAS aceptable con tendencia positiva. Considerar pequeños incrementos (5-10%).";
-      } else if (trends.roasChange >= -10) {
-        return "Mantener: Rendimiento adecuado. Buscar oportunidades de optimización.";
-      } else {
-        return "Precaución: ROAS aceptable pero tendencia negativa. Evaluar audiencia y creatividad.";
-      }
-    } else if (ad.avgRoas >= 0.8) {
-      if (trends.roasChange > 15) {
-        return "Prueba controlada: ROAS bajo pero mejorando rápidamente. Esperar más datos antes de decidir.";
-      } else {
-        return "Ajustar: ROAS por debajo del objetivo. Reducir presupuesto o pausar temporalmente.";
-      }
-    } else {
-      return "Reconsiderar: ROAS significativamente bajo. Evaluar pausar el anuncio o cambiar completamente la estrategia.";
+    if (!ad || ad.dailyData.length === 0) {
+      return {
+        text: "Datos insuficientes para una recomendación.",
+        type: "warning" as const
+      };
     }
+
+    const trends = calculateTrends();
+    if (!trends) {
+      return {
+        text: "Datos insuficientes para una recomendación.",
+        type: "warning" as const
+      };
+    }
+
+    const avgRoas = ad.avgRoas;
+    const totalProfit = ad.totalProfit;
+
+    if (avgRoas < 0.8) {
+      return {
+        text: "ROAS crítico. Pausa inmediata y revisa la estrategia completa.",
+        type: "danger" as const
+      };
+    }
+    
+    if (avgRoas < 1.2 && totalProfit < 0) {
+      return {
+        text: "ROAS bajo y pérdidas. Evalúa pausar o cambiar completamente la estrategia.",
+        type: "danger" as const
+      };
+    }
+
+    if (avgRoas >= 2.0 && trends.spendChange < 50) {
+      return {
+        text: "¡Excelente ROAS! Considera escalar el presupuesto gradualmente.",
+        type: "success" as const
+      };
+    }
+
+    if (avgRoas >= 1.2 && avgRoas < 2.0) {
+      return {
+        text: "ROAS aceptable. Optimiza creativos y audiencias para mejorar.",
+        type: "info" as const
+      };
+    }
+
+    return {
+      text: "Datos insuficientes para una recomendación.",
+      type: "warning" as const
+    };
   };
 
-  // Formatear fecha para mostrar periodo
+  const chartData = ad.dailyData.map(day => ({
+    ...day,
+    // [y1, y2] para el área entre curvas
+    profitArea: day.profit >= 0 ? [day.spend, day.revenue] : [day.revenue, day.revenue],
+    lossArea: day.profit < 0 ? [day.revenue, day.spend] : [day.spend, day.spend],
+  }));
+
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload || !payload.length) return null;
+    
+    const data = payload[0].payload;
+    
+    return (
+      <div className="bg-white p-4 rounded-lg shadow-xl border border-gray-200 text-sm max-w-xs">
+        <div className="font-bold text-gray-900 mb-3 border-b pb-2">{label}</div>
+        
+        <div className="space-y-2">
+          {/* Ventas */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">🛒 Ventas:</span>
+            <span className="font-bold text-blue-700">{data.sales}</span>
+          </div>
+          
+          {/* Ingresos */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">💰 Ingresos:</span>
+            <span className="font-bold text-emerald-600">
+              ${(data.revenue || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* Gasto */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">📈 Gasto:</span>
+            <span className="font-bold text-red-600">
+              ${(data.spend || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* Beneficio */}
+          <div className="flex justify-between items-center border-t pt-2">
+            <span className="text-gray-600">💸 Beneficio:</span>
+            <span className={`font-bold ${data.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {data.profit >= 0 ? '+' : ''}${(data.profit || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
+          
+          {/* ROAS */}
+          <div className="flex justify-between items-center">
+            <span className="text-gray-600">🎯 ROAS:</span>
+            <span className={`font-bold px-2 py-1 rounded text-xs ${
+              data.roas >= 2.0 ? 'bg-green-100 text-green-800' : 
+              data.roas >= 1.2 ? 'bg-yellow-100 text-yellow-800' : 
+              'bg-red-100 text-red-800'
+            }`}>
+              {(data.roas || 0).toFixed(2)}x
+            </span>
+          </div>
+          
+          {/* CPA (si hay ventas) */}
+          {data.sales > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">🎪 CPA:</span>
+              <span className="font-medium text-purple-600">
+                ${((data.spend || 0) / data.sales).toFixed(2)}
+              </span>
+            </div>
+          )}
+          
+          {/* AOV (si hay ventas) */}
+          {data.sales > 0 && (
+            <div className="flex justify-between items-center">
+              <span className="text-gray-600">💳 AOV:</span>
+              <span className="font-medium text-indigo-600">
+                ${((data.revenue || 0) / data.sales).toFixed(2)}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   const formatDateRange = () => {
-    if (ad.dailyData.length < 2) return "Datos insuficientes";
+    if (!ad || ad.dailyData.length === 0) return "";
     
-    const dates = ad.dailyData.map(d => new Date(d.date));
-    const minDate = new Date(Math.min(...dates.map(d => d.getTime())));
-    const maxDate = new Date(Math.max(...dates.map(d => d.getTime())));
+    const dates = ad.dailyData.map(d => d.date).sort();
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
     
-    const formatOptions: Intl.DateTimeFormatOptions = { 
-      day: 'numeric', 
-      month: 'short', 
-      year: 'numeric' 
-    };
+    if (startDate === endDate) {
+      return startDate;
+    }
     
-    return `${minDate.toLocaleDateString('es-ES', formatOptions)} - ${maxDate.toLocaleDateString('es-ES', formatOptions)}`;
+    return `${startDate} - ${endDate}`;
   };
 
   const hasEnoughDataForTrends = ad.dailyData.length > 7;
@@ -385,164 +489,319 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
             </div>
           </div>
 
-          {/* Gráfico de rendimiento */}
-          <div className="bg-gray-50 p-4 rounded-lg mb-6">
-            <h3 className="text-sm font-medium text-gray-700 mb-4">Evolución de ROAS y Gasto</h3>
-            <div className="h-64">
+          {/* Gráfico mejorado */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Análisis de Rentabilidad</h3>
+              <span className="text-sm text-gray-500">{formatDateRange()}</span>
+            </div>
+            
+            <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={dailyChartData}
-                  margin={{ top: 5, right: 30, left: 20, bottom: 25 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                  <defs>
+                    <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#10B981" stopOpacity={0.05}/>
+                    </linearGradient>
+                    <linearGradient id="lossGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#EF4444" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#EF4444" stopOpacity={0.05}/>
+                    </linearGradient>
+                  </defs>
+                  
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
-                    dataKey="formattedDate" 
-                    angle={-45}
-                    textAnchor="end"
-                    height={60}
-                    tick={{ fontSize: 10 }}
+                    dataKey="date" 
+                    tick={{ fontSize: 12, fill: '#6b7280' }}
+                    tickLine={{ stroke: '#d1d5db' }}
+                    axisLine={{ stroke: '#d1d5db' }}
                   />
+                  
                   <YAxis 
-                    yAxisId="left"
-                    orientation="left"
-                    tickFormatter={(value) => `${value.toFixed(1)}x`}
-                    domain={[0, Math.max(2, ad.maxRoas * 1.1)]}
-                  />
-                  <YAxis 
-                    yAxisId="right"
+                    yAxisId="money" 
                     orientation="right"
-                    tickFormatter={(value) => `$${value}`}
-                    domain={[0, 'auto']}
+                    tick={{ fontSize: 12, fill: '#6b7280' }}
+                    tickLine={{ stroke: '#d1d5db' }}
+                    axisLine={{ stroke: '#d1d5db' }}
+                    tickFormatter={(value) => `$${value.toLocaleString('es-ES', { maximumFractionDigits: 0 })}`}
+                    label={{ value: 'Dinero ($)', angle: 90, position: 'insideRight', style: { textAnchor: 'middle', fill: '#6b7280' } }}
                   />
-                  <Tooltip 
-                    formatter={(value, name) => {
-                      if (name === 'roas') return [`${Number(value).toFixed(2)}x`, 'ROAS'];
-                      if (name === 'spend') return [formatCurrency(Number(value)), 'Gasto'];
-                      if (name === 'sales') return [value, 'Ventas'];
-                      return [value, name];
-                    }}
-                    labelFormatter={(label) => `Fecha: ${label}`}
-                  />
-                  <Legend />
-                  <Line 
-                    yAxisId="left"
+                  
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
+                  
+                  {/* Área de Beneficio (verde) */}
+                  <Area 
+                    yAxisId="money" 
                     type="monotone" 
-                    dataKey="roas" 
-                    stroke="#4F46E5" 
-                    strokeWidth={2}
-                    dot={{ r: 3 }}
-                    name="ROAS"
+                    dataKey="profitArea" 
+                    name="Beneficio"
+                    stroke="none" 
+                    fill="url(#profitGradient)"
+                    connectNulls
                   />
-                  <Area
-                    yAxisId="right"
-                    type="monotone"
-                    dataKey="spend"
-                    fill="#93C5FD"
-                    stroke="#3B82F6"
+
+                  {/* Área de Pérdida (rojo) */}
+                  <Area 
+                    yAxisId="money" 
+                    type="monotone" 
+                    dataKey="lossArea" 
+                    name="Pérdida"
+                    stroke="none" 
+                    fill="url(#lossGradient)"
+                    connectNulls
+                  />
+                  
+                  {/* Líneas de Ingresos y Gasto */}
+                  <Line 
+                    yAxisId="money" 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    name="Ingresos"
+                    stroke="#10B981" 
+                    strokeWidth={3}
+                    dot={false}
+                  />
+                  <Line 
+                    yAxisId="money" 
+                    type="monotone" 
+                    dataKey="spend" 
                     name="Gasto"
+                    stroke="#EF4444" 
+                    strokeWidth={3}
+                    dot={false}
                   />
-                  <ReferenceLine y={1.2} yAxisId="left" stroke="#9CA3AF" strokeDasharray="3 3" />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+
+            {/* Minigráfico de ROAS */}
+            <div className="mt-6">
+              <h4 className="text-md font-semibold text-gray-800 mb-2">Evolución del ROAS</h4>
+              <div className="h-24">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={ad.dailyData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                    <defs>
+                      <linearGradient id="roasGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#3B82F6" stopOpacity={0.05}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <Tooltip 
+                      content={({ active, payload, label }) => {
+                        if (active && payload && payload.length) {
+                          const value = payload[0].value as number;
+                          return (
+                            <div className="bg-white p-2 rounded shadow border text-sm">
+                              <p>{label}</p>
+                              <p className="font-bold text-blue-600">ROAS: {value?.toFixed(2)}x</p>
+                            </div>
+                          );
+                        }
+                        return null;
+                      }}
+                    />
+                    <YAxis
+                      domain={[0, 'dataMax + 0.5']}
+                      tick={{ fontSize: 10, fill: '#6b7280' }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={40}
+                    />
+                    <ReferenceLine 
+                      y={1.2} 
+                      stroke="#f59e0b" 
+                      strokeDasharray="3 3"
+                      label={{ value: "1.2x", position: "insideTopLeft", fill: "#f59e0b", fontSize: 10 }}
+                    />
+                     <Area 
+                      type="monotone" 
+                      dataKey="roas" 
+                      name="ROAS"
+                      stroke="#3B82F6" 
+                      strokeWidth={3}
+                      fill="url(#roasGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
           </div>
 
-          {/* Análisis comparativo últimos 7 días vs anteriores */}
-          {hasEnoughDataForTrends && trends && (
-            <div className="mb-6">
-              <h3 className="text-sm font-medium text-gray-700 mb-3">Comparativa: Últimos 7 días vs 7 días anteriores</h3>
+          {/* Tabla comparativa */}
+          <div className="bg-gray-50 p-4 rounded-lg">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">
+              Comparativa: Últimos 7 días vs 7 días anteriores
+            </h3>
+            
               <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Periodo</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ventas</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gasto</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
-                      <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficio</th>
+              <table className="min-w-full">
+                <thead>
+                  <tr className="text-left">
+                    <th className="px-4 py-2 text-sm font-medium text-gray-500">PERÍODO</th>
+                    <th className="px-4 py-2 text-sm font-medium text-gray-500">VENTAS</th>
+                    <th className="px-4 py-2 text-sm font-medium text-gray-500">GASTO</th>
+                    <th className="px-4 py-2 text-sm font-medium text-gray-500">ROAS</th>
+                    <th className="px-4 py-2 text-sm font-medium text-gray-500">BENEFICIO</th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="divide-y divide-gray-200">
                     <tr>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-medium">Últimos 7 días</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{trends.last7Days.sales}</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatCurrency(trends.last7Days.spend)}</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{trends.last7Days.roas.toFixed(2)}x</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatCurrency(trends.last7Days.profit)}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">Últimos 7 días</td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {ad.dailyData.slice(-7).reduce((sum, d) => sum + d.sales, 0)}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {formatCurrency(ad.dailyData.slice(-7).reduce((sum, d) => sum + d.spend, 0))}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {calculateTrends()?.last7Days?.roas?.toFixed(2) || '0.00'}x
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-900">
+                      {formatCurrency(ad.dailyData.slice(-7).reduce((sum, d) => sum + d.profit, 0))}
+                    </td>
                     </tr>
                     <tr>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-medium">7 días anteriores</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{trends.previous7Days.sales}</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatCurrency(trends.previous7Days.spend)}</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{trends.previous7Days.roas.toFixed(2)}x</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatCurrency(trends.previous7Days.profit)}</td>
-                    </tr>
-                    <tr className="bg-gray-50">
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900 font-medium">Variación</td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm ${trends.salesChange >= 0 ? 'text-green-600' : 'text-red-600'} font-medium`}>
-                        {trends.salesChange >= 0 ? '+' : ''}{trends.salesChange.toFixed(1)}%
+                    <td className="px-4 py-3 text-sm text-gray-900">7 días anteriores</td>
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.sales, 0)}
                       </td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm font-medium ${Math.abs(trends.spendChange) < 5 ? 'text-gray-600' : trends.spendChange > 0 ? 'text-blue-600' : 'text-blue-600'}`}>
-                        {trends.spendChange >= 0 ? '+' : ''}{trends.spendChange.toFixed(1)}%
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {formatCurrency(ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.spend, 0))}
                       </td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm ${trends.roasChange >= 0 ? 'text-green-600' : 'text-red-600'} font-medium`}>
-                        {trends.roasChange >= 0 ? '+' : ''}{trends.roasChange.toFixed(1)}%
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {calculateTrends()?.previous7Days?.roas?.toFixed(2) || '0.00'}x
                       </td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm ${trends.profitChange >= 0 ? 'text-green-600' : 'text-red-600'} font-medium`}>
-                        {trends.profitChange >= 0 ? '+' : ''}{trends.profitChange.toFixed(1)}%
+                      <td className="px-4 py-3 text-sm text-gray-900">
+                        {formatCurrency(ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.profit, 0))}
+                      </td>
+                  </tr>
+                  <tr className="bg-white">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">Variación</td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center">
+                        {calculateTrends() && calculateTrends()!.salesChange >= 0 ? (
+                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
+                        ) : (
+                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
+                        )}
+                        <span className={`font-medium ${
+                          calculateTrends() && calculateTrends()!.salesChange >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {calculateTrends() && (calculateTrends()!.salesChange >= 0 ? '+' : '')}{calculateTrends()?.salesChange?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center">
+                        {calculateTrends() && calculateTrends()!.spendChange >= 0 ? (
+                          <ArrowUp className="h-4 w-4 text-red-500 mr-1" />
+                        ) : (
+                          <ArrowDown className="h-4 w-4 text-green-500 mr-1" />
+                        )}
+                        <span className={`font-medium ${
+                          calculateTrends() && calculateTrends()!.spendChange >= 0 ? 'text-red-600' : 'text-green-600'
+                        }`}>
+                          {calculateTrends() && (calculateTrends()!.spendChange >= 0 ? '+' : '')}{calculateTrends()?.spendChange?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center">
+                        {calculateTrends() && calculateTrends()!.roasChange >= 0 ? (
+                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
+                        ) : (
+                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
+                        )}
+                        <span className={`font-medium ${
+                          calculateTrends() && calculateTrends()!.roasChange >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {calculateTrends() && (calculateTrends()!.roasChange >= 0 ? '+' : '')}{calculateTrends()?.roasChange?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm">
+                      <div className="flex items-center">
+                        {calculateTrends() && calculateTrends()!.profitChange >= 0 ? (
+                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
+                        ) : (
+                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
+                        )}
+                        <span className={`font-medium ${
+                          calculateTrends() && calculateTrends()!.profitChange >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {calculateTrends() && (calculateTrends()!.profitChange >= 0 ? '+' : '')}{calculateTrends()?.profitChange?.toFixed(1) || '0.0'}%
+                        </span>
+                      </div>
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             </div>
-          )}
 
-          {/* Recomendaciones */}
-          <div className="bg-amber-50 p-4 rounded-lg mb-6">
-            <h3 className="text-sm font-medium text-amber-700 mb-2 flex items-center">
-              <BarChart2 className="h-4 w-4 mr-1" /> Recomendación basada en datos
+          {/* Recomendación */}
+          <div className={`p-4 rounded-lg border-l-4 ${
+            getRecommendation().type === 'success' ? 'bg-green-50 border-green-400' :
+            getRecommendation().type === 'danger' ? 'bg-red-50 border-red-400' :
+            getRecommendation().type === 'info' ? 'bg-blue-50 border-blue-400' :
+            'bg-yellow-50 border-yellow-400'
+          }`}>
+            <h3 className={`text-lg font-semibold mb-2 ${
+              getRecommendation().type === 'success' ? 'text-green-800' :
+              getRecommendation().type === 'danger' ? 'text-red-800' :
+              getRecommendation().type === 'info' ? 'text-blue-800' :
+              'text-yellow-800'
+            }`}>
+              💡 Recomendación basada en datos
             </h3>
-            <p className="text-amber-800">
-              {getRecommendation()}
+            <p className={
+              getRecommendation().type === 'success' ? 'text-green-800' :
+              getRecommendation().type === 'danger' ? 'text-red-800' :
+              getRecommendation().type === 'info' ? 'text-blue-800' :
+              'text-yellow-800'
+            }>
+              {getRecommendation().text}
             </p>
           </div>
 
-          {/* Tabla de datos diarios */}
-          <div>
-            <h3 className="text-sm font-medium text-gray-700 mb-3">Datos diarios detallados</h3>
+          {/* Datos diarios detallados */}
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 border-b">
+              <h3 className="text-lg font-semibold text-gray-900">Datos diarios detallados</h3>
+            </div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ventas</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gasto</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ROAS</th>
-                    <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Beneficio</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">FECHA</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">VENTAS</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">GASTO</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ROAS</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">BENEFICIO</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {dailyChartData.map((day, index) => (
-                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(day.date).toLocaleDateString('es-ES', { 
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: 'numeric'
-                        })}
-                      </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{day.sales}</td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-gray-700">{formatCurrency(day.spend)}</td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm ${
-                        day.roas >= 1.2 ? 'text-green-600' : day.roas >= 0.8 ? 'text-yellow-600' : 'text-red-600'
+                <tbody className="divide-y divide-gray-200">
+                  {ad.dailyData.map((day, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{day.date}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{day.sales}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{formatCurrency(day.spend)}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          day.roas >= 2.0 ? 'bg-green-100 text-green-800' :
+                          day.roas >= 1.2 ? 'bg-yellow-100 text-yellow-800' :
+                          'bg-red-100 text-red-800'
                       }`}>
                         {day.roas.toFixed(2)}x
+                        </span>
                       </td>
-                      <td className={`px-4 py-2 whitespace-nowrap text-sm ${
-                        day.profit >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        <span className={`font-medium ${day.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {formatCurrency(day.profit)}
+                        </span>
                       </td>
                     </tr>
                   ))}
