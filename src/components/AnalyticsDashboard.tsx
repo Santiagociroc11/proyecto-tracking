@@ -49,6 +49,10 @@ import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { uniqBy } from 'lodash';
 import { AdDetailsModal } from './AdDetailsModal';
+import { DayPicker, DateRange } from 'react-day-picker';
+import 'react-day-picker/dist/style.css';
+import { es } from 'date-fns/locale';
+import { format } from 'date-fns';
 
 interface ModalItem {
   id: string;
@@ -365,11 +369,13 @@ interface ColumnWidth {
 }
 
 const TIMEFRAME_OPTIONS = [
-  { label: 'Hoy', value: 'day' },
-  { label: 'Última Semana', value: 'week' },
-  { label: 'Último Mes', value: 'month' },
-  { label: 'Últimos 3 Meses', value: 'quarter' },
-  { label: 'Personalizado', value: 'custom' },
+  { label: 'Hoy', value: 'today', daysBack: 0, canIncludeToday: false },
+  { label: 'Ayer', value: 'yesterday', daysBack: 1, canIncludeToday: false },
+  { label: 'Últimos 3 días', value: 'last_3_days', daysBack: 3, canIncludeToday: true },
+  { label: 'Últimos 7 días', value: 'last_7_days', daysBack: 7, canIncludeToday: true },
+  { label: 'Últimos 15 días', value: 'last_15_days', daysBack: 15, canIncludeToday: true },
+  { label: 'Últimos 30 días', value: 'last_30_days', daysBack: 30, canIncludeToday: true },
+  { label: 'Últimos 90 días', value: 'last_90_days', daysBack: 90, canIncludeToday: true },
 ];
 
 const LOCAL_STORAGE_COLUMN_WIDTHS_KEY = 'columnWidths';
@@ -467,7 +473,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const { timezone } = useTimezone();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<AnalyticsData | null>(null);
-  const [timeframe, setTimeframe] = useState<'day' | 'week' | 'month' | 'custom' | 'quarter'>('day');
+  const [timeframe, setTimeframe] = useState<string>('today');
   
   // Helper function to format date in user's timezone
   const formatLocalDate = (date: Date) => {
@@ -480,9 +486,41 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [startDate, setStartDate] = useState<string>(todayFormatted);
   const [endDate, setEndDate] = useState<string>(todayFormatted);
   const [dateError, setDateError] = useState<string>('');
+  const [isDatePopoverOpen, setIsDatePopoverOpen] = useState(false);
+  const datePickerRef = useRef<HTMLDivElement>(null);
   const [sortField, setSortField] = useState<SortField>('visits');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
   const [error, setError] = useState<string | null>(null);
+  const [selectedRange, setSelectedRange] = useState<DateRange | undefined>(undefined);
+  const [pendingRange, setPendingRange] = useState<DateRange | undefined>(undefined);
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [presetIncludeToday, setPresetIncludeToday] = useState<Record<string, boolean>>({});
+
+  // Helper para obtener el estado "incluir hoy" de un preset específico
+  const getIncludeTodayForPreset = (presetValue: string): boolean => {
+    return presetIncludeToday[presetValue] ?? false; // Por defecto: NO incluir hoy
+  };
+
+  // Helper para actualizar el estado "incluir hoy" de un preset específico
+  const setIncludeTodayForPreset = (presetValue: string, include: boolean) => {
+    setPresetIncludeToday(prev => ({
+      ...prev,
+      [presetValue]: include
+    }));
+  };
+
+  useEffect(() => {
+    // Solo sincronizar cuando hay fechas válidas Y cuando se ha usado un preset o aplicado fechas
+    if (timeframe !== 'custom' || (startDate && endDate)) {
+      const from = new Date(`${startDate}T00:00:00`);
+      const to = new Date(`${endDate}T00:00:00`);
+      if (!isNaN(from.getTime()) && !isNaN(to.getTime())) {
+        setSelectedRange({ from, to });
+        setPendingRange({ from, to });
+      }
+    }
+  }, [startDate, endDate, timeframe]);
+
   const [columnWidths, setColumnWidths] = useState<ColumnWidth>(() => {
     const storedWidths = localStorage.getItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY);
     return storedWidths
@@ -526,6 +564,19 @@ export default function AnalyticsDashboard({ productId }: Props) {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
   }, [columnWidths]);
 
+  // Hook para cerrar el popover si se hace clic fuera
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (datePickerRef.current && !datePickerRef.current.contains(event.target as Node)) {
+        setIsDatePopoverOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [datePickerRef]);
+
   // Initialize to today's date in user's timezone when component mounts
   useEffect(() => {
     // Set to today when component first loads
@@ -534,6 +585,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     console.log(`Initializing dates to today: ${todayFormatted} in timezone: ${timezone}`);
     setStartDate(todayFormatted);
     setEndDate(todayFormatted);
+    // No inicializar selectedRange aquí para mantener el selector limpio
   }, [timezone]);
 
   const toggleRowExpansion = (index: number) => {
@@ -573,58 +625,146 @@ export default function AnalyticsDashboard({ productId }: Props) {
       setDateError('El rango máximo permitido es de 1 año');
       return false;
     }
-    if (endTime > Date.now()) {
+    if (new Date(end) > new Date()) {
       setDateError('La fecha final no puede ser futura');
+      return false;
+    }
+    
+    const diffTime = Math.abs(endTime - startTime);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays > 365) {
+      setDateError('El rango máximo permitido es de 1 año');
       return false;
     }
     setDateError('');
     return true;
   };
 
-  const handleDateChange = (type: 'start' | 'end', value: string) => {
-    const newStartDate = type === 'start' ? value : startDate;
-    const newEndDate = type === 'end' ? value : endDate;
-    if (validateDateRange(newStartDate, newEndDate)) {
-      setTimeframe('custom');
-      if (type === 'start') setStartDate(value);
-      if (type === 'end') setEndDate(value);
+  const handleDateSelect = (range: DateRange | undefined) => {
+    setPendingRange(range);
+    // Si se selecciona manualmente en el calendario, limpiar preset
+    setSelectedPreset(null);
+  };
+
+  const applyDateRange = () => {
+    if (pendingRange?.from && pendingRange.to) {
+      const newStartDate = format(pendingRange.from, 'yyyy-MM-dd');
+      const newEndDate = format(pendingRange.to, 'yyyy-MM-dd');
+      if (validateDateRange(newStartDate, newEndDate)) {
+        // Si hay un preset seleccionado, usar ese timeframe, sino usar 'custom'
+        setTimeframe(selectedPreset || 'custom');
+        setStartDate(newStartDate);
+        setEndDate(newEndDate);
+        setSelectedRange(pendingRange);
+        setIsDatePopoverOpen(false);
+        setDateError('');
+        // Limpiar el preset seleccionado después de aplicar
+        setSelectedPreset(null);
+      }
+    } else if (pendingRange?.from && !pendingRange.to) {
+      setDateError('Por favor selecciona una fecha de fin');
+    } else {
+      setDateError('Por favor selecciona un rango de fechas válido');
     }
   };
 
-  const setPresetTimeframe = (newTimeframe: 'day' | 'week' | 'month' | 'quarter') => {
-    // Get current date in user's timezone
+  const openDatePicker = () => {
+    setPendingRange(undefined); // Limpiar selección previa
+    setSelectedPreset(null); // Limpiar preset seleccionado
+    setDateError('');
+    setIsDatePopoverOpen(true);
+  };
+
+  const applyPresetToPending = (optionValue: string, daysBack: number, canIncludeToday: boolean, includeTodayOverride?: boolean) => {
     const today = new Date();
-    let start: Date;
     
-    const todayFormatted = formatLocalDate(today);
-    console.log(`Setting preset timeframe: ${newTimeframe}, today: ${todayFormatted}`);
+    // Usar el override si está disponible, sino, usar el estado. Por defecto es false.
+    const includeToday = includeTodayOverride !== undefined 
+      ? includeTodayOverride 
+      : getIncludeTodayForPreset(optionValue);
+
+    let startDate: Date;
+    let endDate: Date;
     
-    switch (newTimeframe) {
-      case 'day':
-        setStartDate(todayFormatted);
-        setEndDate(todayFormatted);
+    console.log(`[PRESET DEBUG] ${optionValue} - includeToday: ${includeToday}, canIncludeToday: ${canIncludeToday}, daysBack: ${daysBack}`);
+    
+    switch (optionValue) {
+      case 'today':
+        startDate = new Date(today);
+        endDate = new Date(today);
         break;
-      case 'week':
-        start = new Date(today);
-        start.setDate(today.getDate() - 7);
-        setStartDate(formatLocalDate(start));
-        setEndDate(todayFormatted);
+      case 'yesterday':
+        startDate = new Date(today);
+        startDate.setDate(today.getDate() - 1);
+        endDate = new Date(startDate);
         break;
-      case 'month':
-        start = new Date(today);
-        start.setMonth(today.getMonth() - 1);
-        setStartDate(formatLocalDate(start));
-        setEndDate(todayFormatted);
-        break;
-      case 'quarter':
-        start = new Date(today);
-        start.setMonth(today.getMonth() - 3);
-        setStartDate(formatLocalDate(start));
-        setEndDate(todayFormatted);
+      default:
+        // Para rangos de "últimos X días"
+        if (canIncludeToday && includeToday) {
+          // Incluir hoy: desde hace X días hasta hoy
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - (daysBack - 1));
+          endDate = new Date(today);
+          console.log(`[WITH TODAY] Range: ${startDate.toDateString()} to ${endDate.toDateString()}`);
+        } else {
+          // No incluir hoy: desde hace X días hasta ayer
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - daysBack);
+          endDate = new Date(today);
+          endDate.setDate(today.getDate() - 1);
+          console.log(`[WITHOUT TODAY] Range: ${startDate.toDateString()} to ${endDate.toDateString()}`);
+        }
         break;
     }
     
-    setTimeframe(newTimeframe);
+    // Solo actualizar el rango pendiente y el preset seleccionado, NO aplicar inmediatamente
+    setPendingRange({ from: startDate, to: endDate });
+    setSelectedPreset(optionValue);
+  };
+
+  const setPresetTimeframe = (optionValue: string, daysBack: number, canIncludeToday: boolean) => {
+    const today = new Date();
+    const includeToday = getIncludeTodayForPreset(optionValue);
+    let startDate: Date;
+    let endDate: Date;
+    
+    switch (optionValue) {
+      case 'today':
+        startDate = new Date(today);
+        endDate = new Date(today);
+        break;
+      case 'yesterday':
+        startDate = new Date(today);
+        startDate.setDate(today.getDate() - 1);
+        endDate = new Date(startDate);
+        break;
+      default:
+        // Para rangos de "últimos X días"
+        if (canIncludeToday && includeToday) {
+          // Incluir hoy: desde hace X días hasta hoy
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - (daysBack - 1));
+          endDate = new Date(today);
+        } else {
+          // No incluir hoy: desde hace X días hasta ayer
+          startDate = new Date(today);
+          startDate.setDate(today.getDate() - daysBack);
+          endDate = new Date(today);
+          endDate.setDate(today.getDate() - 1);
+        }
+        break;
+    }
+    
+    const startFormatted = formatLocalDate(startDate);
+    const endFormatted = formatLocalDate(endDate);
+    
+    console.log(`Setting preset timeframe: ${optionValue}, from: ${startFormatted} to: ${endFormatted}, includeToday: ${includeToday}`);
+    
+    setStartDate(startFormatted);
+    setEndDate(endFormatted);
+    setTimeframe(optionValue);
+    setIsDatePopoverOpen(false);
   };
 
   const resetDateFilter = () => {
@@ -632,7 +772,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     const formattedToday = formatLocalDate(today);
     setStartDate(formattedToday);
     setEndDate(formattedToday);
-    setTimeframe('day');
+    setTimeframe('today');
   };
 
   async function loadAnalytics() {
@@ -2031,19 +2171,41 @@ export default function AnalyticsDashboard({ productId }: Props) {
           <div className="flex flex-wrap gap-4 items-start justify-between">
             <div className="space-y-4 w-full lg:w-auto">
               <div className="flex flex-wrap gap-4 items-end">
-                <div>
-                  <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
-                    Fecha inicial
+                <div className="relative" ref={datePickerRef}>
+                  <label htmlFor="date-picker-button" className="block text-sm font-medium text-gray-700">
+                    Rango de Fechas
                   </label>
-                  <input type="date" id="start-date" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" readOnly />
+                  <button
+                    id="date-picker-button"
+                    onClick={() => setIsDatePopoverOpen(!isDatePopoverOpen)}
+                    className="mt-1 flex items-center justify-between w-64 text-left bg-white border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <span>
+                      {`${format(selectedRange?.from || new Date(), 'dd MMM yyyy', { locale: es })} - ${format(selectedRange?.to || selectedRange?.from || new Date(), 'dd MMM yyyy', { locale: es })}`}
+                    </span>
+                    <Calendar className="h-4 w-4 text-gray-400" />
+                  </button>
+                  {isDatePopoverOpen && (
+                    <div className="absolute top-full mt-2 z-10 bg-white border border-gray-200 rounded-lg shadow-lg">
+                      <DayPicker
+                        mode="range"
+                        selected={selectedRange}
+                        onSelect={handleDateSelect}
+                        locale={es}
+                        numberOfMonths={2}
+                        defaultMonth={selectedRange?.from || new Date()}
+                        disabled={{ after: new Date() }}
+                        showOutsideDays
+                        fixedWeeks
+                      />
+                    </div>
+                  )}
                 </div>
-                <div>
-                  <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
-                    Fecha final
-                  </label>
-                  <input type="date" id="end-date" className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm" readOnly />
-                </div>
-                <button className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white" disabled>
+                <button
+                  onClick={() => loadAnalytics()}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  title="Refrescar datos"
+                >
                   <RefreshCw className="h-4 w-4" />
                 </button>
               </div>
@@ -2147,59 +2309,170 @@ export default function AnalyticsDashboard({ productId }: Props) {
         <div className="flex flex-wrap gap-4 items-start justify-between">
           <div className="space-y-4 w-full lg:w-auto">
             <div className="flex flex-wrap gap-4 items-end">
-              <div>
-                <label htmlFor="start-date" className="block text-sm font-medium text-gray-700">
-                  Fecha inicial
+              <div className="relative" ref={datePickerRef}>
+                <label htmlFor="date-picker-button" className="block text-sm font-medium text-gray-700">
+                  Rango de Fechas
                 </label>
-                <input
-                  type="date"
-                  id="start-date"
-                  value={startDate}
-                  max={endDate}
-                  onChange={(e) => handleDateChange('start', e.target.value)}
-                  className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                />
-              </div>
-              <div>
-                <label htmlFor="end-date" className="block text-sm font-medium text-gray-700">
-                  Fecha final
-                </label>
-                <input
-                  type="date"
-                  id="end-date"
-                  value={endDate}
-                  min={startDate}
-                  max={formatLocalDate(new Date())}
-                  onChange={(e) => handleDateChange('end', e.target.value)}
-                  className="mt-1 block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                />
+                <button
+                  id="date-picker-button"
+                  onClick={openDatePicker}
+                  className="mt-1 flex items-center justify-between w-64 text-left bg-white border border-gray-300 rounded-md shadow-sm px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <span className={selectedRange?.from && selectedRange?.to ? 'text-gray-900' : 'text-gray-500'}>
+                    {selectedRange?.from && selectedRange?.to
+                      ? `${format(selectedRange.from, 'dd MMM yyyy', { locale: es })} - ${format(selectedRange.to, 'dd MMM yyyy', { locale: es })}`
+                      : 'Seleccionar rango de fechas'
+                    }
+                  </span>
+                  <Calendar className="h-4 w-4 text-gray-400" />
+                </button>
+                {isDatePopoverOpen && (
+                  <div className="absolute top-full mt-2 z-10 bg-white border border-gray-200 rounded-xl shadow-xl overflow-hidden min-w-max">
+                    <div className="flex">
+                      {/* Panel de preselecciones */}
+                      <div className="w-64 bg-gray-50 border-r border-gray-200 p-4 flex-shrink-0">
+                        <h4 className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
+                          <svg className="w-4 h-4 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          Rangos Rápidos
+                        </h4>
+                        <div className="space-y-1">
+                          {TIMEFRAME_OPTIONS.map((option) => (
+                            <div key={option.value} className="relative">
+                              <button
+                                onClick={() => {
+                                  // Al hacer clic en un preset, siempre empieza sin incluir hoy
+                                  setIncludeTodayForPreset(option.value, false);
+                                  applyPresetToPending(option.value, option.daysBack, option.canIncludeToday, false);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-sm rounded-lg transition-all flex items-center justify-between group ${
+                                  selectedPreset === option.value 
+                                    ? 'bg-indigo-100 text-indigo-700 border border-indigo-200' 
+                                    : timeframe === option.value && !selectedPreset
+                                    ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                    : 'text-gray-700 hover:bg-white hover:shadow-sm border border-transparent'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2">
+                                  <div className={`w-1.5 h-1.5 rounded-full ${
+                                    selectedPreset === option.value ? 'bg-indigo-500' : 
+                                    timeframe === option.value && !selectedPreset ? 'bg-blue-500' :
+                                    'bg-gray-400 group-hover:bg-gray-500'
+                                  }`} />
+                                  <div className="flex items-center space-x-2">
+                                    <span className="font-medium">{option.label}</span>
+                                    
+                                    {/* Para preset SELECCIONADO (pendiente): Mostrar interruptor elegante */}
+                                    {selectedPreset === option.value && option.canIncludeToday && (
+                                      <div className="flex items-center space-x-2">
+                                        <span className="text-xs text-gray-600 font-medium">Incluir hoy:</span>
+                                        <button
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            // Calcula el nuevo estado y pásalo directamente
+                                            const newState = !getIncludeTodayForPreset(option.value);
+                                            setIncludeTodayForPreset(option.value, newState);
+                                            applyPresetToPending(option.value, option.daysBack, option.canIncludeToday, newState);
+                                          }}
+                                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+                                            getIncludeTodayForPreset(option.value) 
+                                              ? 'bg-indigo-600' 
+                                              : 'bg-gray-300'
+                                          }`}
+                                        >
+                                          <span
+                                            className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform duration-200 ${
+                                              getIncludeTodayForPreset(option.value) 
+                                                ? 'translate-x-5' 
+                                                : 'translate-x-1'
+                                            }`}
+                                          />
+                                        </button>
+                                        <span className="text-xs font-medium text-gray-700">
+                                          {getIncludeTodayForPreset(option.value) ? 'Sí' : 'No'}
+                                        </span>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Para preset APLICADO: Mostrar estado de forma sutil */}
+                                    {timeframe === option.value && !selectedPreset && option.canIncludeToday && (
+                                      <span className="text-xs text-blue-600 opacity-75 font-medium">
+                                        {getIncludeTodayForPreset(option.value) ? '• con hoy' : '• sin hoy'}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Panel del calendario */}
+                      <div className="p-4 min-w-max">
+                        <div className="text-sm text-gray-600 mb-3 min-h-[20px]">
+                          {!pendingRange?.from && '📅 Selecciona la fecha de inicio'}
+                          {pendingRange?.from && !pendingRange?.to && '📅 Ahora selecciona la fecha de fin'}
+                          {pendingRange?.from && pendingRange?.to && (
+                            <span className="text-indigo-700 font-medium">
+                              📅 {format(pendingRange.from, 'dd MMM yyyy', { locale: es })} - {format(pendingRange.to, 'dd MMM yyyy', { locale: es })}
+                            </span>
+                          )}
+                        </div>
+                        <DayPicker
+                          mode="range"
+                          selected={pendingRange}
+                          onSelect={handleDateSelect}
+                          locale={es}
+                          numberOfMonths={2}
+                          defaultMonth={(() => {
+                            // Mostrar mes anterior y actual (centrado en hoy)
+                            // Ejemplo: Si es 15 julio 2025 → muestra junio y julio
+                            const today = new Date();
+                            const previousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+                            return previousMonth;
+                          })()}
+                          disabled={{ after: new Date() }}
+                          showOutsideDays={false}
+                          fixedWeeks={false}
+                          className="border-0"
+                          classNames={{
+                            months: "flex flex-row space-x-4", // Horizontal layout
+                            month: "space-y-4"
+                          }}
+                        />
+                      </div>
+                    </div>
+                    
+                    {/* Botones de acción */}
+                    <div className="flex justify-between items-center px-4 py-3 bg-gray-50 border-t border-gray-200">
+                      <button
+                        onClick={() => setIsDatePopoverOpen(false)}
+                        className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={applyDateRange}
+                        disabled={!pendingRange?.from || !pendingRange?.to}
+                        className="px-6 py-2 text-sm bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
+                      >
+                        Aplicar Rango
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <button
-                onClick={resetDateFilter}
+                onClick={() => loadAnalytics()}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                title="Restablecer filtros"
+                title="Refrescar datos"
               >
                 <RefreshCw className="h-4 w-4" />
               </button>
             </div>
             {dateError && <div className="text-sm text-red-600">{dateError}</div>}
-            <div className="flex flex-wrap gap-2">
-              {TIMEFRAME_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  onClick={() =>
-                    option.value === 'custom'
-                      ? setTimeframe('custom')
-                      : setPresetTimeframe(option.value as 'day' | 'week' | 'month' | 'quarter')
-                  }
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                    timeframe === option.value ? 'bg-indigo-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
           </div>
           <div className="flex items-center gap-4">
             <button
