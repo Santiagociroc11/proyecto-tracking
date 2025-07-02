@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { XCircle, ArrowUp, ArrowDown, Activity, DollarSign, TrendingUp, BarChart2, Calendar, Users, Layers, Eye, Loader2 } from 'lucide-react';
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ComposedChart, Area, AreaChart } from 'recharts';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine, ComposedChart, Area, AreaChart, LabelList } from 'recharts';
 import { supabase } from '../lib/supabase';
 
 interface DailyData {
@@ -108,141 +108,13 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
 
   if (!isOpen || !ad) return null;
 
-  const formatCurrency = (value: number) => {
+  const formatCurrency = (value: number, includeDecimals = true) => {
     return new Intl.NumberFormat('es-ES', {
       style: 'currency',
       currency: 'USD',
-      minimumFractionDigits: 0,
-      maximumFractionDigits: 0
+      minimumFractionDigits: includeDecimals ? 2 : 0,
+      maximumFractionDigits: includeDecimals ? 2 : 0
     }).format(value);
-  };
-
-  // Calcular las tendencias (últimos 7 días vs 7 días anteriores)
-  const calculateTrends = () => {
-    if (ad.dailyData.length <= 7) return null;
-
-    const sortedData = [...ad.dailyData].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-
-    // Últimos 7 días
-    const last7Days = sortedData.slice(-7);
-    // 7 días anteriores a los últimos 7
-    const previous7Days = sortedData.slice(-14, -7);
-
-    const last7DaysSpend = last7Days.reduce((sum, day) => sum + day.spend, 0);
-    const previous7DaysSpend = previous7Days.reduce((sum, day) => sum + day.spend, 0);
-    
-    const last7DaysSales = last7Days.reduce((sum, day) => sum + day.sales, 0);
-    const previous7DaysSales = previous7Days.reduce((sum, day) => sum + day.sales, 0);
-    
-    const last7DaysProfit = last7Days.reduce((sum, day) => sum + day.profit, 0);
-    const previous7DaysProfit = previous7Days.reduce((sum, day) => sum + day.profit, 0);
-
-    // Cálculo de porcentajes de cambio
-    const spendChange = previous7DaysSpend !== 0 
-      ? ((last7DaysSpend - previous7DaysSpend) / previous7DaysSpend) * 100 
-      : 0;
-    
-    const salesChange = previous7DaysSales !== 0 
-      ? ((last7DaysSales - previous7DaysSales) / previous7DaysSales) * 100 
-      : 0;
-    
-    const profitChange = previous7DaysProfit !== 0 
-      ? ((last7DaysProfit - previous7DaysProfit) / previous7DaysProfit) * 100 
-      : 0;
-
-    const roasLast7 = last7DaysSpend > 0 ? last7Days.reduce((sum, day) => sum + (day.sales > 0 ? day.profit + day.spend : 0), 0) / last7DaysSpend : 0;
-    const roasPrevious7 = previous7DaysSpend > 0 ? previous7Days.reduce((sum, day) => sum + (day.sales > 0 ? day.profit + day.spend : 0), 0) / previous7DaysSpend : 0;
-    const roasChange = roasPrevious7 !== 0 
-      ? ((roasLast7 - roasPrevious7) / roasPrevious7) * 100 
-      : 0;
-
-    return {
-      spendChange,
-      salesChange,
-      profitChange,
-      roasChange,
-      last7Days: {
-        spend: last7DaysSpend,
-        sales: last7DaysSales,
-        profit: last7DaysProfit,
-        roas: roasLast7
-      },
-      previous7Days: {
-        spend: previous7DaysSpend,
-        sales: previous7DaysSales,
-        profit: previous7DaysProfit,
-        roas: roasPrevious7
-      }
-    };
-  };
-
-  const trends = calculateTrends();
-
-  // Preparar datos para el gráfico de rendimiento diario
-  const dailyChartData = [...ad.dailyData]
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-    .map(day => ({
-      ...day,
-      formattedDate: new Date(day.date).toLocaleDateString('es-ES', {
-        day: '2-digit',
-        month: '2-digit'
-      })
-    }));
-
-  // Determinar la recomendación basada en el rendimiento
-  const getRecommendation = () => {
-    if (!ad || ad.dailyData.length === 0) {
-      return {
-        text: "Datos insuficientes para una recomendación.",
-        type: "warning" as const
-      };
-    }
-
-    const trends = calculateTrends();
-    if (!trends) {
-      return {
-        text: "Datos insuficientes para una recomendación.",
-        type: "warning" as const
-      };
-    }
-
-    const avgRoas = ad.avgRoas;
-    const totalProfit = ad.totalProfit;
-
-    if (avgRoas < 0.8) {
-      return {
-        text: "ROAS crítico. Pausa inmediata y revisa la estrategia completa.",
-        type: "danger" as const
-      };
-    }
-    
-    if (avgRoas < 1.2 && totalProfit < 0) {
-      return {
-        text: "ROAS bajo y pérdidas. Evalúa pausar o cambiar completamente la estrategia.",
-        type: "danger" as const
-      };
-    }
-
-    if (avgRoas >= 2.0 && trends.spendChange < 50) {
-      return {
-        text: "¡Excelente ROAS! Considera escalar el presupuesto gradualmente.",
-        type: "success" as const
-      };
-    }
-
-    if (avgRoas >= 1.2 && avgRoas < 2.0) {
-      return {
-        text: "ROAS aceptable. Optimiza creativos y audiencias para mejorar.",
-        type: "info" as const
-      };
-    }
-
-    return {
-      text: "Datos insuficientes para una recomendación.",
-      type: "warning" as const
-    };
   };
 
   const chartData = ad.dailyData.map(day => ({
@@ -435,12 +307,6 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
               <div className="text-xl font-bold text-indigo-900">
                 {ad.avgRoas.toFixed(2)}x
               </div>
-              {trends && (
-                <div className={`text-xs mt-1 flex items-center ${trends.roasChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {trends.roasChange >= 0 ? <ArrowUp className="h-3 w-3 mr-1" /> : <ArrowDown className="h-3 w-3 mr-1" />}
-                  {Math.abs(trends.roasChange).toFixed(1)}%
-                </div>
-              )}
             </div>
 
             <div className="bg-blue-50 rounded-lg p-4">
@@ -450,12 +316,6 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
               <div className="text-xl font-bold text-blue-900">
                 {formatCurrency(ad.totalSpend)}
               </div>
-              {trends && (
-                <div className={`text-xs mt-1 flex items-center ${trends.spendChange >= 0 ? 'text-blue-600' : 'text-blue-600'}`}>
-                  {trends.spendChange >= 0 ? <ArrowUp className="h-3 w-3 mr-1" /> : <ArrowDown className="h-3 w-3 mr-1" />}
-                  {Math.abs(trends.spendChange).toFixed(1)}%
-                </div>
-              )}
             </div>
 
             <div className="bg-violet-50 rounded-lg p-4">
@@ -465,12 +325,6 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
               <div className="text-xl font-bold text-violet-900">
                 {ad.totalSales}
               </div>
-              {trends && (
-                <div className={`text-xs mt-1 flex items-center ${trends.salesChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {trends.salesChange >= 0 ? <ArrowUp className="h-3 w-3 mr-1" /> : <ArrowDown className="h-3 w-3 mr-1" />}
-                  {Math.abs(trends.salesChange).toFixed(1)}%
-                </div>
-              )}
             </div>
 
             <div className={`${ad.totalProfit >= 0 ? 'bg-green-50' : 'bg-red-50'} rounded-lg p-4`}>
@@ -480,12 +334,6 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
               <div className={`text-xl font-bold ${ad.totalProfit >= 0 ? 'text-green-900' : 'text-red-900'}`}>
                 {formatCurrency(ad.totalProfit)}
               </div>
-              {trends && (
-                <div className={`text-xs mt-1 flex items-center ${trends.profitChange >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {trends.profitChange >= 0 ? <ArrowUp className="h-3 w-3 mr-1" /> : <ArrowDown className="h-3 w-3 mr-1" />}
-                  {Math.abs(trends.profitChange).toFixed(1)}%
-                </div>
-              )}
             </div>
           </div>
 
@@ -498,7 +346,11 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
             
             <div className="h-80">
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                <ComposedChart 
+                  data={chartData} 
+                  margin={{ top: 5, right: 30, left: 30, bottom: 0 }}
+                  syncId="finance"
+                >
                   <defs>
                     <linearGradient id="profitGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#10B981" stopOpacity={0.4}/>
@@ -513,9 +365,7 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis 
                     dataKey="date" 
-                    tick={{ fontSize: 12, fill: '#6b7280' }}
-                    tickLine={{ stroke: '#d1d5db' }}
-                    axisLine={{ stroke: '#d1d5db' }}
+                    hide={true}
                   />
                   
                   <YAxis 
@@ -561,8 +411,17 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                     name="Ingresos"
                     stroke="#10B981" 
                     strokeWidth={3}
-                    dot={false}
-                  />
+                    dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#10B981' }}
+                    activeDot={{ r: 5, strokeWidth: 2 }}
+                  >
+                    <LabelList 
+                      dataKey="revenue" 
+                      position="top" 
+                      style={{ fontSize: '10px', fill: '#374151' }} 
+                      formatter={(value: number) => `$${Math.round(value)}`} 
+                      offset={8} 
+                    />
+                  </Line>
                   <Line 
                     yAxisId="money" 
                     type="monotone" 
@@ -570,18 +429,30 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                     name="Gasto"
                     stroke="#EF4444" 
                     strokeWidth={3}
-                    dot={false}
-                  />
+                    dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#EF4444' }}
+                    activeDot={{ r: 5, strokeWidth: 2 }}
+                  >
+                    <LabelList 
+                      dataKey="spend" 
+                      position="bottom" 
+                      style={{ fontSize: '10px', fill: '#374151' }} 
+                      formatter={(value: number) => `$${Math.round(value)}`} 
+                      offset={8} 
+                    />
+                  </Line>
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
 
             {/* Minigráfico de ROAS */}
-            <div className="mt-6">
-              <h4 className="text-md font-semibold text-gray-800 mb-2">Evolución del ROAS</h4>
-              <div className="h-24">
+            <div className="mt-0">
+              <div className="h-40">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={ad.dailyData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+                  <AreaChart 
+                    data={ad.dailyData} 
+                    margin={{ top: 10, right: 95, left: 30, bottom: 20 }}
+                    syncId="finance"
+                  >
                     <defs>
                       <linearGradient id="roasGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
@@ -589,6 +460,10 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
+                    <XAxis 
+                      dataKey="date" 
+                      tick={{ fontSize: 12, fill: '#6b7280' }}
+                    />
                     <Tooltip 
                       content={({ active, payload, label }) => {
                         if (active && payload && payload.length) {
@@ -604,11 +479,8 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                       }}
                     />
                     <YAxis
+                      hide={true}
                       domain={[0, 'dataMax + 0.5']}
-                      tick={{ fontSize: 10, fill: '#6b7280' }}
-                      tickLine={false}
-                      axisLine={false}
-                      width={40}
                     />
                     <ReferenceLine 
                       y={1.2} 
@@ -623,149 +495,24 @@ export function AdDetailsModal({ isOpen, onClose, item: ad }: AdDetailsModalProp
                       stroke="#3B82F6" 
                       strokeWidth={3}
                       fill="url(#roasGradient)"
-                    />
+                      dot={{ r: 3, strokeWidth: 2, fill: '#fff', stroke: '#3B82F6' }}
+                      activeDot={{ r: 5, strokeWidth: 2 }}
+                    >
+                      <LabelList 
+                        dataKey="roas" 
+                        position="top" 
+                        style={{ fontSize: '10px', fill: '#374151' }} 
+                        formatter={(value: number) => `${value.toFixed(1)}x`} 
+                        offset={8} 
+                      />
+                    </Area>
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
             </div>
           </div>
 
-          {/* Tabla comparativa */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Comparativa: Últimos 7 días vs 7 días anteriores
-            </h3>
-            
-              <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="text-left">
-                    <th className="px-4 py-2 text-sm font-medium text-gray-500">PERÍODO</th>
-                    <th className="px-4 py-2 text-sm font-medium text-gray-500">VENTAS</th>
-                    <th className="px-4 py-2 text-sm font-medium text-gray-500">GASTO</th>
-                    <th className="px-4 py-2 text-sm font-medium text-gray-500">ROAS</th>
-                    <th className="px-4 py-2 text-sm font-medium text-gray-500">BENEFICIO</th>
-                    </tr>
-                  </thead>
-                <tbody className="divide-y divide-gray-200">
-                    <tr>
-                    <td className="px-4 py-3 text-sm text-gray-900">Últimos 7 días</td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {ad.dailyData.slice(-7).reduce((sum, d) => sum + d.sales, 0)}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {formatCurrency(ad.dailyData.slice(-7).reduce((sum, d) => sum + d.spend, 0))}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {calculateTrends()?.last7Days?.roas?.toFixed(2) || '0.00'}x
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-900">
-                      {formatCurrency(ad.dailyData.slice(-7).reduce((sum, d) => sum + d.profit, 0))}
-                    </td>
-                    </tr>
-                    <tr>
-                    <td className="px-4 py-3 text-sm text-gray-900">7 días anteriores</td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.sales, 0)}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {formatCurrency(ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.spend, 0))}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {calculateTrends()?.previous7Days?.roas?.toFixed(2) || '0.00'}x
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-900">
-                        {formatCurrency(ad.dailyData.slice(-14, -7).reduce((sum, d) => sum + d.profit, 0))}
-                      </td>
-                  </tr>
-                  <tr className="bg-white">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">Variación</td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex items-center">
-                        {calculateTrends() && calculateTrends()!.salesChange >= 0 ? (
-                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
-                        ) : (
-                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
-                        )}
-                        <span className={`font-medium ${
-                          calculateTrends() && calculateTrends()!.salesChange >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {calculateTrends() && (calculateTrends()!.salesChange >= 0 ? '+' : '')}{calculateTrends()?.salesChange?.toFixed(1) || '0.0'}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex items-center">
-                        {calculateTrends() && calculateTrends()!.spendChange >= 0 ? (
-                          <ArrowUp className="h-4 w-4 text-red-500 mr-1" />
-                        ) : (
-                          <ArrowDown className="h-4 w-4 text-green-500 mr-1" />
-                        )}
-                        <span className={`font-medium ${
-                          calculateTrends() && calculateTrends()!.spendChange >= 0 ? 'text-red-600' : 'text-green-600'
-                        }`}>
-                          {calculateTrends() && (calculateTrends()!.spendChange >= 0 ? '+' : '')}{calculateTrends()?.spendChange?.toFixed(1) || '0.0'}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex items-center">
-                        {calculateTrends() && calculateTrends()!.roasChange >= 0 ? (
-                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
-                        ) : (
-                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
-                        )}
-                        <span className={`font-medium ${
-                          calculateTrends() && calculateTrends()!.roasChange >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {calculateTrends() && (calculateTrends()!.roasChange >= 0 ? '+' : '')}{calculateTrends()?.roasChange?.toFixed(1) || '0.0'}%
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div className="flex items-center">
-                        {calculateTrends() && calculateTrends()!.profitChange >= 0 ? (
-                          <ArrowUp className="h-4 w-4 text-green-500 mr-1" />
-                        ) : (
-                          <ArrowDown className="h-4 w-4 text-red-500 mr-1" />
-                        )}
-                        <span className={`font-medium ${
-                          calculateTrends() && calculateTrends()!.profitChange >= 0 ? 'text-green-600' : 'text-red-600'
-                        }`}>
-                          {calculateTrends() && (calculateTrends()!.profitChange >= 0 ? '+' : '')}{calculateTrends()?.profitChange?.toFixed(1) || '0.0'}%
-                        </span>
-                      </div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-          {/* Recomendación */}
-          <div className={`p-4 rounded-lg border-l-4 ${
-            getRecommendation().type === 'success' ? 'bg-green-50 border-green-400' :
-            getRecommendation().type === 'danger' ? 'bg-red-50 border-red-400' :
-            getRecommendation().type === 'info' ? 'bg-blue-50 border-blue-400' :
-            'bg-yellow-50 border-yellow-400'
-          }`}>
-            <h3 className={`text-lg font-semibold mb-2 ${
-              getRecommendation().type === 'success' ? 'text-green-800' :
-              getRecommendation().type === 'danger' ? 'text-red-800' :
-              getRecommendation().type === 'info' ? 'text-blue-800' :
-              'text-yellow-800'
-            }`}>
-              💡 Recomendación basada en datos
-            </h3>
-            <p className={
-              getRecommendation().type === 'success' ? 'text-green-800' :
-              getRecommendation().type === 'danger' ? 'text-red-800' :
-              getRecommendation().type === 'info' ? 'text-blue-800' :
-              'text-yellow-800'
-            }>
-              {getRecommendation().text}
-            </p>
-          </div>
+          <div className="h-8"></div>
 
           {/* Datos diarios detallados */}
           <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
