@@ -776,13 +776,41 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     const originalUtmData = trackingEvent.event_data?.utm_data;
     const cleanedUtmData = cleanUtms(originalUtmData);
 
+    // Calculate producer commission BEFORE inserting the event
+    const producerPrice = await getProducerCommissionPrice(event);
+    
+    // Create a modified copy of event data with proper commissions array
+    const modifiedEventData = { ...event.data };
+    
+    // If commissions array is empty or missing PRODUCER commission, reconstruct it
+    const hasProducerCommission = modifiedEventData.commissions?.find(c => c.source === 'PRODUCER');
+    
+    if (!hasProducerCommission) {
+      // Keep existing commissions (like MARKETPLACE) and add the calculated PRODUCER commission
+      const existingCommissions = modifiedEventData.commissions || [];
+      const newProducerCommission = {
+        value: producerPrice.value,
+        source: 'PRODUCER',
+        currency_value: producerPrice.currency_value
+      };
+      
+      modifiedEventData.commissions = [...existingCommissions, newProducerCommission];
+      
+      log('commission_reconstructed', {
+        original_commissions: event.data.commissions || [],
+        new_commissions: modifiedEventData.commissions,
+        added_producer_commission: newProducerCommission
+      });
+    }
+    
     const realPurchaseDate = new Date(event.creation_date);
     const processingDate = new Date();
     log('insert_purchase_event_start', { 
       event_type: eventType,
       real_purchase_date: realPurchaseDate.toISOString(),
       processing_date: processingDate.toISOString(),
-      delay_minutes: Math.round((processingDate.getTime() - realPurchaseDate.getTime()) / (1000 * 60))
+      delay_minutes: Math.round((processingDate.getTime() - realPurchaseDate.getTime()) / (1000 * 60)),
+      calculated_commission: producerPrice
     });
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
@@ -796,7 +824,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         event_data: {
           type: 'hotmart_event',
           event: event.event,
-          data: event.data,
+          data: modifiedEventData, // Use the modified data with proper commissions
           is_order_bump: isOrderBump,
           parent_transaction: event.data.purchase.order_bump?.parent_purchase_transaction || null,
           utm_data:{
@@ -824,10 +852,9 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     if (event.event === 'PURCHASE_APPROVED') {
       log('purchase_approved_flow_start');
       
-      // Get producer price for both Facebook and Telegram
-      const producerPrice = await getProducerCommissionPrice(event);
+      // Use the producer price already calculated above
       result.purchase_info.producer_price = producerPrice;
-      log('producer_price_calculated', { price: producerPrice });
+      log('producer_price_reused', { price: producerPrice });
       
       try {
         log('facebook_conversion_start');
