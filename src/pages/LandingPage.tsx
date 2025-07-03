@@ -54,7 +54,7 @@ export default function LandingPage() {
             <a href="#poder" className="text-slate-300 hover:text-white transition-colors">El Poder</a>
             <a href="#faq" className="text-slate-300 hover:text-white transition-colors">FAQ</a>
           </nav>
-          <Link to="/" className="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-5 py-2 rounded-lg transition-colors">
+          <Link to="/login" className="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-5 py-2 rounded-lg transition-colors">
             Iniciar Sesión
           </Link>
         </div>
@@ -71,7 +71,7 @@ export default function LandingPage() {
               El "agujero negro" entre tus campañas de Meta y tus ventas en Hotmart te está costando una fortuna. Es hora de encender la luz.
             </p>
             <div className="mt-10">
-              <Link to="/" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
+              <Link to="/login" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
                 Descubre la Verdad de tu ROAS en 5 Minutos
               </Link>
               <p className="mt-4 text-sm text-slate-500">Sin tarjeta de crédito. Conecta y ve.</p>
@@ -146,7 +146,7 @@ export default function LandingPage() {
             </div>
             
             <div className="mt-16 text-center">
-              <Link to="/" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
+              <Link to="/login" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
                 Dejar de Adivinar AHORA
               </Link>
             </div>
@@ -254,7 +254,7 @@ export default function LandingPage() {
               Tienes dos opciones. Opción 1: Seguir como hasta ahora, navegando a ciegas, quemando dinero en la oscuridad y esperando tener suerte. Opción 2: Encender la luz, tomar el control y escalar tu negocio basado en la verdad.
             </p>
             <div className="mt-10">
-              <Link to="/" className="cta-button text-white font-bold text-xl px-10 py-5 rounded-full inline-block">
+              <Link to="/login" className="cta-button text-white font-bold text-xl px-10 py-5 rounded-full inline-block">
                 Quiero el Control. Empezar Ahora.
               </Link>
             </div>

@@ -28,7 +28,9 @@ export default function AppRoutes() {
       <Routes>
         <Route path="/landing" element={<LandingPage />} />
         <Route path="/create-user-public" element={<PublicCreateUser />} />
-        <Route path="*" element={<Login />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/" element={<LandingPage />} />
+        <Route path="*" element={<LandingPage />} />
       </Routes>
     );
   }
