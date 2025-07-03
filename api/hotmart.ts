@@ -110,23 +110,21 @@ function hashSHA256(value: string): string {
 
 /**
  * Calcula la comisión promedio histórica para un producto específico
+ * NOTA: Las comisiones SIEMPRE están en USD, independientemente de la moneda de compra
  * @param productId - ID del producto en Hotmart
- * @param currency - Moneda de la transacción actual
- * @returns Promedio de comisiones o null si no hay datos suficientes
+ * @returns Promedio de comisiones PRODUCER en USD o null si no hay datos suficientes
  */
-async function getHistoricalCommissionAverage(productId: number, currency: string): Promise<{ value: number; currency_value: string } | null> {
+async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ value: number; currency_value: string } | null> {
   try {
     const { data: historicalCommissions, error } = await supabase
       .from('tracking_events')
       .select('event_data')
       .eq('event_type', 'compra_hotmart')
-      .eq('event_data->>product_id', productId.toString())
-      .not('event_data->>commissions', 'is', null)
-      .limit(20) // Últimas 20 transacciones para calcular promedio
+      .limit(50)
       .order('created_at', { ascending: false });
 
-    if (error || !historicalCommissions || historicalCommissions.length < 3) {
-      console.log('Datos históricos insuficientes para calcular promedio de comisión:', {
+    if (error || !historicalCommissions || historicalCommissions.length === 0) {
+      console.log('No se encontraron datos históricos:', {
         product_id: productId,
         found_records: historicalCommissions?.length || 0,
         error: error?.message
@@ -141,15 +139,25 @@ async function getHistoricalCommissionAverage(productId: number, currency: strin
       const eventData = record.event_data;
       if (eventData?.data?.commissions && Array.isArray(eventData.data.commissions)) {
         const producerCommission = eventData.data.commissions.find((c: any) => c.source === 'PRODUCER');
-        if (producerCommission && producerCommission.currency_value === currency) {
+        
+        // Solo buscar comisiones del mismo producto Y en USD
+        if (producerCommission && 
+            eventData.data.product.id === productId && 
+            producerCommission.currency_value === 'USD') {
           totalCommissions += producerCommission.value;
           validCommissionCount++;
         }
       }
     }
 
+    console.log('Análisis de comisiones históricas en USD:', {
+      product_id: productId,
+      valid_commissions_found: validCommissionCount,
+      total_records_analyzed: historicalCommissions.length
+    });
+
     if (validCommissionCount < 3) {
-      console.log('Comisiones válidas insuficientes para promedio:', {
+      console.log('Comisiones USD insuficientes para promedio:', {
         product_id: productId,
         valid_commissions: validCommissionCount,
         required_minimum: 3
@@ -158,16 +166,15 @@ async function getHistoricalCommissionAverage(productId: number, currency: strin
     }
 
     const averageCommission = totalCommissions / validCommissionCount;
-    console.log('Promedio de comisión histórica calculado:', {
+    console.log('Promedio de comisión histórica en USD calculado:', {
       product_id: productId,
-      currency,
       average_commission: averageCommission,
       based_on_records: validCommissionCount
     });
 
     return {
-      value: Math.round(averageCommission * 100) / 100, // Redondear a 2 decimales
-      currency_value: currency
+      value: Math.round(averageCommission * 100) / 100,
+      currency_value: 'USD'
     };
 
   } catch (error) {
@@ -235,27 +242,24 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
     };
   }
   
-  console.log('Comisión del productor no encontrada, buscando promedio histórico...');
+  console.log('Comisión del productor no encontrada, buscando promedio histórico en USD...');
   
-  // Estrategia única: Buscar promedio histórico para este producto específico
-  const historicalAverage = await getHistoricalCommissionAverage(
-    event.data.product.id, 
-    event.data.purchase.price.currency_value
-  );
+  // Estrategia única: Buscar promedio histórico en USD para este producto
+  const historicalAverageUSD = await getHistoricalCommissionAverageUSD(event.data.product.id);
   
-  if (historicalAverage) {
+  if (historicalAverageUSD) {
     const originalOfferPrice = (event.data.purchase as any).original_offer_price;
     
-    if (isEstimatedPriceValid(historicalAverage, originalOfferPrice)) {
-      console.log('Usando promedio histórico de comisión:', {
-        value: historicalAverage.value,
-        currency: historicalAverage.currency_value,
-        source: 'historical_average',
+    if (isEstimatedPriceValid(historicalAverageUSD, originalOfferPrice)) {
+      console.log('Usando promedio histórico de comisión en USD:', {
+        value: historicalAverageUSD.value,
+        currency: historicalAverageUSD.currency_value,
+        source: 'historical_average_usd',
         validated_against_original: !!originalOfferPrice
       });
-      return historicalAverage;
+      return historicalAverageUSD;
     } else {
-      console.log('Promedio histórico rechazado por validación de precio original');
+      console.log('Promedio histórico USD rechazado por validación de precio original');
     }
   }
   
