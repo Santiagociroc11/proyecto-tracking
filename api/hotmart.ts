@@ -140,12 +140,16 @@ async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ v
       if (eventData?.data?.commissions && Array.isArray(eventData.data.commissions)) {
         const producerCommission = eventData.data.commissions.find((c: any) => c.source === 'PRODUCER');
         
-        // Solo buscar comisiones del mismo producto Y en USD
+        // Solo buscar comisiones del mismo producto Y en USD Y que tengan valor razonable
         if (producerCommission && 
             eventData.data.product.id === productId && 
-            producerCommission.currency_value === 'USD') {
+            producerCommission.currency_value === 'USD' &&
+            producerCommission.value > 0 &&
+            producerCommission.value < 100) { // Filtrar valores absurdos
           totalCommissions += producerCommission.value;
           validCommissionCount++;
+          
+          console.log(`Comisión válida encontrada: $${producerCommission.value} USD del registro ${record.event_data.data.purchase.transaction}`);
         }
       }
     }
@@ -242,7 +246,11 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
     };
   }
   
-  console.log('Comisión del productor no encontrada, buscando promedio histórico en USD...');
+  console.log('Comisión del productor no encontrada, buscando promedio histórico en USD...', {
+    product_id: event.data.product.id,
+    transaction: event.data.purchase.transaction,
+    original_offer_price: (event.data.purchase as any).original_offer_price
+  });
   
   // Estrategia única: Buscar promedio histórico en USD para este producto
   const historicalAverageUSD = await getHistoricalCommissionAverageUSD(event.data.product.id);
@@ -250,8 +258,14 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
   if (historicalAverageUSD) {
     const originalOfferPrice = (event.data.purchase as any).original_offer_price;
     
+    console.log('Validando promedio histórico contra precio original:', {
+      historical_average: historicalAverageUSD.value,
+      original_offer_price: originalOfferPrice?.value,
+      will_validate: !!originalOfferPrice
+    });
+    
     if (isEstimatedPriceValid(historicalAverageUSD, originalOfferPrice)) {
-      console.log('Usando promedio histórico de comisión en USD:', {
+      console.log('✅ Usando promedio histórico de comisión en USD:', {
         value: historicalAverageUSD.value,
         currency: historicalAverageUSD.currency_value,
         source: 'historical_average_usd',
@@ -259,11 +273,36 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
       });
       return historicalAverageUSD;
     } else {
-      console.log('Promedio histórico USD rechazado por validación de precio original');
+      console.log('❌ Promedio histórico USD rechazado por validación de precio original:', {
+        historical_average: historicalAverageUSD.value,
+        original_offer_price: originalOfferPrice?.value,
+        reason: 'validation_failed'
+      });
     }
+  } else {
+    console.log('❌ No se encontró promedio histórico válido en USD para el producto:', {
+      product_id: event.data.product.id
+    });
   }
   
-  // Fallback final: precio completo de compra
+  // Fallback final: usar original_offer_price si está disponible, sino precio completo
+  const originalOfferPrice = (event.data.purchase as any).original_offer_price;
+  
+  if (originalOfferPrice && originalOfferPrice.currency_value === 'USD') {
+    console.log('Usando original_offer_price como fallback (en USD):', {
+      value: originalOfferPrice.value,
+      currency: originalOfferPrice.currency_value,
+      source: 'original_offer_price_fallback',
+      warning: 'Sin datos históricos suficientes, usando precio original de oferta'
+    });
+    
+    return {
+      value: originalOfferPrice.value,
+      currency_value: 'USD'
+    };
+  }
+  
+  // Último recurso: precio completo de compra
   console.log('No se pudo calcular comisión estimada, usando precio completo de compra:', {
     value: event.data.purchase.price.value,
     currency: event.data.purchase.price.currency_value,
