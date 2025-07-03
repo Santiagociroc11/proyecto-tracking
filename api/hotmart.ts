@@ -109,17 +109,125 @@ function hashSHA256(value: string): string {
 }
 
 /**
- * Obtiene el precio de la comisión del productor
+ * Calcula la comisión promedio histórica para un producto específico
+ * @param productId - ID del producto en Hotmart
+ * @param currency - Moneda de la transacción actual
+ * @returns Promedio de comisiones o null si no hay datos suficientes
+ */
+async function getHistoricalCommissionAverage(productId: number, currency: string): Promise<{ value: number; currency_value: string } | null> {
+  try {
+    const { data: historicalCommissions, error } = await supabase
+      .from('tracking_events')
+      .select('event_data')
+      .eq('event_type', 'compra_hotmart')
+      .eq('event_data->>product_id', productId.toString())
+      .not('event_data->>commissions', 'is', null)
+      .limit(20) // Últimas 20 transacciones para calcular promedio
+      .order('created_at', { ascending: false });
+
+    if (error || !historicalCommissions || historicalCommissions.length < 3) {
+      console.log('Datos históricos insuficientes para calcular promedio de comisión:', {
+        product_id: productId,
+        found_records: historicalCommissions?.length || 0,
+        error: error?.message
+      });
+      return null;
+    }
+
+    let totalCommissions = 0;
+    let validCommissionCount = 0;
+
+    for (const record of historicalCommissions) {
+      const eventData = record.event_data;
+      if (eventData?.data?.commissions && Array.isArray(eventData.data.commissions)) {
+        const producerCommission = eventData.data.commissions.find((c: any) => c.source === 'PRODUCER');
+        if (producerCommission && producerCommission.currency_value === currency) {
+          totalCommissions += producerCommission.value;
+          validCommissionCount++;
+        }
+      }
+    }
+
+    if (validCommissionCount < 3) {
+      console.log('Comisiones válidas insuficientes para promedio:', {
+        product_id: productId,
+        valid_commissions: validCommissionCount,
+        required_minimum: 3
+      });
+      return null;
+    }
+
+    const averageCommission = totalCommissions / validCommissionCount;
+    console.log('Promedio de comisión histórica calculado:', {
+      product_id: productId,
+      currency,
+      average_commission: averageCommission,
+      based_on_records: validCommissionCount
+    });
+
+    return {
+      value: Math.round(averageCommission * 100) / 100, // Redondear a 2 decimales
+      currency_value: currency
+    };
+
+  } catch (error) {
+    console.error('Error calculando promedio de comisión histórica:', error);
+    return null;
+  }
+}
+
+/**
+ * Valida si el precio estimado es razonable comparado con el original_offer_price
+ * @param estimatedPrice - Precio estimado de comisión
+ * @param originalOfferPrice - Precio original de la oferta desde Hotmart
+ * @returns true si el precio estimado es válido
+ */
+function isEstimatedPriceValid(
+  estimatedPrice: { value: number; currency_value: string },
+  originalOfferPrice: { value: number; currency_value: string } | undefined
+): boolean {
+  if (!originalOfferPrice || originalOfferPrice.currency_value !== estimatedPrice.currency_value) {
+    return true; // Si no hay referencia o monedas diferentes, aceptamos el estimado
+  }
+
+  // La comisión no debería ser mayor al precio original de la oferta
+  if (estimatedPrice.value > originalOfferPrice.value) {
+    console.log('Precio estimado rechazado: mayor al precio original de oferta:', {
+      estimated: estimatedPrice.value,
+      original_offer: originalOfferPrice.value,
+      reason: 'estimated_exceeds_original'
+    });
+    return false;
+  }
+
+  // La comisión no debería ser menor al 1% del precio original (muy poco probable)
+  const minimumExpected = originalOfferPrice.value * 0.01;
+  if (estimatedPrice.value < minimumExpected) {
+    console.log('Precio estimado rechazado: demasiado bajo comparado con oferta original:', {
+      estimated: estimatedPrice.value,
+      minimum_expected: minimumExpected,
+      original_offer: originalOfferPrice.value,
+      reason: 'estimated_too_low'
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Obtiene el precio de la comisión del productor con promedio histórico como fallback
  * @param event - Evento de Hotmart
  * @returns Objeto con value y currency_value de la comisión del productor
  */
-function getProducerCommissionPrice(event: HotmartEvent): { value: number; currency_value: string } {
+async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value: number; currency_value: string }> {
   const producerCommission = event.data.commissions?.find(commission => commission.source === 'PRODUCER');
   
   if (producerCommission) {
     console.log('Usando precio de comisión del productor:', {
       value: producerCommission.value,
-      currency: producerCommission.currency_value
+      currency: producerCommission.currency_value,
+      source: 'direct_commission'
     });
     return {
       value: producerCommission.value,
@@ -127,11 +235,38 @@ function getProducerCommissionPrice(event: HotmartEvent): { value: number; curre
     };
   }
   
-  // Fallback al precio original si no se encuentra la comisión del productor
-  console.log('No se encontró comisión del productor, usando precio original:', {
+  console.log('Comisión del productor no encontrada, buscando promedio histórico...');
+  
+  // Estrategia única: Buscar promedio histórico para este producto específico
+  const historicalAverage = await getHistoricalCommissionAverage(
+    event.data.product.id, 
+    event.data.purchase.price.currency_value
+  );
+  
+  if (historicalAverage) {
+    const originalOfferPrice = (event.data.purchase as any).original_offer_price;
+    
+    if (isEstimatedPriceValid(historicalAverage, originalOfferPrice)) {
+      console.log('Usando promedio histórico de comisión:', {
+        value: historicalAverage.value,
+        currency: historicalAverage.currency_value,
+        source: 'historical_average',
+        validated_against_original: !!originalOfferPrice
+      });
+      return historicalAverage;
+    } else {
+      console.log('Promedio histórico rechazado por validación de precio original');
+    }
+  }
+  
+  // Fallback final: precio completo de compra
+  console.log('No se pudo calcular comisión estimada, usando precio completo de compra:', {
     value: event.data.purchase.price.value,
-    currency: event.data.purchase.price.currency_value
+    currency: event.data.purchase.price.currency_value,
+    source: 'full_purchase_price_fallback',
+    warning: 'Este valor puede ser inflado comparado con la comisión real'
   });
+  
   return event.data.purchase.price;
 }
 
@@ -276,7 +411,7 @@ async function sendFacebookConversion(
     );
     log('geolocation_enhancement_end', { enhanced_address: enhancedAddress });
     
-    const price = getProducerCommissionPrice(event);
+    const price = await getProducerCommissionPrice(event);
     const transactionId = event.data.purchase.transaction || '';
 
     const user_data: { [key: string]: any } = {
@@ -690,7 +825,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       log('purchase_approved_flow_start');
       
       // Get producer price for both Facebook and Telegram
-      const producerPrice = getProducerCommissionPrice(event);
+      const producerPrice = await getProducerCommissionPrice(event);
       result.purchase_info.producer_price = producerPrice;
       log('producer_price_calculated', { price: producerPrice });
       
