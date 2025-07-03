@@ -10,6 +10,7 @@ import AdminCreateUser from './pages/AdminCreateUser';
 import Header from './components/Header';
 import PrivateRoute from './components/PrivateRoute';
 import PublicCreateUser from './pages/PublicCreateUser';
+import LandingPage from './pages/LandingPage';
 
 export default function AppRoutes() {
   const { user, loading, signOut } = useAuth();
@@ -25,6 +26,7 @@ export default function AppRoutes() {
   if (!user) {
     return (
       <Routes>
+        <Route path="/landing" element={<LandingPage />} />
         <Route path="/create-user-public" element={<PublicCreateUser />} />
         <Route path="*" element={<Login />} />
       </Routes>
@@ -64,6 +66,7 @@ export default function AppRoutes() {
             </PrivateRoute>
           } />
         )}
+        <Route path="/landing" element={<Navigate to="/" replace />} />
         <Route path="/create-user-public" element={<Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
