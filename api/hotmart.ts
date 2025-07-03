@@ -116,6 +116,7 @@ function hashSHA256(value: string): string {
  */
 async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ value: number; currency_value: string } | null> {
   try {
+    // Buscar solo registros recientes y filtrar por producto específico
     const { data: historicalCommissions, error } = await supabase
       .from('tracking_events')
       .select('event_data')
