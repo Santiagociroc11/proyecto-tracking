@@ -684,6 +684,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       .select<string, TrackingEventWithProduct>(`
         product_id,
         visitor_id,
+        session_id,
         event_data,
         event_type,
         created_at,
@@ -863,7 +864,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         product_id: product.id,
         event_type: eventType,
         visitor_id: xcod,
-        session_id: trackingEvent.event_data.session_id,
+        session_id: trackingEvent.session_id, // Corregido
         created_at: new Date(event.creation_date).toISOString(),
         event_data: {
           type: 'hotmart_event',
