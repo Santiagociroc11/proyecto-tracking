@@ -114,20 +114,22 @@ function hashSHA256(value: string): string {
  * @param productId - ID del producto en Hotmart
  * @returns Promedio de comisiones PRODUCER en USD o null si no hay datos suficientes
  */
-async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ value: number; currency_value: string } | null> {
+async function getHistoricalCommissionAverageUSD(productId: string, saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'): Promise<{ value: number; currency_value: string } | null> {
   try {
-    // Buscar solo registros recientes y filtrar por producto específico
-    const { data: historicalCommissions, error } = await supabase
+    console.log(`Buscando historial para producto ${productId} y tipo de venta ${saleType}`);
+
+    const { data: historicalEvents, error } = await supabase
       .from('tracking_events')
       .select('event_data')
-      .eq('event_type', 'compra_hotmart')
-      .limit(50)
+      .eq('product_id', productId)
+      .eq('event_type', saleType) // <-- Búsqueda específica por tipo de venta
+      .limit(10)
       .order('created_at', { ascending: false });
 
-    if (error || !historicalCommissions || historicalCommissions.length === 0) {
-      console.log('No se encontraron datos históricos:', {
+    if (error || !historicalEvents || historicalEvents.length === 0) {
+      console.log('No se encontraron datos históricos para el producto:', {
         product_id: productId,
-        found_records: historicalCommissions?.length || 0,
+        found_records: historicalEvents?.length || 0,
         error: error?.message
       });
       return null;
@@ -136,21 +138,20 @@ async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ v
     let totalCommissions = 0;
     let validCommissionCount = 0;
 
-    for (const record of historicalCommissions) {
+    // 2. Iterar sobre los eventos encontrados para extraer comisiones válidas.
+    for (const record of historicalEvents) {
       const eventData = record.event_data;
       if (eventData?.data?.commissions && Array.isArray(eventData.data.commissions)) {
         const producerCommission = eventData.data.commissions.find((c: any) => c.source === 'PRODUCER');
         
-        // Solo buscar comisiones del mismo producto Y en USD Y que tengan valor razonable
+        // 3. Validar que la comisión sea útil (en USD y un valor razonable).
         if (producerCommission && 
-            eventData.data.product.id === productId && 
             producerCommission.currency_value === 'USD' &&
             producerCommission.value > 0 &&
-            producerCommission.value < 100) { // Filtrar valores absurdos
+            producerCommission.value < 100) { // Filtro de valores atípicos
           totalCommissions += producerCommission.value;
           validCommissionCount++;
-          
-          console.log(`Comisión válida encontrada: $${producerCommission.value} USD del registro ${record.event_data.data.purchase.transaction}`);
+          console.log(`Comisión histórica válida encontrada: ${producerCommission.value} USD`);
         }
       }
     }
@@ -158,11 +159,12 @@ async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ v
     console.log('Análisis de comisiones históricas en USD:', {
       product_id: productId,
       valid_commissions_found: validCommissionCount,
-      total_records_analyzed: historicalCommissions.length
+      total_records_analyzed: historicalEvents.length
     });
 
+    // 4. Asegurarse de tener suficientes datos para un promedio fiable.
     if (validCommissionCount < 3) {
-      console.log('Comisiones USD insuficientes para promedio:', {
+      console.log('Comisiones USD insuficientes para un promedio fiable:', {
         product_id: productId,
         valid_commissions: validCommissionCount,
         required_minimum: 3
@@ -170,6 +172,7 @@ async function getHistoricalCommissionAverageUSD(productId: number): Promise<{ v
       return null;
     }
 
+    // 5. Calcular y devolver el promedio.
     const averageCommission = totalCommissions / validCommissionCount;
     console.log('Promedio de comisión histórica en USD calculado:', {
       product_id: productId,
@@ -232,7 +235,7 @@ function isEstimatedPriceValid(
  * @param event - Evento de Hotmart
  * @returns Objeto con value y currency_value de la comisión del productor
  */
-async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value: number; currency_value: string }> {
+async function getProducerCommissionPrice(event: HotmartEvent, internalProductId: string, saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'): Promise<{ value: number; currency_value: string }> {
   const producerCommission = event.data.commissions?.find(commission => commission.source === 'PRODUCER');
   
   if (producerCommission) {
@@ -248,13 +251,13 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
   }
   
   console.log('Comisión del productor no encontrada, buscando promedio histórico en USD...', {
-    product_id: event.data.product.id,
-    transaction: event.data.purchase.transaction,
-    original_offer_price: (event.data.purchase as any).original_offer_price
+    product_id: internalProductId,
+    sale_type: saleType, // Log para debugging
+    transaction: event.data.purchase.transaction
   });
   
-  // Estrategia única: Buscar promedio histórico en USD para este producto
-  const historicalAverageUSD = await getHistoricalCommissionAverageUSD(event.data.product.id);
+  // Pasar el saleType a la función de búsqueda histórica
+  const historicalAverageUSD = await getHistoricalCommissionAverageUSD(internalProductId, saleType);
   
   if (historicalAverageUSD) {
     const originalOfferPrice = (event.data.purchase as any).original_offer_price;
@@ -282,7 +285,7 @@ async function getProducerCommissionPrice(event: HotmartEvent): Promise<{ value:
     }
   } else {
     console.log('❌ No se encontró promedio histórico válido en USD para el producto:', {
-      product_id: event.data.product.id
+      product_id: internalProductId
     });
   }
   
@@ -455,7 +458,12 @@ async function sendFacebookConversion(
     );
     log('geolocation_enhancement_end', { enhanced_address: enhancedAddress });
     
-    const price = await getProducerCommissionPrice(event);
+    // Determine event type based on order bump status within Facebook conversion
+    const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true &&
+                        !!event.data.purchase.order_bump?.parent_purchase_transaction;
+    const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    
+    const price = await getProducerCommissionPrice(event, product.id.toString(), eventType);
     const transactionId = event.data.purchase.transaction || '';
 
     const user_data: { [key: string]: any } = {
@@ -822,7 +830,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     const cleanedUtmData = cleanUtms(originalUtmData);
 
     // Calculate producer commission BEFORE inserting the event
-    const producerPrice = await getProducerCommissionPrice(event);
+    const producerPrice = await getProducerCommissionPrice(event, product.id.toString(), eventType);
     
     // Create a modified copy of event data with proper commissions array
     const modifiedEventData = { ...event.data };
