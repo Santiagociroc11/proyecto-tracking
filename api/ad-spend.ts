@@ -295,7 +295,7 @@ async function syncAdPerformance(
         // Para múltiples días, usar un rango con time_increment
         params = new URLSearchParams({
           access_token: accessToken,
-          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,date_start',
+          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,actions,action_values,date_start',
           level: 'ad',
           time_range: JSON.stringify({ 
             since: facebookDates[0], 
@@ -308,7 +308,7 @@ async function syncAdPerformance(
         // Para un solo día, usar la lógica original
         params = new URLSearchParams({
           access_token: accessToken,
-          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions',
+          fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,actions,action_values',
           level: 'ad',
           time_range: JSON.stringify({ since: facebookDates[0], until: facebookDates[0] }),
           time_increment: '1',
@@ -423,6 +423,30 @@ async function syncAdPerformance(
             const campaignBudget = campaignBudgets.get(String(insight.campaign_id)) || 0;
             const adsetBudget = adsetBudgets.get(String(insight.adset_id)) || 0;
 
+            // Procesar acciones de Meta (conversiones)
+            const actions = insight.actions || [];
+            const purchaseAction = actions.find((action: any) => action.action_type === 'purchase');
+            const metaPurchases = purchaseAction ? parseInt(purchaseAction.value) || 0 : 0;
+            
+            // Buscar el valor monetario de las compras (puede estar en action_values o como purchase_roas)
+            const actionValues = insight.action_values || [];
+            const purchaseValueAction = actionValues.find((action: any) => action.action_type === 'purchase');
+            const metaPurchaseValue = purchaseValueAction ? parseFloat(purchaseValueAction.value) || 0 : 0;
+            
+            // Calcular ROAS de Meta
+            const spend = parseFloat(insight.spend) || 0;
+            const metaPurchaseRoas = spend > 0 ? metaPurchaseValue / spend : 0;
+
+            log('Processing ad with Meta conversion data', {
+              adId: insight.ad_id,
+              adName: insight.ad_name,
+              spend,
+              metaPurchases,
+              metaPurchaseValue,
+              metaPurchaseRoas: metaPurchaseRoas.toFixed(4),
+              actionsCount: actions.length
+            });
+
             const adPerformanceData = {
               product_ad_account_id: productAdAccount.id,
               date: insightDate,
@@ -432,7 +456,7 @@ async function syncAdPerformance(
               ad_name: insight.ad_name || null,
               adset_name: insight.adset_name || null,
               campaign_name: insight.campaign_name || null,
-              spend: parseFloat(insight.spend) || 0,
+              spend,
               impressions: parseInt(insight.impressions) || 0,
               clicks: parseInt(insight.clicks) || 0,
               cpc: parseFloat(insight.cpc) || null,
@@ -440,6 +464,11 @@ async function syncAdPerformance(
               ctr: parseFloat(insight.ctr) || null,
               campaign_budget: campaignBudget,
               adset_budget: adsetBudget,
+              // Nuevos campos de Meta conversions
+              meta_purchases: metaPurchases,
+              meta_purchase_value: metaPurchaseValue,
+              meta_purchase_roas: metaPurchaseRoas,
+              actions: actions // Almacenar todas las acciones para análisis futuro
             };
 
             if (isCurrentDay) {
