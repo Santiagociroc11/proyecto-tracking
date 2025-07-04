@@ -1,274 +1,196 @@
 import { Link } from 'react-router-dom';
 
-export default function LandingPage() {
-  return (
-    <div className="antialiased" style={{ fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", backgroundColor: '#0B0F19', color: '#E2E8F0' }}>
-      
-      {/* Custom Styles */}
-      <style>{`
-        .gradient-text {
-          background: linear-gradient(90deg, #8B5CF6, #EC4899);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
-          background-clip: text;
-        }
-        .cta-button {
-          background: linear-gradient(90deg, #6D28D9, #4F46E5);
-          transition: all 0.3s ease;
-          box-shadow: 0 4px 20px rgba(109, 40, 217, 0.3);
-        }
-        .cta-button:hover {
-          transform: translateY(-3px);
-          box-shadow: 0 7px 30px rgba(109, 40, 217, 0.5);
-        }
-        .section-glow {
-          position: relative;
-        }
-        .section-glow::before {
-          content: '';
-          position: absolute;
-          top: -100px;
-          left: 50%;
-          transform: translateX(-50%);
-          width: 50%;
-          height: 200px;
-          background: radial-gradient(circle, rgba(109, 40, 217, 0.15) 0%, rgba(109, 40, 217, 0) 70%);
-          z-index: 0;
-          pointer-events: none;
-        }
-        .card {
-          background-color: rgba(30, 41, 59, 0.5);
-          border: 1px solid #334155;
-          backdrop-filter: blur(10px);
-          -webkit-backdrop-filter: blur(10px);
-        }
-      `}</style>
+// --- Iconos SVG para mayor impacto visual y rendimiento ---
+const CheckCircleIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+  </svg>
+);
 
-      {/* Header / Nav */}
-      <header className="bg-black/50 backdrop-blur-lg sticky top-0 z-50 border-b border-slate-800">
+const WarningIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-red-500 mx-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+    </svg>
+);
+
+const RocketIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 mr-3 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+    </svg>
+);
+
+
+export default function LandingPage() {
+  // --- Componente reutilizable para las tarjetas de características ---
+  const FeatureCard = ({ title, children, icon }: { title: string; children: React.ReactNode; icon: React.ReactNode }) => (
+    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6 transform hover:-translate-y-1 transition-transform duration-300">
+      <div className="flex items-center mb-3">
+        {icon}
+        <h3 className="text-xl font-bold text-white">{title}</h3>
+      </div>
+      <p className="text-slate-400">{children}</p>
+    </div>
+  );
+
+  return (
+    <div className="antialiased font-sans bg-[#0A0A0A] text-slate-300">
+      {/* --- Header --- */}
+      <header className="bg-black/60 backdrop-blur-lg sticky top-0 z-50 border-b border-slate-800">
         <div className="container mx-auto px-6 py-4 flex justify-between items-center">
           <h2 className="text-2xl font-bold text-white">Hot<span className="text-violet-500">API</span></h2>
           <nav className="hidden md:flex items-center space-x-8">
-            <a href="#problema" className="text-slate-300 hover:text-white transition-colors">El Problema</a>
-            <a href="#solucion" className="text-slate-300 hover:text-white transition-colors">La Solución</a>
-            <a href="#poder" className="text-slate-300 hover:text-white transition-colors">El Poder</a>
-            <a href="#faq" className="text-slate-300 hover:text-white transition-colors">FAQ</a>
+            <a href="#the-lie" className="text-slate-400 hover:text-white transition-colors duration-200">La Mentira</a>
+            <a href="#the-weapon" className="text-slate-400 hover:text-white transition-colors duration-200">El Arma</a>
+            <a href="#the-proof" className="text-slate-400 hover:text-white transition-colors duration-200">La Prueba</a>
           </nav>
-          <Link to="/login" className="bg-slate-700 hover:bg-slate-600 text-white font-semibold px-5 py-2 rounded-lg transition-colors">
+          <Link to="/login" className="bg-violet-600 hover:bg-violet-500 text-white font-semibold px-5 py-2 rounded-lg transition-all duration-300 shadow-[0_0_15px_rgba(139,92,246,0.5)] hover:shadow-[0_0_25px_rgba(139,92,246,0.8)]">
             Iniciar Sesión
           </Link>
         </div>
       </header>
 
-      {/* Hero Section */}
       <main>
-        <section className="py-24 md:py-32 text-center section-glow">
+        {/* --- Hero Section --- */}
+        <section className="relative py-24 md:py-40 text-center overflow-hidden">
+          {/* Efecto de brillo de fondo */}
+          <div className="absolute inset-0 -top-24 w-full h-full bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(124,58,237,0.3),rgba(255,255,255,0))] -z-0"></div>
           <div className="container mx-auto px-6 relative z-10">
-            <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight">
-              Estás Quemando Dinero en Anuncios. <br/> Y <span className="gradient-text">Ni Siquiera lo Sabes.</span>
+            <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight tracking-tighter">
+              Deja de Quemar Dinero en Meta Ads.
+              <br />
+              <span className="bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-pink-500">Es Hora de Imprimirlo.</span>
             </h1>
             <p className="mt-6 max-w-3xl mx-auto text-lg md:text-xl text-slate-400">
-              El "agujero negro" entre tus campañas de Meta y tus ventas en Hotmart te está costando una fortuna. Es hora de encender la luz.
+              El Ads Manager te miente. Tus hojas de cálculo son un chiste. Mientras tú "optimizas" a ciegas, tus competidores usan datos reales para robarte a tus clientes. <strong className="text-white">Nosotros lo arreglamos.</strong>
             </p>
             <div className="mt-10">
-              <Link to="/login" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
-                Descubre la Verdad de tu ROAS en 5 Minutos
-              </Link>
-              <p className="mt-4 text-sm text-slate-500">Sin tarjeta de crédito. Conecta y ve.</p>
+              <a href="#cta" className="bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-lg px-8 py-4 rounded-full inline-block transition-all duration-300 transform hover:scale-105 shadow-[0_5px_30px_rgba(109,40,217,0.4)]">
+                Activar Mi Ventaja Injusta
+              </a>
+              <p className="mt-4 text-sm text-slate-500">Instalación en 1 clic. Resultados en 24 horas. Garantizado.</p>
             </div>
           </div>
         </section>
 
-        {/* El Problema (Pain Section) */}
-        <section id="problema" className="py-20 md:py-28 bg-black">
+        {/* --- La Mentira (Pain Section) --- */}
+        <section id="the-lie" className="py-20 md:py-28 bg-black">
           <div className="container mx-auto px-6">
             <div className="text-center max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-5xl font-bold text-white">El Juego está <span className="text-red-500">Arreglado</span> en tu Contra</h2>
-              <p className="mt-4 text-lg text-slate-400">Si vendes infoproductos, vives esta pesadilla todos los días.</p>
+                <WarningIcon />
+                <h2 className="mt-4 text-3xl md:text-5xl font-bold text-white">El Juego Está Arreglado en tu Contra</h2>
+                <p className="mt-4 text-lg text-slate-400">Si vendes en Hotmart y usas Meta Ads, te están mintiendo en la cara. Y te está costando una fortuna.</p>
             </div>
-
-            <div className="mt-16 grid md:grid-cols-2 gap-12 items-center">
-              <div className="space-y-6 text-lg text-slate-300">
-                <p>Inviertes $1,000, $5,000, $10,000 en Meta Ads. Ves clics, alcance, incluso "compras" en el Ads Manager.</p>
-                <p>Luego vas a Hotmart. Las ventas no cuadran. Empieza la cacería: ¿qué anuncio funcionó? ¿Qué campaña es un pozo sin fondo?</p>
-                <p>Abres una hoja de cálculo. Exportas datos. Intentas cruzar UTMs sucios y duplicados. Para cuando crees tener una respuesta, <strong className="text-white">ya has quemado miles de dólares más en la campaña equivocada.</strong></p>
-                <p className="text-xl font-semibold text-white border-l-4 border-violet-500 pl-4">La falta de datos en tiempo real no es un inconveniente. Es un <span className="text-violet-400">ladrón silencioso</span> que vacía tu cuenta bancaria.</p>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="card p-6 rounded-xl">
-                  <h3 className="text-xl font-bold text-white">Ads Manager Miente</h3>
-                  <p className="mt-2 text-slate-400">El píxel es optimista. iOS14 lo destrozó. Te muestra "compras" que nunca existieron. Estás optimizando con datos falsos.</p>
+            <div className="mt-16 max-w-4xl mx-auto grid md:grid-cols-2 gap-8 text-lg text-slate-300">
+                <div>
+                    <h3 className="text-2xl font-bold text-white mb-4 border-l-4 border-red-500 pl-4">Tu Realidad Actual:</h3>
+                    <p className="mb-4">Inviertes miles en Meta. El Ads Manager muestra 15 "compras". Sonríes.</p>
+                    <p className="mb-4">Abres Hotmart. Hay 3 ventas reales. Tu sonrisa desaparece.</p>
+                    <p className="mb-4">Empieza la pesadilla: ¿Qué anuncio funciona? ¿Qué UTM es correcto? Abres una hoja de cálculo, exportas datos, pierdes horas... y para cuando tienes una respuesta (incorrecta), <strong className="text-white">ya has quemado otros $1,000 en el anuncio equivocado.</strong></p>
                 </div>
-                <div className="card p-6 rounded-xl mt-8">
-                  <h3 className="text-xl font-bold text-white">Hojas de Cálculo Asesinas</h3>
-                  <p className="mt-2 text-slate-400">Horas perdidas, datos desactualizados y errores humanos. El ROAS que calculas hoy era válido... la semana pasada.</p>
+                <div>
+                    <h3 className="text-2xl font-bold text-white mb-4 border-l-4 border-red-500 pl-4">La Causa del Desastre:</h3>
+                    <p className="mb-4"><strong className="text-white">1. El Píxel Miente:</strong> Desde iOS14, el píxel de Facebook es un optimista delirante. Inventa ventas que no existen.</p>
+                    <p className="mb-4"><strong className="text-white">2. Datos Retrasados:</strong> Decidir basándote en datos de ayer es como conducir mirando por el retrovisor. Te vas a estrellar.</p>
+                    <p className="mb-4"><strong className="text-white">3. Atribución Ciega:</strong> No sabes qué anuncio generó esa venta con Order Bump. Estás dejando el 50% de tus ganancias sobre la mesa.</p>
                 </div>
-                <div className="card p-6 rounded-xl">
-                  <h3 className="text-xl font-bold text-white">El Retraso te Cuesta Caro</h3>
-                  <p className="mt-2 text-slate-400">Decidir apagar un anuncio 24 horas tarde puede ser la diferencia entre la ganancia y la pérdida de todo tu lanzamiento.</p>
+            </div>
+             <p className="text-center text-xl font-semibold text-white mt-16 bg-red-900/30 border border-red-500/50 max-w-4xl mx-auto p-6 rounded-lg">La falta de datos perfectos y en tiempo real no es un problema. Es un <span className="text-red-400">ladrón silencioso</span> que vacía tu cuenta bancaria mientras duermes.</p>
+          </div>
+        </section>
+
+        {/* --- El Arma (Solution Section) --- */}
+        <section id="the-weapon" className="py-20 md:py-28 relative overflow-hidden">
+            <div className="absolute inset-0 w-full h-full bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(124,58,237,0.2),rgba(255,255,255,0))] -z-0"></div>
+            <div className="container mx-auto px-6 relative z-10">
+                <div className="text-center max-w-3xl mx-auto">
+                    <h2 className="text-3xl md:text-5xl font-bold text-white">HotAPI: Tu <span className="bg-clip-text text-transparent bg-gradient-to-r from-green-400 to-cyan-400">Arma de Dominación</span></h2>
+                    <p className="mt-4 text-lg text-slate-400">No somos "otro dashboard". Somos el puente directo entre tu dinero (Hotmart) y tu tráfico (Meta). <strong className="text-white">Convertimos tus datos de ventas en un ejército de IA que trabaja para ti 24/7.</strong></p>
                 </div>
-                <div className="card p-6 rounded-xl mt-8">
-                  <h3 className="text-xl font-bold text-white">Order Bumps Invisibles</h3>
-                  <p className="mt-2 text-slate-400">¿Sabes qué anuncio genera más ventas con Order Bumps? Probablemente no. Estás dejando sobre la mesa el dinero más fácil.</p>
+
+                <div className="mt-16 max-w-5xl mx-auto">
+                    <div className="grid md:grid-cols-2 gap-8 items-center">
+                        <div className="space-y-6">
+                            <div className="bg-slate-800/50 border border-slate-700 p-6 rounded-xl">
+                                <h3 className="text-2xl font-bold text-white">Paso 1: Conexión en 1 Clic</h3>
+                                <p className="mt-2 text-slate-400">Usa <strong className="text-white">Facebook Login</strong>. Con un clic, conectas de forma segura todas tus cuentas publicitarias. No vemos tu contraseña, solo los permisos que nos das. Luego, pega tu API de Hotmart. <strong className="text-white">Tiempo total: 90 segundos.</strong></p>
+                            </div>
+                            <div className="bg-slate-800/50 border border-slate-700 p-6 rounded-xl">
+                                <h3 className="text-2xl font-bold text-white">Paso 2: La Magia de la API</h3>
+                                <p className="mt-2 text-slate-400">Aquí es donde aniquilamos a tu competencia. Ignoramos el Píxel roto y usamos la <strong className="text-violet-400">API de Conversiones de Meta</strong>. Enviamos tus datos de ventas REALES de Hotmart (incluyendo Order Bumps y Upsells) directamente al cerebro de Meta.</p>
+                            </div>
+                        </div>
+                        <div className="bg-green-900/30 border border-green-500/50 p-8 rounded-xl text-center">
+                             <h3 className="text-3xl font-bold text-white">Paso 3: Activa el Modo Bestia</h3>
+                             <p className="mt-4 text-slate-300 text-lg">Nuestra IA usa la <strong className="text-violet-400">API de Marketing de Meta</strong> para tomar el control. Analiza los datos perfectos que le enviamos y automáticamente:</p>
+                             <ul className="mt-4 space-y-2 text-left">
+                                <li className="flex items-start"><CheckCircleIcon /><span className="ml-2">Mata campañas perdedoras antes de que quemen tu dinero.</span></li>
+                                <li className="flex items-start"><CheckCircleIcon /><span className="ml-2">Redistribuye tu presupuesto a los anuncios ganadores en tiempo real.</span></li>
+                                <li className="flex items-start"><CheckCircleIcon /><span className="ml-2">Escala vertical y horizontalmente mientras duermes.</span></li>
+                             </ul>
+                             <p className="mt-6 font-bold text-white text-xl">Tú pones las reglas. La IA ejecuta. Tú ganas.</p>
+                        </div>
+                    </div>
                 </div>
-              </div>
             </div>
-          </div>
         </section>
 
-        {/* La Solución (Mechanism Section) */}
-        <section id="solucion" className="py-20 md:py-28 section-glow">
+        {/* --- La Prueba (Features/Benefits Section) --- */}
+        <section id="the-proof" className="py-20 md:py-28 bg-black">
           <div className="container mx-auto px-6">
             <div className="text-center max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-5xl font-bold text-white">HotAPI: Tu <span className="gradient-text">Fuente de la Verdad</span></h2>
-              <p className="mt-4 text-lg text-slate-400">No somos "otro dashboard". Somos un puente directo, sin intermediarios, entre tu dinero gastado y tu dinero ganado.</p>
+              <h2 className="text-3xl md:text-5xl font-bold text-white">Esto no es Data. Es <span className="text-green-400">Poder de Fuego.</span></h2>
+              <p className="mt-4 text-lg text-slate-400">Cada función está diseñada para una sola cosa: <strong className="text-white">aumentar tu ROAS y aplastar a tu competencia.</strong></p>
             </div>
-
-            <div className="mt-16 max-w-5xl mx-auto grid md:grid-cols-3 gap-8 text-center">
-              {/* Step 1 */}
-              <div className="card p-8 rounded-xl">
-                <div className="text-5xl font-bold text-violet-500">1</div>
-                <h3 className="mt-4 text-2xl font-bold text-white">Conecta Hotmart</h3>
-                <p className="mt-2 text-slate-400">Autoriza el acceso a tus datos de ventas con un clic. Usamos la API oficial. Es 100% seguro.</p>
-              </div>
-              {/* Step 2 */}
-              <div className="card p-8 rounded-xl">
-                <div className="text-5xl font-bold text-violet-500">2</div>
-                <h3 className="mt-4 text-2xl font-bold text-white">Conecta Meta</h3>
-                <p className="mt-2 text-slate-400">Autoriza el acceso de lectura a tus campañas. Jamás modificaremos nada sin tu permiso explícito.</p>
-              </div>
-              {/* Step 3 */}
-              <div className="card p-8 rounded-xl">
-                <div className="text-5xl font-bold text-violet-500">3</div>
-                <h3 className="mt-4 text-2xl font-bold text-white">Gana Claridad Absoluta</h3>
-                <p className="mt-2 text-slate-400">En tiempo real, mira tu gasto, tus ingresos y tu ROAS real por campaña, conjunto y anuncio. Sin adivinar. Nunca más.</p>
-              </div>
-            </div>
-            
-            <div className="mt-16 text-center">
-              <Link to="/login" className="cta-button text-white font-bold text-lg px-8 py-4 rounded-full inline-block">
-                Dejar de Adivinar AHORA
-              </Link>
+            <div className="mt-16 grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+              <FeatureCard title="ROAS Real al Minuto" icon={<RocketIcon />}>
+                Tu gasto de Meta y tus ingresos de Hotmart, cara a cara. Sin mentiras. Identifica ganadores y perdedores en segundos.
+              </FeatureCard>
+              <FeatureCard title="Atribución Perfecta" icon={<RocketIcon />}>
+                Conectamos cada venta, cada Order Bump, al anuncio, conjunto y campaña EXACTOS que la generaron. Se acabaron las dudas.
+              </FeatureCard>
+              <FeatureCard title="Sobrealimenta el Algoritmo" icon={<RocketIcon />}>
+                Al enviar datos de compra reales vía Conversions API, entrenamos a la IA de Meta para que encuentre clones exactos de tus mejores clientes. Es un imán de dinero.
+              </FeatureCard>
+              <FeatureCard title="Control de Tráfico por IA (24/7)" icon={<RocketIcon />}>
+                Activa el piloto automático. Nuestra IA gestiona tu presupuesto como un trader de Wall Street. Tú duermes, la IA optimiza, tú despiertas con más ventas.
+              </FeatureCard>
+              <FeatureCard title="Control Manual o Híbrido" icon={<RocketIcon />}>
+                ¿Eres un control freak? Perfecto. Pausa anuncios, ajusta presupuestos desde nuestro dashboard. O deja que la IA haga el trabajo pesado. Tú eliges.
+              </FeatureCard>
+              <FeatureCard title="Reportes que Generan Dinero" icon={<RocketIcon />}>
+                No más parálisis por análisis. Recibe reportes simples que te dicen: "invierte aquí, apaga esto". Decisiones, no datos.
+              </FeatureCard>
             </div>
           </div>
         </section>
 
-        {/* El Poder (Features/Benefits Section) */}
-        <section id="poder" className="py-20 md:py-28 bg-black">
-          <div className="container mx-auto px-6">
-            <div className="text-center max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-5xl font-bold text-white">Esto no es Información. Es <span className="text-green-400">Poder.</span></h2>
-              <p className="mt-4 text-lg text-slate-400">Te damos las herramientas para tomar decisiones de un millón de dólares, al instante.</p>
-            </div>
-
-            <div className="mt-16 grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              <div className="card p-6 rounded-xl border-t-4 border-green-500">
-                <h3 className="text-xl font-bold text-white">Dashboard de ROAS Real</h3>
-                <p className="mt-2 text-slate-400">Tu gasto en Meta al lado de tus ingresos de Hotmart. Actualizado al minuto. Identifica ganadores y perdedores de un vistazo.</p>
-              </div>
-              <div className="card p-6 rounded-xl border-t-4 border-green-500">
-                <h3 className="text-xl font-bold text-white">Atribución de Ventas Perfecta</h3>
-                <p className="mt-2 text-slate-400">Conectamos cada venta (incluyendo Order Bumps) al anuncio exacto que la generó. Nuestro sistema limpia y unifica tus UTMs automáticamente.</p>
-              </div>
-              <div className="card p-6 rounded-xl border-t-4 border-green-500">
-                <h3 className="text-xl font-bold text-white">Integración con CAPI de Meta</h3>
-                <p className="mt-2 text-slate-400">Enviamos eventos de compra enriquecidos (con datos del comprador hasheados) a la API de Conversiones. Esto sobrealimenta el algoritmo de Meta para que encuentre más compradores como los que ya tienes.</p>
-              </div>
-              <div className="card p-6 rounded-xl border-t-4 border-green-500">
-                <h3 className="text-xl font-bold text-white">Alertas de Venta por Telegram</h3>
-                <p className="mt-2 text-slate-400">"Acabas de vender $97 gracias al Anuncio X". Recibe notificaciones instantáneas con los UTMs para saber qué funciona, mientras funciona.</p>
-              </div>
-              <div className="card p-6 rounded-xl border-t-4 border-violet-500">
-                <h3 className="text-xl font-bold text-white flex items-center justify-between">
-                  <span>Control Total de Anuncios</span>
-                  <span className="text-xs bg-violet-500 text-white font-bold py-1 px-3 rounded-full">PRÓXIMAMENTE</span>
-                </h3>
-                <p className="mt-2 text-slate-400">¿Un anuncio está perdiendo dinero? Páusalo desde nuestro dashboard con un clic. ¿Uno está ganando? Déjalo correr. El poder de actuar sobre los datos, sin salir de la plataforma.</p>
-              </div>
-              <div className="card p-6 rounded-xl border-t-4 border-green-500">
-                <h3 className="text-xl font-bold text-white">Análisis de Cohortes</h3>
-                <p className="mt-2 text-slate-400">Descubre el Valor de Vida del Cliente (LTV) por campaña. ¿Qué anuncio atrae a los clientes que más gastan a largo plazo? Ahora lo sabrás.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-        
-        {/* Permissions Section */}
-        <section className="py-20 md:py-28">
-          <div className="container mx-auto px-6">
-            <div className="text-center max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-5xl font-bold text-white">Nuestra Promesa: <span className="gradient-text">Transparencia Radical</span></h2>
-              <p className="mt-4 text-lg text-slate-400">Para darte este poder, necesitamos tu permiso. Te explicamos para qué es cada uno, en lenguaje claro y simple.</p>
-            </div>
-            <div className="mt-16 max-w-4xl mx-auto grid md:grid-cols-2 gap-8">
-              <div className="card p-8 rounded-xl">
-                <h3 className="text-xl font-bold text-white">Permiso para VER tus Resultados</h3>
-                <p className="mt-4 text-slate-400">Para mostrarte el panorama completo, necesitamos conectar los puntos. Este permiso nos deja <strong className="text-white">ver cuánto gastas en cada anuncio.</strong></p>
-                <p className="mt-2 text-slate-400">Es la única forma de cruzar ese gasto con tus ventas de Hotmart y darte tu ROAS real. Es un permiso de <strong className="text-white">solo lectura:</strong> solo miramos, no tocamos.
-                <span className="block mt-4 text-xs text-slate-500">Para el analista: Solicitamos el permiso <code className="text-violet-400">ads_read</code>.</span>
-                </p>
-              </div>
-              <div className="card p-8 rounded-xl">
-                <h3 className="text-xl font-bold text-white">Permiso para GESTIONAR tus Anuncios</h3>
-                <p className="mt-4 text-slate-400">Aquí es donde tomas el control. Este permiso te permitirá <strong className="text-white">pausar las campañas perdedoras con un clic,</strong> directamente desde HotAPI.</p>
-                <p className="mt-2 text-slate-400">Es la diferencia entre analizar y optimizar en tiempo real, dándote una ventaja decisiva.
-                <span className="block mt-4 text-xs text-slate-500">Para el analista: Solicitamos el permiso <code className="text-violet-400">ads_management</code>.</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* FAQ Section */}
-        <section id="faq" className="py-20 md:py-28 bg-black">
-          <div className="container mx-auto px-6">
-            <div className="text-center max-w-3xl mx-auto">
-              <h2 className="text-3xl md:text-5xl font-bold text-white">Preguntas que Probablemente Tienes</h2>
-            </div>
-            <div className="mt-16 max-w-3xl mx-auto space-y-6">
-              <div className="card rounded-lg p-6">
-                <h3 className="font-bold text-lg text-white">¿Es seguro conectar mis cuentas?</h3>
-                <p className="mt-2 text-slate-400">Absolutamente. Usamos los protocolos de autenticación OAuth y las APIs oficiales de Meta y Hotmart. Nunca vemos tus contraseñas. Solo obtenemos los permisos que tú apruebas explícitamente.</p>
-              </div>
-              <div className="card rounded-lg p-6">
-                <h3 className="font-bold text-lg text-white">¿Tardaré mucho en configurarlo?</h3>
-                <p className="mt-2 text-slate-400">Menos de 5 minutos. Son literalmente un par de clics para autorizar cada plataforma. Nuestro sistema hace el resto. No hay que instalar códigos ni scripts.</p>
-              </div>
-              <div className="card rounded-lg p-6">
-                <h3 className="font-bold text-lg text-white">¿Quién debería usar HotAPI?</h3>
-                <p className="mt-2 text-slate-400">Infoproductores, coaches, creadores de cursos y agencias que venden productos a través de Hotmart y usan Meta Ads (Facebook/Instagram) para generar ventas. Si inviertes más de $1,000 al mes en anuncios, necesitas esto.</p>
-              </div>
-              <div className="card rounded-lg p-6">
-                <h3 className="font-bold text-lg text-white">¿Y si no me gusta o no me funciona?</h3>
-                <p className="mt-2 text-slate-400">Aunque la configuración inicial es gratuita para que veas el valor, todos nuestros planes de pago vienen con una garantía. Si la plataforma no te ahorra (o te ayuda a ganar) más dinero de lo que cuesta, no queremos tu dinero.</p>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Final CTA */}
-        <section className="py-24 md:py-32 section-glow">
-          <div className="container mx-auto px-6 text-center">
-            <h2 className="text-4xl md:text-6xl font-extrabold text-white">La Decisión es Simple.</h2>
-            <p className="mt-6 max-w-3xl mx-auto text-lg md:text-xl text-slate-400">
-              Tienes dos opciones. Opción 1: Seguir como hasta ahora, navegando a ciegas, quemando dinero en la oscuridad y esperando tener suerte. Opción 2: Encender la luz, tomar el control y escalar tu negocio basado en la verdad.
+        {/* --- Final CTA --- */}
+        <section id="cta" className="py-24 md:py-32">
+          <div className="container mx-auto px-6 text-center max-w-4xl mx-auto">
+            <h2 className="text-4xl md:text-6xl font-extrabold text-white">Tienes Dos Opciones.</h2>
+            <p className="mt-6 text-lg md:text-xl text-slate-400">
+              <strong className="text-white">Opción 1:</strong> Seguir como hasta ahora. Usar hojas de cálculo, adivinar, quemar dinero y preguntarte por qué tu negocio no escala.
             </p>
+            <p className="mt-4 text-lg md:text-xl text-slate-400">
+              <strong className="text-white">Opción 2:</strong> Activar tu ventaja injusta. Usar datos perfectos y una IA para dominar tus anuncios, aplastar tu ROAS y escalar sin piedad.
+            </p>
+            <p className="mt-8 text-2xl md:text-3xl font-bold text-white">La elección es tuya. Pero tu competencia ya está decidiendo.</p>
             <div className="mt-10">
-              <Link to="/login" className="cta-button text-white font-bold text-xl px-10 py-5 rounded-full inline-block">
-                Quiero el Control. Empezar Ahora.
-              </Link>
+              <a href="/login" className="bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-400 hover:to-emerald-400 text-white font-bold text-xl px-12 py-5 rounded-full inline-block transition-all duration-300 transform hover:scale-105 shadow-[0_5px_30px_rgba(74,222,128,0.4)]">
+                Quiero Dominar. Activar HotAPI AHORA.
+              </a>
             </div>
           </div>
         </section>
       </main>
 
-      {/* Footer */}
+      {/* --- Footer --- */}
       <footer className="bg-black border-t border-slate-800">
         <div className="container mx-auto px-6 py-8 text-center text-slate-500">
-          <p>&copy; 2024 HotAPI. Todos los derechos reservados. Deja de adivinar, empieza a escalar.</p>
+          <p>&copy; 2024 HotAPI. Todos los derechos reservados.</p>
+          <p className="mt-2 text-sm">Deja de adivinar. Empieza a dominar.</p>
         </div>
       </footer>
-
     </div>
   );
 }
