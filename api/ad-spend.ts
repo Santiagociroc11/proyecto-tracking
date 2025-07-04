@@ -415,8 +415,9 @@ async function syncAdPerformance(
             // Determinar la fecha del insight (usar date_start si existe para múltiples días, o la primera fecha)
             const insightDate = insight.date_start || facebookDates[0];
             
-            // Verificar si esta fecha específica es el día actual
-            const isCurrentDay = insightDate === todayString;
+            // Verificar si esta fecha específica es el día actual en la zona horaria del usuario
+            const userDateString = userId ? await getDateStringForUser(userId) : todayString;
+            const isCurrentDay = insightDate === userDateString;
             
             // Obtener presupuestos para este anuncio específico
             const campaignBudget = campaignBudgets.get(String(insight.campaign_id)) || 0;
@@ -536,13 +537,13 @@ export async function handleAdSpendSync() {
       throw new Error('Missing ENCRYPTION_KEY environment variable');
     }
 
-    // Obtener la fecha de hoy (SOLO sincroniza el día actual)
+    // Obtener la fecha de hoy en UTC como fallback
     const today = new Date();
-    const dateString = today.toISOString().split('T')[0];
+    const utcDateString = today.toISOString().split('T')[0];
     
-    log('Syncing for date (DAILY SYNC - current day only)', { 
-      date: dateString,
-      note: 'Only syncing current day. Overwrites existing data for today. Historical data requires manual backfill.'
+    log('Starting sync with UTC date as base', { 
+      utcDate: utcDateString,
+      note: 'Will adjust dates per user timezone. Only syncing current day in each user timezone.'
     });
 
     // Obtener todas las integraciones activas de Meta
@@ -636,8 +637,18 @@ export async function handleAdSpendSync() {
           continue;
         }
 
+        // Obtener la fecha actual en la zona horaria del usuario
+        const userDateString = await getDateStringForUser(integration.user_id);
+        
+        log('Using user timezone date for sync', {
+          integrationId: integration.id,
+          userId: integration.user_id,
+          utcDate: utcDateString,
+          userDate: userDateString
+        });
+        
         // Obtener datos de gasto de Meta (con zona horaria del usuario)
-        const adSpendData = await fetchAdSpendFromMeta(accessToken, activeAdAccounts, dateString, integration.user_id);
+        const adSpendData = await fetchAdSpendFromMeta(accessToken, activeAdAccounts, userDateString, integration.user_id);
         
         log('Fetched ad spend data', { 
           integrationId: integration.id,
@@ -645,7 +656,7 @@ export async function handleAdSpendSync() {
         });
 
         // También sincronizar datos detallados de ad performance (con zona horaria del usuario)
-        const adPerformanceResult = await syncAdPerformance(accessToken, activeAdAccounts, dateString, integration.user_id);
+        const adPerformanceResult = await syncAdPerformance(accessToken, activeAdAccounts, userDateString, integration.user_id);
         
         log('Ad performance sync completed', {
           integrationId: integration.id,
@@ -659,16 +670,16 @@ export async function handleAdSpendSync() {
         totalAdPerformanceErrors += adPerformanceResult.errors;
         totalAdPerformanceSkipped += adPerformanceResult.skipped;
 
-        // Verificar si estamos sincronizando el día actual para ad_spend
-        const today = new Date();
-        const todayString = today.toISOString().split('T')[0];
-        const isCurrentDay = dateString === todayString;
+        // Verificar si estamos sincronizando el día actual para ad_spend usando la zona horaria del usuario
+        const isCurrentDay = userDateString === userDateString; // Siempre true ahora porque usamos la fecha del usuario
         
         log('Ad spend date comparison for historical data protection', { 
-          syncDate: dateString, 
-          today: todayString, 
+          syncDate: userDateString, 
+          userToday: userDateString,
+          utcToday: utcDateString,
           isCurrentDay,
-          note: isCurrentDay ? 'Will upsert ad spend data (current day)' : 'Will preserve existing ad spend data (historical)'
+          userId: integration.user_id,
+          note: 'Will upsert ad spend data (current day in user timezone)'
         });
 
         // Guardar los datos en la base de datos
@@ -806,7 +817,7 @@ export async function handleAdSpendSync() {
       totalAdPerformanceSynced,
       totalAdPerformanceErrors,
       totalAdPerformanceSkipped,
-      date: dateString
+      note: 'Synced using user timezone dates'
     });
 
     return new Response(JSON.stringify({
@@ -817,7 +828,7 @@ export async function handleAdSpendSync() {
       adPerformanceSynced: totalAdPerformanceSynced,
       adPerformanceErrors: totalAdPerformanceErrors,
       adPerformanceSkipped: totalAdPerformanceSkipped,
-      date: dateString
+      note: 'Synced using user timezone dates'
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
