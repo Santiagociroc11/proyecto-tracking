@@ -1245,7 +1245,9 @@ export default function AnalyticsDashboard({ productId }: Props) {
           spend,
           date,
           campaign_budget,
-          adset_budget
+          adset_budget,
+          meta_purchases,
+          meta_purchase_value
         `)
         .gte('date', adStartUTC)
         .lte('date', adEndUTC)
@@ -1305,9 +1307,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
               unique_visits: 0,
               clicks: 0,
               unique_clicks: 0,
-              purchases: 0,
-              order_bumps: 0,
-              revenue: 0,
+              purchases: 0, // From tracking
+              order_bumps: 0, // From tracking
+              revenue: 0, // From tracking
+              meta_purchases: 0, // From Meta
+              meta_purchase_value: 0, // From Meta
               visitorSet: new Set(),
               clickSet: new Set(),
             });
@@ -1315,6 +1319,8 @@ export default function AnalyticsDashboard({ productId }: Props) {
           
           const stats = utmBaseStats.get(key);
           stats.ad_spend += parseFloat(ad.spend) || 0;
+          stats.meta_purchases += parseInt(ad.meta_purchases) || 0;
+          stats.meta_purchase_value += parseFloat(ad.meta_purchase_value) || 0;
         });
         
         console.log(`Grupos UTM base creados (filtrados): ${utmBaseStats.size}`);
@@ -1455,15 +1461,21 @@ export default function AnalyticsDashboard({ productId }: Props) {
         newUtmStats = Array.from(utmBaseStats.values()).map(stat => {
           stat.unique_visits = stat.visitorSet.size;
           stat.unique_clicks = stat.clickSet.size;
-          
+
           // Limpiar sets antes de retornar
           delete stat.visitorSet;
           delete stat.clickSet;
+
+          // Lógica de máximo valor
+          const final_purchases = Math.max(stat.purchases, stat.meta_purchases);
+          const final_revenue = Math.max(stat.revenue, stat.meta_purchase_value);
           
-          const roas = stat.ad_spend > 0 ? stat.revenue / stat.ad_spend : 0;
+          const roas = stat.ad_spend > 0 ? final_revenue / stat.ad_spend : 0;
           
           return {
             ...stat,
+            purchases: final_purchases, // Usar el valor máximo
+            revenue: final_revenue, // Usar el valor máximo
             campaign: cleanUtmName(stat.campaign),
             medium: cleanUtmName(stat.medium),
             content: cleanUtmName(stat.content),
@@ -1473,13 +1485,13 @@ export default function AnalyticsDashboard({ productId }: Props) {
             campaign_budget: stat.campaign_budget || 0,
             adset_budget: stat.adset_budget || 0,
             roas,
-            conversion_rate: stat.visits > 0 ? (stat.purchases / stat.visits) * 100 : 0,
-            unique_conversion_rate: stat.unique_visits > 0 ? (stat.purchases / stat.unique_visits) * 100 : 0,
+            conversion_rate: stat.visits > 0 ? (final_purchases / stat.visits) * 100 : 0,
+            unique_conversion_rate: stat.unique_visits > 0 ? (final_purchases / stat.unique_visits) * 100 : 0,
             persuasion_rate: stat.visits > 0 ? (stat.clicks / stat.visits) * 100 : 0,
             unique_persuasion_rate: stat.unique_visits > 0 ? (stat.unique_clicks / stat.unique_visits) * 100 : 0,
-            checkout_conversion_rate: stat.clicks > 0 ? (stat.purchases / stat.clicks) * 100 : 0,
-            unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (stat.purchases / stat.unique_clicks) * 100 : 0,
-            order_bump_rate: stat.purchases > 0 ? (stat.order_bumps / stat.purchases) * 100 : 0,
+            checkout_conversion_rate: stat.clicks > 0 ? (final_purchases / stat.clicks) * 100 : 0,
+            unique_checkout_conversion_rate: stat.unique_clicks > 0 ? (final_purchases / stat.unique_clicks) * 100 : 0,
+            order_bump_rate: final_purchases > 0 ? (stat.order_bumps / final_purchases) * 100 : 0, // Ojo: order_bumps solo viene del tracking
           };
         }).sort((a, b) => b.ad_spend - a.ad_spend); // Ordenar por gasto
         
