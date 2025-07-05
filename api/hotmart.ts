@@ -686,6 +686,34 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     result.steps_completed.push('xcod_extracted');
     log('xcod_extracted', { xcod });
 
+    // Check for duplicate transaction ID
+    const transactionId = event.data.purchase.transaction;
+    if (transactionId) {
+      log('duplicate_check_start', { transaction_id: transactionId });
+      const { data: existingTransaction, error: duplicateError } = await supabase
+        .from('tracking_events')
+        .select('id, created_at')
+        .in('event_type', ['compra_hotmart', 'compra_hotmart_orderbump'])
+        .eq('transaction_id', transactionId)
+        .limit(1);
+
+      if (duplicateError) {
+        log('duplicate_check_error', { error: duplicateError.message });
+      } else if (existingTransaction && existingTransaction.length > 0) {
+        const error = `Transacción ${transactionId} ya procesada anteriormente`;
+        log('duplicate_found', { 
+          transaction_id: transactionId, 
+          existing_record: existingTransaction[0] 
+        });
+        result.errors.push(error);
+        result.final_status = 'duplicate_transaction';
+        result.processing_ended = new Date().toISOString();
+        return result;
+      }
+      log('duplicate_check_passed', { transaction_id: transactionId });
+      result.steps_completed.push('duplicate_check_passed');
+    }
+
     log('query_tracking_event_start', { visitor_id: xcod });
     const { data: trackingEvents, error: trackingError } = await supabase
       .from('tracking_events')
@@ -873,6 +901,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         event_type: eventType,
         visitor_id: xcod,
         session_id: trackingEvent.session_id, // Corregido
+        transaction_id: transactionId, // Nueva columna para búsquedas rápidas
         created_at: new Date(event.creation_date).toISOString(),
         event_data: {
           type: 'hotmart_event',
