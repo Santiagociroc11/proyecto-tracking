@@ -367,7 +367,7 @@ const staticPath = path.join(__dirname, '..', 'client');
 app.use(express.static(staticPath));
 
 // Serve tracking script
-app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
+app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.obfuscated.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');
