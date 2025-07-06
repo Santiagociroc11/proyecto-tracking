@@ -10,7 +10,7 @@
     "build": "npm run obfuscate && rimraf dist && npm run build:frontend && npm run build:server",
     "start": "node dist/server/server.js",
     "preview": "vite preview",
-    "obfuscate": "node obfuscate.js"
+    "obfuscate": "node obfuscate.cjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
