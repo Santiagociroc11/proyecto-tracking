@@ -1100,44 +1100,11 @@ fbq('track', 'PageView');
                         </h4>
                         <div className="mt-2 text-sm text-gray-500">
                           <p className="mb-4">Para recibir notificaciones de ventas en tiempo real, configura el webhook en Hotmart:</p>
-                          
-                          <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
-                            <div className="flex">
-                              <div className="flex-shrink-0">
-                                <Info className="h-5 w-5 text-blue-400" />
-                              </div>
-                              <div className="ml-3">
-                                <h3 className="text-sm font-medium text-blue-800">⚠️ Importante: Instala el webhook una sola vez por cuenta</h3>
-                                <div className="mt-2 text-sm text-blue-700">
-                                  <p className="mb-2">
-                                    <strong>Debes instalar este webhook UNA SOLA VEZ en cualquier producto de tu cuenta de Hotmart.</strong> 
-                                    Nuestro sistema es 100% certero y detectará automáticamente las ventas de todos tus productos.
-                                  </p>
-                                  <p className="mb-2">
-                                    <strong>✅ Beneficios:</strong> También podrás trackear order bumps, upsells y downsells automáticamente.
-                                  </p>
-                                  <p className="text-red-700 font-medium">
-                                    <strong>⚠️ Si ya instalaste este webhook en otro producto, NO lo instales nuevamente.</strong>
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
                           <ol className="list-decimal list-inside space-y-3">
                             <li>Accede a tu <a href="https://app-vlc.hotmart.com/" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">Panel de Hotmart <ExternalLink className="h-3 w-3 inline" /></a></li>
-                            <li>Ve a <strong>Herramientas → Webhook</strong> (API y notificaciones)</li>
-                            <li>Haz clic en <strong>"Registrar Webhook"</strong> y completa la información:
-                              <ul className="list-disc list-inside ml-4 mt-2 space-y-1 text-xs">
-                                <li><strong>Nombre de la configuración:</strong> Ej: "Sistema de Tracking - Todos los productos"</li>
-                                <li><strong>Selecciona un producto:</strong> <span className="bg-yellow-100 px-2 py-1 rounded font-medium text-yellow-800">Selecciona TODOS LOS PRODUCTOS</span></li>
-                                <li><strong>URL para envío de datos:</strong> Pega la URL de abajo</li>
-                                <li><strong>Versión:</strong> Mantén <strong>2.0.0</strong> (recomendada)</li>
-                                <li><strong>Eventos para enviar:</strong> Selecciona únicamente <strong>"Compra Aprobada"</strong></li>
-                              </ul>
-                            </li>
-                            <li>Haz clic en <strong>"Guardar"</strong> para completar la configuración</li>
-                           
+                            <li>Ve a la configuración de tu producto</li>
+                            <li>Busca la sección de "Notificaciones" o "Webhooks"</li>
+                            <li>Agrega esta URL como nuevo webhook:
                               <div className="mt-2 rounded-lg border border-red-200 bg-red-50 p-4">
                                 <div className="flex">
                                   <div className="flex-shrink-0">
@@ -1151,7 +1118,7 @@ fbq('track', 'PageView');
                                   </div>
                                 </div>
                               </div>
-                            
+                            </li>
                           </ol>
                         </div>
                         <div className="mt-4">
@@ -1175,7 +1142,13 @@ fbq('track', 'PageView');
                             </button>
                           </div>
                         </div>
-                        
+                        <div className="mt-6 text-sm text-gray-500">
+                          <p className="mb-2"><strong>Configuración del webhook:</strong></p>
+                          <ul className="list-disc list-inside space-y-2">
+                            <li><strong>Evento:</strong> Selecciona el evento "PURCHASE_APPROVED" para recibir notificaciones solo cuando las compras sean aprobadas.</li>
+                            <li><strong>Versión: 2</strong></li>
+                          </ul>
+                        </div>
                         <div className="mt-6 flex justify-between">
                           <button
                             onClick={() => setCurrentStep(3)}

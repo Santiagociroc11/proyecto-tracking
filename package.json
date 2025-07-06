@@ -7,12 +7,9 @@
     "dev:server": "tsx watch server.ts",
     "build:frontend": "vite build",
     "build:server": "tsc --project tsconfig.server.json",
-    "build": "rimraf dist && npm run obfuscate && npm run build:frontend && npm run build:server",
+    "build": "rimraf dist && npm run build:frontend && npm run build:server",
     "start": "node dist/server/server.js",
-    "preview": "vite preview",
-    "obfuscate": "node scripts/obfuscate.cjs",
-    "obfuscate:test": "node scripts/test-obfuscated.cjs",
-    "obfuscate:build": "npm run obfuscate && npm run build"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.39.7",
@@ -57,7 +54,6 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",
     "globals": "^15.9.0",
-    "javascript-obfuscator": "^4.1.1",
     "postcss": "^8.4.35",
     "rimraf": "^5.0.5",
     "tailwindcss": "^3.4.1",
