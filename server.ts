@@ -366,13 +366,16 @@ app.use('/api', apiRouter);
 const staticPath = path.join(__dirname, '..', 'client');
 app.use(express.static(staticPath));
 
-// Serve tracking script
-app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.js'), {
+// Serve tracking script (obfuscated version)
+app.use('/track.js', express.static(path.join(__dirname, '..', 'public', 'track.obfuscated.js'), {
   maxAge: '1h',
   setHeaders: (res) => {
     res.setHeader('Cache-Control', 'public, max-age=3600');
     res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
     res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   }
 }));
 
