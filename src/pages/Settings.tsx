@@ -163,7 +163,7 @@ export default function Settings() {
       localStorage.setItem('oauth_csrf', statePayload.csrf);
 
       // Solicitar permisos para leer cuentas publicitarias y insights
-      const scopes = 'public_profile,ads_read,read_insights';
+      const scopes = 'public_profile,ads_read,read_insights,ads_management';
 
       // URL de autorización de Meta
       const authUrl = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&state=${state}&scope=${scopes}&response_type=code`;
