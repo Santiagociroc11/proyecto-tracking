@@ -67,6 +67,7 @@ export default function ProductDetails() {
   const [selectedAdAccounts, setSelectedAdAccounts] = useState<Set<string>>(new Set());
   const [productAdAccounts, setProductAdAccounts] = useState<MetaAdAccount[]>([]);
   const [savingAdAccounts, setSavingAdAccounts] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     // Set initial active tab based on URL parameter
@@ -882,8 +883,24 @@ fbq('track', 'PageView');
                                     </button>
                                   </div>
                                   
-                                  <div className="space-y-3 max-h-64 overflow-y-auto border border-gray-200 rounded-lg p-4">
-                                    {adAccounts.map((account) => {
+                                  {/* Buscador */}
+                                  <div className="mb-4">
+                                    <input
+                                      type="text"
+                                      placeholder="Buscar cuenta publicitaria..."
+                                      value={searchQuery}
+                                      onChange={(e) => setSearchQuery(e.target.value)}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
+                                    />
+                                  </div>
+                                  
+                                  <div className="space-y-3 max-h-96 overflow-y-auto border border-gray-200 rounded-lg p-4">
+                                    {adAccounts
+                                      .filter(account => 
+                                        account.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                        account.id.toLowerCase().includes(searchQuery.toLowerCase())
+                                      )
+                                      .map((account) => {
                                       const isSelected = selectedAdAccounts.has(account.id);
                                       const isProductAccount = productAdAccounts.some(pAcc => pAcc.id === account.id);
                                       
@@ -943,11 +960,22 @@ fbq('track', 'PageView');
                                         </div>
                                       );
                                     })}
+                                    {adAccounts.filter(account => 
+                                      account.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                      account.id.toLowerCase().includes(searchQuery.toLowerCase())
+                                    ).length === 0 && (
+                                      <div className="text-center py-4 text-gray-500">
+                                        No se encontraron cuentas publicitarias que coincidan con "{searchQuery}"
+                                      </div>
+                                    )}
                                   </div>
                                   
                                   <div className="flex items-center justify-between mt-4">
                                     <p className="text-sm text-gray-500">
-                                      {selectedAdAccounts.size} de {adAccounts.length} cuentas seleccionadas
+                                      {selectedAdAccounts.size} de {adAccounts.filter(account => 
+                                        account.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                        account.id.toLowerCase().includes(searchQuery.toLowerCase())
+                                      ).length} cuentas seleccionadas{searchQuery && ` (${adAccounts.length} total)`}
                                     </p>
                                     <button
                                       onClick={handleSaveAdAccounts}
