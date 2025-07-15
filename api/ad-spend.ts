@@ -1039,7 +1039,7 @@ export async function handleProductAdAccountSync(request: Request) {
     }
 
     // Extraer los meta_id (IDs de Meta) para hacer las consultas a Meta API
-    const adAccountIds = productAdAccounts.map(pac => pac.meta_ad_accounts.meta_id);
+    const adAccountIds = productAdAccounts.map((pac: any) => pac.meta_ad_accounts.meta_id);
     log('Found ad accounts for product', { productId, adAccountIds });
 
     // Descifrar el access token
@@ -1081,7 +1081,7 @@ export async function handleProductAdAccountSync(request: Request) {
     for (const spendData of adSpendData) {
       try {
         // Primero encontrar el UUID interno de la cuenta publicitaria
-        const productAdAccount = productAdAccounts.find(pac => pac.meta_ad_accounts.meta_id === spendData.ad_account_id);
+        const productAdAccount = productAdAccounts.find((pac: any) => pac.meta_ad_accounts.meta_id === spendData.ad_account_id);
         
         if (!productAdAccount) {
           log('Product ad account not found for spend data', { 
