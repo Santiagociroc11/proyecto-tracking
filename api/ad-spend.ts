@@ -292,17 +292,20 @@ async function syncAdPerformance(
       
       let params: URLSearchParams;
       if (isMultipleDays && facebookDates.length > 1) {
-        // Para múltiples días, usar un rango con time_increment
+        // Para múltiples días, reducir la cantidad de datos - solo los últimos 7 días máximo
+        const maxDays = 7;
+        const limitedDates = facebookDates.slice(-maxDays);
+        
         params = new URLSearchParams({
           access_token: accessToken,
           fields: 'ad_id,ad_name,adset_name,campaign_name,adset_id,campaign_id,spend,cpm,ctr,clicks,cpc,impressions,actions,action_values,date_start',
           level: 'ad',
           time_range: JSON.stringify({ 
-            since: facebookDates[0], 
-            until: facebookDates[facebookDates.length - 1] 
+            since: limitedDates[0], 
+            until: limitedDates[limitedDates.length - 1] 
           }),
           time_increment: '1',
-          limit: '2000'
+          limit: '1000' // Reducido de 2000 a 1000
         });
       } else {
         // Para un solo día, usar la lógica original
@@ -312,7 +315,7 @@ async function syncAdPerformance(
           level: 'ad',
           time_range: JSON.stringify({ since: facebookDates[0], until: facebookDates[0] }),
           time_increment: '1',
-          limit: '2000'
+          limit: '1000' // Reducido de 2000 a 1000
         });
       }
 
@@ -1045,7 +1048,7 @@ export async function handleProductAdAccountSync(request: Request) {
     // Descifrar el access token
     const accessToken = userIntegration.access_token_encrypted; // DEBUG: Reading plaintext
     
-    // Obtener los últimos 30 días en la zona horaria del usuario
+    // Obtener los últimos 7 días en la zona horaria del usuario (reducido para evitar sobrecarga de Meta API)
     const { data: settings } = await supabase
       .from('user_settings')
       .select('timezone')
@@ -1053,20 +1056,20 @@ export async function handleProductAdAccountSync(request: Request) {
       .single();
     
     const userTimezone = settings?.timezone;
-    const last30Days = getLastNDays(30, userTimezone);
+    const last7Days = getLastNDays(7, userTimezone);
     
-    log('Fetching ad spend data for last 30 days', { 
-      dateRange: `${last30Days[0]} to ${last30Days[last30Days.length - 1]}`, 
+    log('Fetching ad spend data for last 7 days', { 
+      dateRange: `${last7Days[0]} to ${last7Days[last7Days.length - 1]}`, 
       adAccountIds,
-      daysCount: last30Days.length,
+      daysCount: last7Days.length,
       userTimezone 
     });
 
-    // Obtener datos de gasto de Meta para los últimos 30 días
-    const adSpendData = await fetchAdSpendFromMeta(accessToken, adAccountIds, last30Days, userId);
+    // Obtener datos de gasto de Meta para los últimos 7 días
+    const adSpendData = await fetchAdSpendFromMeta(accessToken, adAccountIds, last7Days, userId);
     
-    // También sincronizar datos detallados de ad performance para los últimos 30 días
-    const adPerformanceResult = await syncAdPerformance(accessToken, adAccountIds, last30Days, userId);
+    // También sincronizar datos detallados de ad performance para los últimos 7 días
+    const adPerformanceResult = await syncAdPerformance(accessToken, adAccountIds, last7Days, userId);
     
     log('Ad performance sync completed', {
       synced: adPerformanceResult.synced,
@@ -1096,7 +1099,7 @@ export async function handleProductAdAccountSync(request: Request) {
         const { data: specificProductAdAccounts, error: specificProductError } = await supabase
           .from('product_ad_accounts')
           .select('id, product_id')
-          .eq('id', productAdAccount.ad_account_id)
+          .eq('ad_account_id', productAdAccount.ad_account_id)
           .eq('product_id', productId);
 
         if (specificProductError) {
@@ -1165,16 +1168,16 @@ export async function handleProductAdAccountSync(request: Request) {
     });
 
     return new Response(JSON.stringify({
-      success: true,
-      message: 'Sincronización de ads spend completada para el producto',
-      processed: totalProcessed,
-      errors: totalErrors,
-      adPerformanceSynced: adPerformanceResult.synced,
-      adPerformanceErrors: adPerformanceResult.errors,
-      adPerformanceSkipped: adPerformanceResult.skipped,
-      productId,
-      dateRange: `${last30Days[0]} to ${last30Days[last30Days.length - 1]}`,
-      daysProcessed: last30Days.length
+              success: true,
+        message: 'Sincronización de ads spend completada para el producto',
+        processed: totalProcessed,
+        errors: totalErrors,
+        adPerformanceSynced: adPerformanceResult.synced,
+        adPerformanceErrors: adPerformanceResult.errors,
+        adPerformanceSkipped: adPerformanceResult.skipped,
+        productId,
+        dateRange: `${last7Days[0]} to ${last7Days[last7Days.length - 1]}`,
+        daysProcessed: last7Days.length
     }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' }
