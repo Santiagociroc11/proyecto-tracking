@@ -193,7 +193,7 @@ export default function ProductDetails() {
         .from('product_ad_accounts')
         .select(`
           ad_account_id,
-          meta_ad_accounts!inner(id, name, status)
+          meta_ad_accounts!inner(id, meta_id, name, status)
         `)
         .eq('product_id', product.id);
 

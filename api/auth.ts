@@ -225,7 +225,7 @@ export async function handleMetaCallback(request: Request) {
         if (integration && allAdAccounts.length > 0) {
           // Guardar todas las cuentas publicitarias disponibles
           const adAccountsToInsert = allAdAccounts.map((account: any) => ({
-            id: account.id,
+            meta_id: account.id,
             user_integration_id: integration.id,
             name: account.name,
             status: account.account_status === 1 ? 'active' : 'inactive'
@@ -233,7 +233,7 @@ export async function handleMetaCallback(request: Request) {
 
           const { error: adAccountsError } = await supabase
             .from('meta_ad_accounts')
-            .upsert(adAccountsToInsert, { onConflict: 'id' });
+            .upsert(adAccountsToInsert, { onConflict: 'meta_id,user_integration_id' });
 
           if (adAccountsError) {
             console.error('Error guardando cuentas publicitarias:', adAccountsError);

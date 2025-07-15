@@ -397,11 +397,22 @@ async function syncAdPerformance(
         adsetBudgets: adsetBudgets.size 
       });
 
-      // Obtener product_ad_account_id para esta cuenta
+      // Obtener product_ad_account_id para esta cuenta (necesitamos mapear meta_id a UUID)
+      const { data: metaAccount } = await supabase
+        .from('meta_ad_accounts')
+        .select('id')
+        .eq('meta_id', accountId)
+        .single();
+
+      if (!metaAccount) {
+        log('Meta account not found for accountId', { accountId });
+        continue;
+      }
+
       const { data: productAdAccounts } = await supabase
         .from('product_ad_accounts')
         .select('id')
-        .eq('ad_account_id', accountId);
+        .eq('ad_account_id', metaAccount.id);
 
       if (!productAdAccounts?.length) {
         log('No product_ad_accounts found', { accountId });
@@ -637,10 +648,37 @@ export async function handleAdSpendSync() {
         }
 
         // De todas las cuentas de la integración, ver cuáles se usan en productos
+        // Primero necesitamos obtener los UUIDs internos de las cuentas de esta integración
+        const { data: integrationAccounts, error: integrationAccountsError } = await supabase
+          .from('meta_ad_accounts')
+          .select('id, meta_id')
+          .in('meta_id', allAdAccountIdsForIntegration)
+          .eq('user_integration_id', integration.id);
+
+        if (integrationAccountsError) {
+          log('Error fetching integration ad accounts', { 
+            integrationId: integration.id, 
+            error: integrationAccountsError.message 
+          });
+          totalErrors++;
+          continue;
+        }
+
+        if (!integrationAccounts || integrationAccounts.length === 0) {
+          log('No ad accounts found for this integration', { integrationId: integration.id });
+          continue;
+        }
+
+        const integrationAccountUUIDs = integrationAccounts.map(acc => acc.id);
+
+        // Ahora ver cuáles de estas cuentas se usan en productos
         const { data: usedProductAdAccounts, error: usedAccountsError } = await supabase
           .from('product_ad_accounts')
-          .select('ad_account_id')
-          .in('ad_account_id', allAdAccountIdsForIntegration);
+          .select(`
+            ad_account_id,
+            meta_ad_accounts!inner(meta_id)
+          `)
+          .in('ad_account_id', integrationAccountUUIDs);
 
         if (usedAccountsError) {
           log('Error fetching product-linked ad accounts', { 
@@ -656,8 +694,8 @@ export async function handleAdSpendSync() {
           continue;
         }
         
-        // Filtrar a una lista única de IDs de cuentas a consultar
-        const activeAdAccounts = [...new Set(usedProductAdAccounts.map((paa: { ad_account_id: string }) => paa.ad_account_id))];
+        // Filtrar a una lista única de IDs de cuentas de Meta (meta_id) a consultar
+        const activeAdAccounts = [...new Set(usedProductAdAccounts.map((paa: any) => paa.meta_ad_accounts.meta_id))];
         
         log('Ad accounts linked to products found, will fetch spend for these.', { integrationId: integration.id, count: activeAdAccounts.length });
 
@@ -714,6 +752,23 @@ export async function handleAdSpendSync() {
         // Guardar los datos en la base de datos
         for (const spendData of adSpendData) {
           try {
+            // Primero necesitamos encontrar el UUID interno de la cuenta publicitaria
+            const { data: metaAccount, error: metaAccountError } = await supabase
+              .from('meta_ad_accounts')
+              .select('id')
+              .eq('meta_id', spendData.ad_account_id)
+              .eq('user_integration_id', integration.id)
+              .single();
+
+            if (metaAccountError || !metaAccount) {
+              log('Meta ad account not found for spend data', { 
+                adAccountId: spendData.ad_account_id,
+                integrationId: integration.id,
+                error: metaAccountError?.message 
+              });
+              continue;
+            }
+
             // Obtener todos los productos que usan esta cuenta publicitaria
             const { data: productAdAccounts, error: productError } = await supabase
               .from('product_ad_accounts')
@@ -725,7 +780,7 @@ export async function handleAdSpendSync() {
                   user_id
                 )
               `)
-              .eq('ad_account_id', spendData.ad_account_id);
+              .eq('ad_account_id', metaAccount.id);
 
             if (productError) {
               log('Error fetching products for ad account', { 
@@ -956,7 +1011,7 @@ export async function handleProductAdAccountSync(request: Request) {
       .from('product_ad_accounts')
       .select(`
         ad_account_id,
-        meta_ad_accounts!inner(id, name, status)
+        meta_ad_accounts!inner(id, meta_id, name, status)
       `)
       .eq('product_id', productId);
 
@@ -983,7 +1038,8 @@ export async function handleProductAdAccountSync(request: Request) {
       });
     }
 
-    const adAccountIds = productAdAccounts.map(pac => pac.ad_account_id);
+    // Extraer los meta_id (IDs de Meta) para hacer las consultas a Meta API
+    const adAccountIds = productAdAccounts.map(pac => pac.meta_ad_accounts.meta_id);
     log('Found ad accounts for product', { productId, adAccountIds });
 
     // Descifrar el access token
@@ -1024,11 +1080,23 @@ export async function handleProductAdAccountSync(request: Request) {
 
     for (const spendData of adSpendData) {
       try {
-        // Obtener todos los product_ad_accounts para esta cuenta publicitaria y producto
+        // Primero encontrar el UUID interno de la cuenta publicitaria
+        const productAdAccount = productAdAccounts.find(pac => pac.meta_ad_accounts.meta_id === spendData.ad_account_id);
+        
+        if (!productAdAccount) {
+          log('Product ad account not found for spend data', { 
+            adAccountId: spendData.ad_account_id,
+            productId 
+          });
+          totalErrors++;
+          continue;
+        }
+
+        // Obtener el registro específico de product_ad_accounts
         const { data: specificProductAdAccounts, error: specificProductError } = await supabase
           .from('product_ad_accounts')
           .select('id, product_id')
-          .eq('ad_account_id', spendData.ad_account_id)
+          .eq('id', productAdAccount.ad_account_id)
           .eq('product_id', productId);
 
         if (specificProductError) {

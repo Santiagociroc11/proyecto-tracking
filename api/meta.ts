@@ -103,13 +103,13 @@ export async function handleRefreshAdAccounts(request: Request) {
       // Actualizar las cuentas publicitarias en la base de datos
       if (allAdAccounts.length > 0) {
         const adAccountsToUpsert = allAdAccounts.map((account: any) => ({
-          id: account.id,
+          meta_id: account.id,
           user_integration_id: integrationId,
           name: account.name,
           status: account.account_status === 1 ? 'active' : 'inactive'
         }));
 
-        // Primero, marcar todas las cuentas existentes como inactivas
+        // Primero, marcar todas las cuentas existentes como inactivas para este usuario
         const { error: deactivateError } = await supabase
           .from('meta_ad_accounts')
           .update({ status: 'inactive' })
@@ -119,10 +119,10 @@ export async function handleRefreshAdAccounts(request: Request) {
           console.error('Error deactivating old ad accounts:', deactivateError);
         }
 
-        // Luego, insertar/actualizar las cuentas actuales
+        // Luego, insertar/actualizar las cuentas actuales para este usuario
         const { error: upsertError } = await supabase
           .from('meta_ad_accounts')
-          .upsert(adAccountsToUpsert, { onConflict: 'id' });
+          .upsert(adAccountsToUpsert, { onConflict: 'meta_id,user_integration_id' });
 
         if (upsertError) {
           console.error('Error upserting ad accounts:', upsertError);
