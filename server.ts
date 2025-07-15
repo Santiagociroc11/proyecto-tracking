@@ -401,13 +401,17 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 let adSpendCronTask: any = null;
 
 function startAdSpendCron() {
-  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios (cada 5 minutos)');
+  log('Cron', 'Iniciando cron job de sincronización de gastos publicitarios (cada 10 minutos)');
   
-  // Ejecutar inmediatamente al iniciar
-  executeAdSpendSync('startup');
+  // NO ejecutar inmediatamente al iniciar para evitar saturar Meta API
+  // En su lugar, agregar un delay de 30 segundos
+  setTimeout(() => {
+    log('Cron', 'Ejecutando primera sincronización después del delay de startup');
+    executeAdSpendSync('startup');
+  }, 30000); // 30 segundos de delay
   
-  // Configurar cron para ejecutar cada 5 minutos: */5 * * * *
-  adSpendCronTask = cron.schedule('*/5 * * * *', async () => {
+  // Configurar cron para ejecutar cada 10 minutos: */10 * * * * (reducido frecuencia)
+  adSpendCronTask = cron.schedule('*/10 * * * *', async () => {
     executeAdSpendSync('scheduled');
   }, {
     timezone: "UTC"
@@ -416,7 +420,7 @@ function startAdSpendCron() {
   // Iniciar el cron job
   adSpendCronTask.start();
   
-  log('Cron', 'Cron job configurado exitosamente - ejecutará cada 5 minutos');
+  log('Cron', 'Cron job configurado exitosamente - ejecutará cada 10 minutos con delay inicial de 30s');
 }
 
 // Función auxiliar para ejecutar la sincronización con mejor logging

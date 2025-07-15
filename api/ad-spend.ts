@@ -629,7 +629,21 @@ export async function handleAdSpendSync() {
     let totalAdPerformanceErrors = 0;
     let totalAdPerformanceSkipped = 0;
 
+    // Rate limiting: agregar delay entre usuarios para evitar saturar Meta API
+    const delayBetweenUsers = 5000; // 2 segundos entre usuarios
+    let userIndex = 0;
+
     for (const integration of integrations) {
+      // Agregar delay progresivo entre usuarios (excepto el primero)
+      if (userIndex > 0) {
+        log('Rate limiting delay', { 
+          userIndex, 
+          delayMs: delayBetweenUsers,
+          note: 'Preventing Meta API overload'
+        });
+        await new Promise(resolve => setTimeout(resolve, delayBetweenUsers));
+      }
+      userIndex++;
       try {
         log('Processing integration', { 
           integrationId: integration.id,
@@ -642,29 +656,63 @@ export async function handleAdSpendSync() {
         // const accessToken = decryptToken(integration.access_token_encrypted, ENCRYPTION_KEY);
         
         // Obtener las cuentas publicitarias que están realmente en uso por los productos
-        const allAdAccountIdsForIntegration = (integration.meta_ad_accounts || [])
-          .map((account: any) => account.id);
-
-        if (allAdAccountIdsForIntegration.length === 0) {
+        // Necesitamos verificar si la migración se aplicó (si existe meta_id) o usar la estructura anterior
+        const integrationAdAccounts = integration.meta_ad_accounts || [];
+        
+        if (integrationAdAccounts.length === 0) {
           log('No ad accounts associated with this integration. Skipping.', { integrationId: integration.id });
           continue;
         }
 
-        // De todas las cuentas de la integración, ver cuáles se usan en productos
-        // Primero necesitamos obtener los UUIDs internos de las cuentas de esta integración
-        const { data: integrationAccounts, error: integrationAccountsError } = await supabase
+        // Verificar si la tabla ya tiene la nueva estructura con meta_id
+        const { data: sampleAccount } = await supabase
           .from('meta_ad_accounts')
-          .select('id, meta_id')
-          .in('meta_id', allAdAccountIdsForIntegration)
-          .eq('user_integration_id', integration.id);
+          .select('meta_id')
+          .eq('user_integration_id', integration.id)
+          .limit(1)
+          .single();
 
-        if (integrationAccountsError) {
-          log('Error fetching integration ad accounts', { 
-            integrationId: integration.id, 
-            error: integrationAccountsError.message 
-          });
-          totalErrors++;
-          continue;
+        let integrationAccounts;
+        
+        if (sampleAccount && 'meta_id' in sampleAccount) {
+          // Nueva estructura después de migración - usar meta_id
+          log('Using new table structure with meta_id', { integrationId: integration.id });
+          
+          const { data: accounts, error: integrationAccountsError } = await supabase
+            .from('meta_ad_accounts')
+            .select('id, meta_id')
+            .eq('user_integration_id', integration.id);
+
+          if (integrationAccountsError) {
+            log('Error fetching integration ad accounts (new structure)', { 
+              integrationId: integration.id, 
+              error: integrationAccountsError.message 
+            });
+            totalErrors++;
+            continue;
+          }
+          
+          integrationAccounts = accounts;
+        } else {
+          // Estructura anterior antes de migración - usar id directamente
+          log('Using old table structure with id', { integrationId: integration.id });
+          
+          const { data: accounts, error: integrationAccountsError } = await supabase
+            .from('meta_ad_accounts')
+            .select('id')
+            .eq('user_integration_id', integration.id);
+
+          if (integrationAccountsError) {
+            log('Error fetching integration ad accounts (old structure)', { 
+              integrationId: integration.id, 
+              error: integrationAccountsError.message 
+            });
+            totalErrors++;
+            continue;
+          }
+          
+          // Para la estructura anterior, el id ES el meta_id
+          integrationAccounts = accounts?.map(acc => ({ id: acc.id, meta_id: acc.id })) || [];
         }
 
         if (!integrationAccounts || integrationAccounts.length === 0) {
