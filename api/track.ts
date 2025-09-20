@@ -37,12 +37,20 @@ interface TrackingEvent {
   };
 }
 
+interface FacebookPixel {
+  id: string;
+  access_token: string;
+  test_event_code?: string;
+  name: string;
+}
+
 interface Product {
   id: number | string;
   active: boolean;
-  fb_pixel_id?: string | null;
-  fb_access_token?: string | null;
-  fb_test_event_code?: string | null;
+  fb_pixel_id?: string | null; // Legacy field for backward compatibility
+  fb_access_token?: string | null; // Legacy field for backward compatibility
+  fb_test_event_code?: string | null; // Legacy field for backward compatibility
+  fb_pixels?: FacebookPixel[]; // New field for multiple pixels
   user_id: string;
 }
 
@@ -206,17 +214,12 @@ async function updateUserEventCount(
   }
 }
 
-async function sendFacebookConversion(
-  product: Product,
+async function sendFacebookConversionToPixel(
+  pixel: FacebookPixel,
   data: TrackingEvent,
   log: LogFunction
 ): Promise<void> {
   try {
-    if (!product.fb_pixel_id || !product.fb_access_token) {
-      log('Facebook', 'Facebook Pixel ID o Access Token no configurados');
-      return;
-    }
-
     const user_data: { [key: string]: any } = {
       client_ip_address: data.event_data?.ip,
       fbc: data.event_data?.fbc,
@@ -241,15 +244,16 @@ async function sendFacebookConversion(
       }]
     };
 
-    if (product.fb_test_event_code) {
-      eventPayload.test_event_code = product.fb_test_event_code;
+    if (pixel.test_event_code) {
+      eventPayload.test_event_code = pixel.test_event_code;
     }
 
-    const fbUrl = `https://graph.facebook.com/v21.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`;
-    log('Facebook', 'Enviando evento de conversión con external_id', { 
+    const fbUrl = `https://graph.facebook.com/v21.0/${pixel.id}/events?access_token=${pixel.access_token}`;
+    log('Facebook', `Enviando evento de conversión a pixel ${pixel.name}`, { 
       url: fbUrl, 
       payload: eventPayload,
-      visitor_id: data.visitor_id 
+      visitor_id: data.visitor_id,
+      pixel_name: pixel.name 
     });
 
     const response = await fetch(fbUrl, {
@@ -260,15 +264,64 @@ async function sendFacebookConversion(
 
     if (!response.ok) {
       const errorData = await response.json();
-      log('Facebook', 'Error de API de Facebook', errorData);
+      log('Facebook', `Error de API de Facebook para pixel ${pixel.name}`, errorData);
       throw new Error(`Error de API de Facebook: ${response.status}`);
     }
 
     const result = await response.json();
-    log('Facebook', 'Respuesta de API de Facebook', result);
+    log('Facebook', `Respuesta exitosa de API de Facebook para pixel ${pixel.name}`, result);
   } catch (error) {
-    log('Facebook', 'Error enviando conversión a Facebook', error);
+    log('Facebook', `Error enviando conversión a pixel ${pixel.name}`, error);
   }
+}
+
+async function sendFacebookConversion(
+  product: Product,
+  data: TrackingEvent,
+  log: LogFunction
+): Promise<void> {
+  try {
+    // Get pixels from new field or fallback to legacy fields
+    const pixels = getFacebookPixels(product);
+    
+    if (pixels.length === 0) {
+      log('Facebook', 'No hay píxeles de Facebook configurados');
+      return;
+    }
+
+    log('Facebook', `Enviando evento a ${pixels.length} pixel(es) de Facebook`, {
+      pixels: pixels.map(p => ({ name: p.name, id: p.id }))
+    });
+
+    // Send to all configured pixels in parallel
+    const promises = pixels.map(pixel => 
+      sendFacebookConversionToPixel(pixel, data, log)
+    );
+
+    await Promise.allSettled(promises);
+    
+  } catch (error) {
+    log('Facebook', 'Error general enviando conversiones a Facebook', error);
+  }
+}
+
+function getFacebookPixels(product: Product): FacebookPixel[] {
+  // First try the new fb_pixels field
+  if (product.fb_pixels && Array.isArray(product.fb_pixels) && product.fb_pixels.length > 0) {
+    return product.fb_pixels;
+  }
+  
+  // Fallback to legacy fields for backward compatibility
+  if (product.fb_pixel_id && product.fb_access_token) {
+    return [{
+      id: product.fb_pixel_id,
+      access_token: product.fb_access_token,
+      test_event_code: product.fb_test_event_code || undefined,
+      name: 'Pixel Principal (Legacy)'
+    }];
+  }
+  
+  return [];
 }
 
 function decodeUtmParameters(eventData: TrackingEvent['event_data']): TrackingEvent['event_data'] {
@@ -361,7 +414,8 @@ export async function handleTrackingEvent(data: TrackingEvent): Promise<{
         active,
         fb_pixel_id,
         fb_access_token,
-        fb_test_event_code
+        fb_test_event_code,
+        fb_pixels
       `)
       .eq('tracking_id', data.tracking_id)
       .single();

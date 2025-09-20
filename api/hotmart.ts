@@ -53,12 +53,20 @@ interface HotmartEvent {
   creation_date: number;
 }
 
+interface FacebookPixel {
+  id: string;
+  access_token: string;
+  test_event_code?: string;
+  name: string;
+}
+
 interface Product {
   id: number | string;
   active: boolean;
-  fb_pixel_id?: string | null;
-  fb_access_token?: string | null;
-  fb_test_event_code?: string | null;
+  fb_pixel_id?: string | null; // Legacy field for backward compatibility
+  fb_access_token?: string | null; // Legacy field for backward compatibility
+  fb_test_event_code?: string | null; // Legacy field for backward compatibility
+  fb_pixels?: FacebookPixel[]; // New field for multiple pixels
   user_id: string;
   name: string;
 }
@@ -101,6 +109,10 @@ interface FacebookConversionResult {
     currency: string;
     order_id: string;
     test_event_code?: string;
+    pixel_name?: string;
+    pixels_sent?: number;
+    pixels_failed?: number;
+    total_pixels?: number;
   } | null;
 }
 
@@ -422,11 +434,33 @@ async function enhanceAddressWithGeolocation(
   return enhancedAddress;
 }
 
-async function sendFacebookConversion(
-  product: Product,
+function getFacebookPixels(product: Product): FacebookPixel[] {
+  // First try the new fb_pixels field
+  if (product.fb_pixels && Array.isArray(product.fb_pixels) && product.fb_pixels.length > 0) {
+    return product.fb_pixels;
+  }
+  
+  // Fallback to legacy fields for backward compatibility
+  if (product.fb_pixel_id && product.fb_access_token) {
+    return [{
+      id: product.fb_pixel_id,
+      access_token: product.fb_access_token,
+      test_event_code: product.fb_test_event_code || undefined,
+      name: 'Pixel Principal (Legacy)'
+    }];
+  }
+  
+  return [];
+}
+
+async function sendFacebookConversionToPixel(
+  pixel: FacebookPixel,
   event: HotmartEvent,
   trackingEvent: any,
-  requestId: string
+  requestId: string,
+  price: any,
+  transactionId: string,
+  enhancedAddress: any
 ): Promise<FacebookConversionResult> {
   const log = (step: string, data: Record<string, any> = {}) => {
     console.log(JSON.stringify({
@@ -434,37 +468,19 @@ async function sendFacebookConversion(
       timestamp: new Date().toISOString(),
       flow: 'facebook_conversion_api',
       step,
+      pixel_name: pixel.name,
+      pixel_id: pixel.id,
       ...data
     }, null, 2));
   };
 
-  log('start', { product_id: product.id, transaction_id: event.data.purchase.transaction });
+  log('pixel_conversion_start', { transaction_id: transactionId });
 
   try {
-    if (!product.fb_pixel_id || !product.fb_access_token) {
-      const errorMsg = 'Facebook Pixel ID o Access Token no configurado';
-      log('config_missing', {
-        has_pixel_id: !!product.fb_pixel_id,
-        has_access_token: !!product.fb_access_token
-      });
-      return { success: false, status: 'failed_config', error_message: errorMsg, payload_summary: null };
-    }
-    log('config_validated');
-
-    log('geolocation_enhancement_start', { ip: event.data.purchase.buyer_ip });
-    const enhancedAddress = await enhanceAddressWithGeolocation(
-      event.data.buyer.address,
-      event.data.purchase.buyer_ip
-    );
-    log('geolocation_enhancement_end', { enhanced_address: enhancedAddress });
-    
     // Determine event type based on order bump status within Facebook conversion
     const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true &&
                         !!event.data.purchase.order_bump?.parent_purchase_transaction;
     const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
-    
-    const price = await getProducerCommissionPrice(event, product.id.toString(), eventType);
-    const transactionId = event.data.purchase.transaction || '';
 
     const user_data: { [key: string]: any } = {
       em: [hashSHA256(event.data.buyer.email)],
@@ -507,7 +523,7 @@ async function sendFacebookConversion(
           event_id: transactionId,
         },
       ],
-      ...(product.fb_test_event_code && { test_event_code: product.fb_test_event_code }),
+      ...(pixel.test_event_code && { test_event_code: pixel.test_event_code }),
     };
     
     const payloadSummary = {
@@ -515,13 +531,14 @@ async function sendFacebookConversion(
       value: price.value,
       currency: price.currency_value,
       order_id: transactionId,
-      ...(product.fb_test_event_code && { test_event_code: product.fb_test_event_code }),
+      pixel_name: pixel.name,
+      ...(pixel.test_event_code && { test_event_code: pixel.test_event_code }),
     };
     
     log('payload_created', { payload: eventPayload });
 
-    log('api_call_start', { pixel_id: product.fb_pixel_id });
-    const fbResponse = await fetch(`https://graph.facebook.com/v19.0/${product.fb_pixel_id}/events?access_token=${product.fb_access_token}`, {
+    log('api_call_start', { pixel_id: pixel.id });
+    const fbResponse = await fetch(`https://graph.facebook.com/v19.0/${pixel.id}/events?access_token=${pixel.access_token}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(eventPayload),
@@ -529,9 +546,9 @@ async function sendFacebookConversion(
 
     if (!fbResponse.ok) {
       const errorData = await fbResponse.json();
-      const errorMsg = `Error en API de Facebook: ${fbResponse.status}`;
+      const errorMsg = `Error en API de Facebook para pixel ${pixel.name}: ${fbResponse.status}`;
       log('api_call_failed', { status: fbResponse.status, error_data: errorData });
-      return { success: false, status: 'api_error', error_message: errorMsg, payload_summary: null };
+      return { success: false, status: 'api_error', error_message: errorMsg, payload_summary: payloadSummary };
     }
 
     const fbResult = await fbResponse.json();
@@ -542,6 +559,122 @@ async function sendFacebookConversion(
       fbtrace_id: fbResult.fbtrace_id, 
       payload_summary: payloadSummary 
     };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log('fatal_error', { details: errorMessage, stack: error instanceof Error ? error.stack : '' });
+    return { 
+      success: false, 
+      status: 'api_error', 
+      error_message: `Error en pixel ${pixel.name}: ${errorMessage}`, 
+      payload_summary: null 
+    };
+  }
+}
+
+async function sendFacebookConversion(
+  product: Product,
+  event: HotmartEvent,
+  trackingEvent: any,
+  requestId: string
+): Promise<FacebookConversionResult> {
+  const log = (step: string, data: Record<string, any> = {}) => {
+    console.log(JSON.stringify({
+      requestId,
+      timestamp: new Date().toISOString(),
+      flow: 'facebook_conversion_api',
+      step,
+      ...data
+    }, null, 2));
+  };
+
+  log('start', { product_id: product.id, transaction_id: event.data.purchase.transaction });
+
+  try {
+    // Get pixels from new field or fallback to legacy fields
+    const pixels = getFacebookPixels(product);
+    
+    if (pixels.length === 0) {
+      const errorMsg = 'No hay píxeles de Facebook configurados';
+      log('config_missing', {
+        has_fb_pixels: !!product.fb_pixels,
+        has_legacy_pixel: !!product.fb_pixel_id,
+        has_legacy_token: !!product.fb_access_token
+      });
+      return { success: false, status: 'failed_config', error_message: errorMsg, payload_summary: null };
+    }
+    
+    log('config_validated', { pixels_count: pixels.length, pixels: pixels.map(p => ({ name: p.name, id: p.id })) });
+
+    log('geolocation_enhancement_start', { ip: event.data.purchase.buyer_ip });
+    const enhancedAddress = await enhanceAddressWithGeolocation(
+      event.data.buyer.address,
+      event.data.purchase.buyer_ip
+    );
+    log('geolocation_enhancement_end', { enhanced_address: enhancedAddress });
+    
+    // Determine event type based on order bump status within Facebook conversion
+    const isOrderBump = event.data.purchase.order_bump?.is_order_bump === true &&
+                        !!event.data.purchase.order_bump?.parent_purchase_transaction;
+    const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
+    
+    const price = await getProducerCommissionPrice(event, product.id.toString(), eventType);
+    const transactionId = event.data.purchase.transaction || '';
+
+    log('multiple_pixels_conversion_start', { pixels_count: pixels.length });
+
+    // Send conversion to all pixels in parallel
+    const conversionPromises = pixels.map(pixel => 
+      sendFacebookConversionToPixel(pixel, event, trackingEvent, requestId, price, transactionId, enhancedAddress)
+    );
+
+    const results = await Promise.allSettled(conversionPromises);
+    
+    // Analyze results
+    const successfulResults = results
+      .filter(result => result.status === 'fulfilled' && result.value.success)
+      .map(result => (result as PromiseFulfilledResult<FacebookConversionResult>).value);
+    
+    const failedResults = results
+      .filter(result => result.status === 'rejected' || (result.status === 'fulfilled' && !result.value.success))
+      .map((result, index) => ({
+        pixel: pixels[index],
+        error: result.status === 'rejected' ? result.reason : (result as PromiseFulfilledResult<FacebookConversionResult>).value.error_message
+      }));
+
+    log('multiple_pixels_conversion_complete', {
+      total_pixels: pixels.length,
+      successful: successfulResults.length,
+      failed: failedResults.length,
+      successful_pixels: successfulResults.map(r => r.payload_summary?.pixel_name),
+      failed_pixels: failedResults.map(f => f.pixel.name)
+    });
+
+    // Return consolidated result
+    if (successfulResults.length > 0) {
+      // If at least one pixel succeeded, consider it successful
+      const primaryResult = successfulResults[0];
+      return {
+        success: true,
+        status: 'success',
+        fbtrace_id: primaryResult.fbtrace_id,
+        payload_summary: {
+          ...primaryResult.payload_summary,
+          pixels_sent: successfulResults.length,
+          pixels_failed: failedResults.length,
+          total_pixels: pixels.length
+        }
+      };
+    } else {
+      // All pixels failed
+      const errorMessages = failedResults.map(f => `${f.pixel.name}: ${f.error}`).join('; ');
+      return {
+        success: false,
+        status: 'api_error',
+        error_message: `Todos los píxeles fallaron: ${errorMessages}`,
+        payload_summary: null
+      };
+    }
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     log('fatal_error', { details: errorMessage, stack: error instanceof Error ? error.stack : '' });
@@ -731,6 +864,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
           fb_pixel_id,
           fb_access_token,
           fb_test_event_code,
+          fb_pixels,
           user_id,
           name
         )

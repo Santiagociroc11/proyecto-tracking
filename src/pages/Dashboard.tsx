@@ -5,12 +5,24 @@ import { supabase } from '../lib/supabase';
 import { diagnostics } from '../lib/diagnostics';
 import { Plus, LogOut, Activity, AlertTriangle, Package, Settings, BarChart, Users, DollarSign, TrendingUp, Eye } from 'lucide-react';
 
+interface FacebookPixel {
+  id: string;
+  access_token: string;
+  test_event_code?: string;
+  name: string;
+}
+
 interface Product {
   id: string;
   name: string;
   tracking_id: string;
   active: boolean;
   created_at: string;
+  fb_pixel_id?: string | null; // Legacy field
+  fb_access_token?: string | null; // Legacy field
+  fb_test_event_code?: string | null; // Legacy field
+  fb_pixels?: FacebookPixel[]; // New field for multiple pixels
+  user_id?: string;
 }
 
 interface UsageStats {

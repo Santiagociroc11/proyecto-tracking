@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
-import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2, Unlink } from 'lucide-react';
+import { Copy, CheckCircle, ArrowLeft, Code2, Globe, Webhook, Facebook, AlertTriangle, ExternalLink, Info, Edit2, Trash2, Unlink, Plus } from 'lucide-react';
 import AnalyticsDashboard from '../components/AnalyticsDashboard';
 import { useAuth } from '../contexts/AuthContext';
+
+interface FacebookPixel {
+  id: string;
+  access_token: string;
+  test_event_code?: string;
+  name: string;
+}
 
 interface Product {
   id: string;
@@ -11,9 +18,10 @@ interface Product {
   tracking_id: string;
   active: boolean;
   created_at: string;
-  fb_pixel_id: string | null;
-  fb_access_token: string | null;
-  fb_test_event_code: string | null;
+  fb_pixel_id: string | null; // Legacy field
+  fb_access_token: string | null; // Legacy field
+  fb_test_event_code: string | null; // Legacy field
+  fb_pixels?: FacebookPixel[]; // New field for multiple pixels
   user_id: string;
 }
 
@@ -46,9 +54,20 @@ export default function ProductDetails() {
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [copied, setCopied] = useState<'script' | 'webhook' | 'utm' | null>(null);
+  // Legacy Facebook pixel states (for backward compatibility)
   const [fbPixelId, setFbPixelId] = useState('');
   const [fbAccessToken, setFbAccessToken] = useState('');
   const [fbTestEventCode, setFbTestEventCode] = useState('');
+  
+  // New multiple pixels states
+  const [pixels, setPixels] = useState<FacebookPixel[]>([]);
+  const [isAddingPixel, setIsAddingPixel] = useState(false);
+  const [newPixel, setNewPixel] = useState<Partial<FacebookPixel>>({
+    name: '',
+    id: '',
+    access_token: '',
+    test_event_code: ''
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -123,6 +142,21 @@ export default function ProductDetails() {
       setFbPixelId(product.fb_pixel_id || '');
       setFbAccessToken(product.fb_access_token || '');
       setFbTestEventCode(product.fb_test_event_code || '');
+      
+      // Load pixels from new field or create from legacy fields
+      if (product.fb_pixels && Array.isArray(product.fb_pixels)) {
+        setPixels(product.fb_pixels);
+      } else if (product.fb_pixel_id && product.fb_access_token) {
+        // Migrate legacy pixel to new format (for display purposes)
+        setPixels([{
+          id: product.fb_pixel_id,
+          access_token: product.fb_access_token,
+          test_event_code: product.fb_test_event_code || undefined,
+          name: 'Pixel Principal (Legacy)'
+        }]);
+      } else {
+        setPixels([]);
+      }
     } catch (err) {
       console.error('Error loading product:', err);
       setError(err instanceof Error ? err.message : 'Error cargando el producto');
@@ -354,6 +388,7 @@ export default function ProductDetails() {
     }
   }
 
+  // Legacy function for backward compatibility
   async function handleSaveFacebookConfig(e: React.FormEvent) {
     e.preventDefault();
     if (!id || !user) return;
@@ -384,12 +419,103 @@ export default function ProductDetails() {
     }
   }
 
+  // New functions for multiple pixels management
+  async function handleAddPixel() {
+    if (!newPixel.name || !newPixel.id || !newPixel.access_token) {
+      setError('Todos los campos del pixel son requeridos excepto el código de prueba');
+      return;
+    }
+
+    const pixelToAdd: FacebookPixel = {
+      id: newPixel.id!,
+      access_token: newPixel.access_token!,
+      name: newPixel.name!,
+      test_event_code: newPixel.test_event_code || undefined
+    };
+
+    const updatedPixels = [...pixels, pixelToAdd];
+    await savePixels(updatedPixels);
+    
+    // Reset form
+    setNewPixel({
+      name: '',
+      id: '',
+      access_token: '',
+      test_event_code: ''
+    });
+    setIsAddingPixel(false);
+  }
+
+  async function handleRemovePixel(index: number) {
+    const updatedPixels = pixels.filter((_, i) => i !== index);
+    await savePixels(updatedPixels);
+  }
+
+  async function handleEditPixel(index: number, updatedPixel: FacebookPixel) {
+    const updatedPixels = [...pixels];
+    updatedPixels[index] = updatedPixel;
+    await savePixels(updatedPixels);
+  }
+
+  async function savePixels(updatedPixels: FacebookPixel[]) {
+    if (!id || !user) return;
+
+    setSaving(true);
+    setError('');
+
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          fb_pixels: updatedPixels
+        })
+        .eq('id', id)
+        .eq('user_id', user.id);
+
+      if (error) throw error;
+
+      setPixels(updatedPixels);
+      
+      // If this is the first pixel added and we've completed setup, go to step 2
+      if (updatedPixels.length > 0 && currentStep === 1) {
+        setCurrentStep(2);
+      }
+    } catch (err) {
+      console.error('Error saving pixels:', err);
+      setError('Error al guardar los píxeles');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function getWebhookUrl() {
     return `${window.location.origin}/api/hotmart/webhook`;
   }
 
   function getTrackingScript() {
     if (!product) return '';
+
+    // Get all configured pixels
+    const allPixels = getConfiguredPixels();
+
+    const metaPixelCode = allPixels.length > 0 ? `<!-- Meta Pixel Code -->
+<script>
+!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+${allPixels.map(pixel => `fbq('init', '${pixel.id}');`).join('\n')}
+fbq('track', 'PageView');
+</script>
+<noscript>
+${allPixels.map(pixel => `  <img height="1" width="1" style="display:none" 
+       src="https://www.facebook.com/tr?id=${pixel.id}&ev=PageView&noscript=1"/>`).join('\n')}
+</noscript>
+<!-- End Meta Pixel Code -->` : '';
 
     return `<!-- Script de Seguimiento -->
 <script>
@@ -406,24 +532,26 @@ export default function ProductDetails() {
 </script>
 <!-- Fin del Script de Seguimiento -->
 
-${product.fb_pixel_id ? `<!-- Meta Pixel Code -->
-<script>
-!function(f,b,e,v,n,t,s)
-{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-n.queue=[];t=b.createElement(e);t.async=!0;
-t.src=v;s=b.getElementsByTagName(e)[0];
-s.parentNode.insertBefore(t,s)}(window, document,'script',
-'https://connect.facebook.net/en_US/fbevents.js');
-fbq('init', '${product.fb_pixel_id}');
-fbq('track', 'PageView');
-</script>
-<noscript>
-  <img height="1" width="1" style="display:none" 
-       src="https://www.facebook.com/tr?id=${product.fb_pixel_id}&ev=PageView&noscript=1"/>
-</noscript>
-<!-- End Meta Pixel Code -->` : ''}`;
+${metaPixelCode}`;
+  }
+
+  function getConfiguredPixels(): FacebookPixel[] {
+    // First try the new pixels array
+    if (pixels && pixels.length > 0) {
+      return pixels;
+    }
+    
+    // Fallback to legacy pixel if available
+    if (product?.fb_pixel_id && product?.fb_access_token) {
+      return [{
+        id: product.fb_pixel_id,
+        access_token: product.fb_access_token,
+        test_event_code: product.fb_test_event_code || undefined,
+        name: 'Pixel Principal (Legacy)'
+      }];
+    }
+    
+    return [];
   }
 
   function copyToClipboard(text: string, type: 'script' | 'webhook' | 'utm') {
@@ -624,87 +752,155 @@ fbq('track', 'PageView');
                       <div className="p-6">
                         <h4 className="text-lg font-medium text-gray-900 flex items-center">
                           <Facebook className="h-5 w-5 mr-2 text-indigo-500" />
-                          Configurar Facebook Pixel
+                          Configurar Facebook Pixels
                         </h4>
                         <div className="mt-2 text-sm text-gray-500">
-                          <p className="mb-4">Para rastrear las conversiones de tus ventas en Facebook Ads, necesitas configurar el Pixel:</p>
+                          <p className="mb-4">Ahora puedes configurar múltiples píxeles de Facebook para enviar conversiones a diferentes cuentas publicitarias:</p>
                           <ol className="list-decimal list-inside space-y-3">
                             <li>Accede a tu <a href="https://business.facebook.com/events_manager" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-500">Events Manager <ExternalLink className="h-3 w-3 inline" /></a></li>
-                            <li>Crea un nuevo Pixel o selecciona uno existente</li>
-                            <li>Copia el ID del Pixel y el Token de Acceso</li>
+                            <li>Crea píxeles o selecciona los existentes</li>
+                            <li>Agrega cada pixel con su información correspondiente</li>
                           </ol>
                         </div>
-                        <div className="mt-6">
-                          <form onSubmit={handleSaveFacebookConfig} className="space-y-4">
-                            <div>
-                              <label htmlFor="fbPixelId" className="block text-sm font-medium text-gray-700">
-                                ID del Píxel
-                              </label>
-                              <input
-                                type="text"
-                                id="fbPixelId"
-                                value={fbPixelId}
-                                onChange={(e) => setFbPixelId(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                                placeholder="Ej: 123456789012345"
-                                required
-                              />
-                            </div>
 
+                        {/* Current Pixels */}
+                        <div className="mt-6 space-y-4">
+                          {pixels.length > 0 && (
                             <div>
-                              <label htmlFor="fbAccessToken" className="block text-sm font-medium text-gray-700">
-                                Token de Acceso
-                              </label>
-                              <input
-                                type="text"
-                                id="fbAccessToken"
-                                value={fbAccessToken}
-                                onChange={(e) => setFbAccessToken(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                                placeholder="Ej: EAAxxxxx..."
-                                required
-                              />
-                              <p className="mt-1 text-xs text-gray-500">
-                                Encuentra esto en Events Manager → Configuración → Token de Acceso
-                              </p>
+                              <h5 className="text-sm font-medium text-gray-900 mb-3">Píxeles Configurados ({pixels.length})</h5>
+                              <div className="space-y-3">
+                                {pixels.map((pixel, index) => (
+                                  <div key={index} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex-1">
+                                        <div className="flex items-center">
+                                          <div className="h-3 w-3 bg-green-400 rounded-full mr-3"></div>
+                                          <h6 className="text-sm font-medium text-gray-900">{pixel.name}</h6>
+                                        </div>
+                                        <div className="mt-1 text-sm text-gray-500">
+                                          <p>ID: {pixel.id}</p>
+                                          <p>Token: {pixel.access_token.substring(0, 20)}...</p>
+                                          {pixel.test_event_code && (
+                                            <p className="text-yellow-600">Test Code: {pixel.test_event_code}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <button
+                                          onClick={() => handleRemovePixel(index)}
+                                          disabled={saving}
+                                          className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                                          title="Eliminar pixel"
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
+                          )}
 
-                            <div>
-                              <label htmlFor="fbTestEventCode" className="block text-sm font-medium text-gray-700">
-                                Código de TEST EVENT (opcional)
-                              </label>
-                              
-                              <input
-                                type="text"
-                                id="fbTestEventCode"
-                                value={fbTestEventCode}
-                                onChange={(e) => setFbTestEventCode(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                                placeholder="Ej: TEST123"
-                              />
-                              <div className="mt-2 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
-                                <div className="flex items-center text-yellow-800">
-                                  <AlertTriangle className="h-5 w-5 mr-2 text-yellow-600" />
-                                  <p className="text-xs">
-                                    Este TEST EVENT es temporal y sirve únicamente para verificar la correcta llegada de eventos API al pixel.
-                                    <span className="ml-1 font-bold text-red-600">
-                                      Debes eliminarlo antes de comenzar a recibir ventas reales.
-                                    </span>
+                          {/* Add New Pixel */}
+                          {!isAddingPixel ? (
+                            <div className="text-center">
+                              <button
+                                onClick={() => setIsAddingPixel(true)}
+                                className="inline-flex items-center px-4 py-2 border border-dashed border-gray-300 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                              >
+                                <Plus className="h-4 w-4 mr-2" />
+                                {pixels.length === 0 ? 'Agregar Primer Pixel' : 'Agregar Otro Pixel'}
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                              <h6 className="text-sm font-medium text-blue-900 mb-3">Nuevo Pixel de Facebook</h6>
+                              <div className="space-y-4">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">
+                                    Nombre del Pixel
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newPixel.name || ''}
+                                    onChange={(e) => setNewPixel({...newPixel, name: e.target.value})}
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="Ej: Pixel Principal, Pixel Retargeting..."
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">
+                                    ID del Pixel
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newPixel.id || ''}
+                                    onChange={(e) => setNewPixel({...newPixel, id: e.target.value})}
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="Ej: 123456789012345"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">
+                                    Token de Acceso
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newPixel.access_token || ''}
+                                    onChange={(e) => setNewPixel({...newPixel, access_token: e.target.value})}
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="Ej: EAAxxxxx..."
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700">
+                                    Código de TEST EVENT (opcional)
+                                  </label>
+                                  <input
+                                    type="text"
+                                    value={newPixel.test_event_code || ''}
+                                    onChange={(e) => setNewPixel({...newPixel, test_event_code: e.target.value})}
+                                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                                    placeholder="Ej: TEST123"
+                                  />
+                                  <p className="mt-1 text-xs text-yellow-600">
+                                    Solo para pruebas. Eliminar antes de campañas reales.
                                   </p>
+                                </div>
+                                <div className="flex justify-end space-x-3">
+                                  <button
+                                    onClick={() => {
+                                      setIsAddingPixel(false);
+                                      setNewPixel({name: '', id: '', access_token: '', test_event_code: ''});
+                                      setError('');
+                                    }}
+                                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                  >
+                                    Cancelar
+                                  </button>
+                                  <button
+                                    onClick={handleAddPixel}
+                                    disabled={saving || !newPixel.name || !newPixel.id || !newPixel.access_token}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                                  >
+                                    {saving ? 'Guardando...' : 'Agregar Pixel'}
+                                  </button>
                                 </div>
                               </div>
                             </div>
+                          )}
 
-                            <div className="flex justify-end pt-4">
+                          {pixels.length > 0 && !isAddingPixel && (
+                            <div className="flex justify-end">
                               <button
-                                type="submit"
-                                disabled={saving}
-                                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+                                onClick={() => setCurrentStep(2)}
+                                className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                               >
-                                {saving ? 'Guardando...' : 'Guardar y Continuar'}
+                                Continuar al Script de Seguimiento
                               </button>
                             </div>
-                          </form>
+                          )}
                         </div>
                       </div>
                     </div>
