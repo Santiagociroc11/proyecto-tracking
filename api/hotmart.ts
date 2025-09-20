@@ -658,7 +658,12 @@ async function sendFacebookConversion(
         status: 'success',
         fbtrace_id: primaryResult.fbtrace_id,
         payload_summary: {
-          ...primaryResult.payload_summary,
+          event_name: primaryResult.payload_summary?.event_name || 'Purchase',
+          value: primaryResult.payload_summary?.value || 0,
+          currency: primaryResult.payload_summary?.currency || 'USD',
+          order_id: primaryResult.payload_summary?.order_id || '',
+          test_event_code: primaryResult.payload_summary?.test_event_code,
+          pixel_name: primaryResult.payload_summary?.pixel_name,
           pixels_sent: successfulResults.length,
           pixels_failed: failedResults.length,
           total_pixels: pixels.length
