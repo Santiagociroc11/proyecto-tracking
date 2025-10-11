@@ -452,6 +452,18 @@
           this.__register_event(hotmartData);
           const urlWithId = new URL(target.href);
           urlWithId.searchParams.append('xcod', this.visitorId);
+          
+          // Agregar parámetro src con UTMs seleccionadas (campaign, medium, content)
+          const utmData = this.__get_utm_data();
+          const srcData = {
+            utm_campaign: utmData.utm_campaign || '-',
+            utm_medium: utmData.utm_medium || '-',
+            utm_content: utmData.utm_content || '-'
+          };
+          const srcEncoded = encodeURIComponent(JSON.stringify(srcData));
+          urlWithId.searchParams.append('src', srcEncoded);
+          
+          lt.__log('Interaction', 'Parámetros agregados - xcod:', this.visitorId, 'src:', srcEncoded);
           lt.__log('Interaction', 'Redirigiendo a', urlWithId.toString());
           window.location.assign(urlWithId.toString());
         }
