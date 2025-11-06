@@ -126,9 +126,13 @@ function hashSHA256(value: string): string {
  * @param productId - ID del producto en Hotmart
  * @returns Promedio de comisiones PRODUCER en USD o null si no hay datos suficientes
  */
-async function getHistoricalCommissionAverageUSD(productId: string, saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'): Promise<{ value: number; currency_value: string } | null> {
+async function getHistoricalCommissionAverageUSD(
+  productId: string, 
+  saleType: 'compra_hotmart' | 'compra_hotmart_orderbump',
+  commissionSource: 'PRODUCER' | 'COPRODUCER' = 'PRODUCER'
+): Promise<{ value: number; currency_value: string } | null> {
   try {
-    console.log(`Buscando historial para producto ${productId} y tipo de venta ${saleType}`);
+    console.log(`Buscando historial para producto ${productId}, tipo de venta ${saleType}, comisión ${commissionSource}`);
 
     const { data: historicalEvents, error } = await supabase
       .from('tracking_events')
@@ -142,7 +146,8 @@ async function getHistoricalCommissionAverageUSD(productId: string, saleType: 'c
       console.log('No se encontraron datos históricos para el producto:', {
         product_id: productId,
         found_records: historicalEvents?.length || 0,
-        error: error?.message
+        error: error?.message,
+        commission_source: commissionSource
       });
       return null;
     }
@@ -154,42 +159,46 @@ async function getHistoricalCommissionAverageUSD(productId: string, saleType: 'c
     for (const record of historicalEvents) {
       const eventData = record.event_data;
       if (eventData?.data?.commissions && Array.isArray(eventData.data.commissions)) {
-        const producerCommission = eventData.data.commissions.find((c: any) => c.source === 'PRODUCER');
+        // Buscar comisión según el source especificado (PRODUCER o COPRODUCER)
+        const commission = eventData.data.commissions.find((c: any) => c.source === commissionSource);
         
         // 3. Validar que la comisión sea útil (en USD y un valor razonable).
-        if (producerCommission && 
-            producerCommission.currency_value === 'USD' &&
-            producerCommission.value > 0 &&
-            producerCommission.value < 100) { // Filtro de valores atípicos
-          totalCommissions += producerCommission.value;
+        if (commission && 
+            commission.currency_value === 'USD' &&
+            commission.value > 0 &&
+            commission.value < 100) { // Filtro de valores atípicos
+          totalCommissions += commission.value;
           validCommissionCount++;
-          console.log(`Comisión histórica válida encontrada: ${producerCommission.value} USD`);
+          console.log(`Comisión histórica válida encontrada (${commissionSource}): ${commission.value} USD`);
         }
       }
     }
 
-    console.log('Análisis de comisiones históricas en USD:', {
+    console.log(`Análisis de comisiones históricas en USD (${commissionSource}):`, {
       product_id: productId,
       valid_commissions_found: validCommissionCount,
-      total_records_analyzed: historicalEvents.length
+      total_records_analyzed: historicalEvents.length,
+      commission_source: commissionSource
     });
 
     // 4. Asegurarse de tener suficientes datos para un promedio fiable.
     if (validCommissionCount < 3) {
-      console.log('Comisiones USD insuficientes para un promedio fiable:', {
+      console.log(`Comisiones USD insuficientes para un promedio fiable (${commissionSource}):`, {
         product_id: productId,
         valid_commissions: validCommissionCount,
-        required_minimum: 3
+        required_minimum: 3,
+        commission_source: commissionSource
       });
       return null;
     }
 
     // 5. Calcular y devolver el promedio.
     const averageCommission = totalCommissions / validCommissionCount;
-    console.log('Promedio de comisión histórica en USD calculado:', {
+    console.log(`Promedio de comisión histórica en USD calculado (${commissionSource}):`, {
       product_id: productId,
       average_commission: averageCommission,
-      based_on_records: validCommissionCount
+      based_on_records: validCommissionCount,
+      commission_source: commissionSource
     });
 
     return {
@@ -243,33 +252,82 @@ function isEstimatedPriceValid(
 }
 
 /**
- * Obtiene el precio de la comisión del productor con promedio histórico como fallback
+ * Detecta el rol del usuario (productor o coproductor) basado en las comisiones del webhook
  * @param event - Evento de Hotmart
- * @returns Objeto con value y currency_value de la comisión del productor
+ * @returns 'PRODUCER' | 'COPRODUCER' | null
  */
-async function getProducerCommissionPrice(event: HotmartEvent, internalProductId: string, saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'): Promise<{ value: number; currency_value: string }> {
-  const producerCommission = event.data.commissions?.find(commission => commission.source === 'PRODUCER');
+function detectUserRole(event: HotmartEvent): 'PRODUCER' | 'COPRODUCER' | null {
+  const commissions = event.data.commissions || [];
+  const hasProducer = commissions.some(c => c.source === 'PRODUCER');
+  const hasCoproducer = commissions.some(c => c.source === 'COPRODUCER');
   
-  if (producerCommission) {
-    console.log('Usando precio de comisión del productor:', {
-      value: producerCommission.value,
-      currency: producerCommission.currency_value,
-      source: 'direct_commission'
-    });
-    return {
-      value: producerCommission.value,
-      currency_value: producerCommission.currency_value
-    };
+  if (hasProducer && !hasCoproducer) {
+    return 'PRODUCER';
+  } else if (hasCoproducer && !hasProducer) {
+    return 'COPRODUCER';
+  } else if (hasProducer && hasCoproducer) {
+    // Si tiene ambas, priorizamos PRODUCER (caso raro pero posible)
+    console.log('⚠️ Webhook tiene ambas comisiones PRODUCER y COPRODUCER, usando PRODUCER');
+    return 'PRODUCER';
   }
   
-  console.log('Comisión del productor no encontrada, buscando promedio histórico en USD...', {
-    product_id: internalProductId,
-    sale_type: saleType, // Log para debugging
+  return null;
+}
+
+/**
+ * Obtiene el precio de la comisión del usuario (productor o coproductor) con promedio histórico como fallback
+ * @param event - Evento de Hotmart
+ * @param internalProductId - ID interno del producto
+ * @param saleType - Tipo de venta
+ * @returns Objeto con value y currency_value de la comisión
+ */
+async function getUserCommissionPrice(
+  event: HotmartEvent, 
+  internalProductId: string, 
+  saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'
+): Promise<{ value: number; currency_value: string; role: 'PRODUCER' | 'COPRODUCER' | null }> {
+  // Detectar rol automáticamente
+  const userRole = detectUserRole(event);
+  
+  console.log('Detectando rol del usuario:', {
+    role: userRole,
+    available_commissions: event.data.commissions?.map(c => c.source) || [],
     transaction: event.data.purchase.transaction
   });
   
-  // Pasar el saleType a la función de búsqueda histórica
-  const historicalAverageUSD = await getHistoricalCommissionAverageUSD(internalProductId, saleType);
+  // Buscar comisión directa según el rol detectado
+  const directCommission = userRole 
+    ? event.data.commissions?.find(commission => commission.source === userRole)
+    : null;
+  
+  if (directCommission) {
+    console.log(`Usando precio de comisión directa (${userRole}):`, {
+      value: directCommission.value,
+      currency: directCommission.currency_value,
+      source: 'direct_commission',
+      role: userRole
+    });
+    return {
+      value: directCommission.value,
+      currency_value: directCommission.currency_value,
+      role: userRole
+    };
+  }
+  
+  // Si no tenemos comisión directa, intentar calcularla
+  console.log(`Comisión ${userRole || 'del usuario'} no encontrada, buscando promedio histórico en USD...`, {
+    product_id: internalProductId,
+    sale_type: saleType,
+    transaction: event.data.purchase.transaction,
+    detected_role: userRole
+  });
+  
+  // Buscar promedio histórico (buscará tanto PRODUCER como COPRODUCER según el rol)
+  const historicalAverageUSD = await getHistoricalCommissionAverageUSD(
+    internalProductId, 
+    saleType, 
+    userRole || 'PRODUCER' // Default a PRODUCER si no se detectó rol
+  );
   
   if (historicalAverageUSD) {
     const originalOfferPrice = (event.data.purchase as any).original_offer_price;
@@ -277,56 +335,108 @@ async function getProducerCommissionPrice(event: HotmartEvent, internalProductId
     console.log('Validando promedio histórico contra precio original:', {
       historical_average: historicalAverageUSD.value,
       original_offer_price: originalOfferPrice?.value,
-      will_validate: !!originalOfferPrice
+      will_validate: !!originalOfferPrice,
+      role: userRole
     });
     
     if (isEstimatedPriceValid(historicalAverageUSD, originalOfferPrice)) {
-      console.log('✅ Usando promedio histórico de comisión en USD:', {
+      console.log(`✅ Usando promedio histórico de comisión en USD (${userRole || 'PRODUCER'}):`, {
         value: historicalAverageUSD.value,
         currency: historicalAverageUSD.currency_value,
         source: 'historical_average_usd',
-        validated_against_original: !!originalOfferPrice
+        validated_against_original: !!originalOfferPrice,
+        role: userRole
       });
-      return historicalAverageUSD;
+      return {
+        ...historicalAverageUSD,
+        role: userRole || 'PRODUCER'
+      };
     } else {
       console.log('❌ Promedio histórico USD rechazado por validación de precio original:', {
         historical_average: historicalAverageUSD.value,
         original_offer_price: originalOfferPrice?.value,
-        reason: 'validation_failed'
+        reason: 'validation_failed',
+        role: userRole
       });
     }
   } else {
-    console.log('❌ No se encontró promedio histórico válido en USD para el producto:', {
-      product_id: internalProductId
+    console.log(`❌ No se encontró promedio histórico válido en USD para el producto (${userRole || 'PRODUCER'}):`, {
+      product_id: internalProductId,
+      role: userRole
     });
   }
   
-  // Fallback final: usar original_offer_price si está disponible, sino precio completo
+  // Fallback: calcular comisión basándose en original_offer_price - MARKETPLACE
   const originalOfferPrice = (event.data.purchase as any).original_offer_price;
+  const marketplaceCommission = event.data.commissions?.find(c => c.source === 'MARKETPLACE');
   
+  if (originalOfferPrice && originalOfferPrice.currency_value === 'USD' && marketplaceCommission) {
+    // Calcular comisión estimada: original_offer_price - marketplace
+    // Nota: Esto es una estimación, ya que no sabemos la división exacta entre productor y coproductor
+    const estimatedCommission = originalOfferPrice.value - marketplaceCommission.value;
+    
+    if (estimatedCommission > 0) {
+      console.log(`Usando cálculo estimado basado en original_offer_price - MARKETPLACE (${userRole || 'PRODUCER'}):`, {
+        original_offer_price: originalOfferPrice.value,
+        marketplace_commission: marketplaceCommission.value,
+        estimated_commission: estimatedCommission,
+        currency: 'USD',
+        source: 'calculated_from_offer_price',
+        warning: 'Estimación: no se conoce la división exacta entre productor y coproductor',
+        role: userRole
+      });
+      
+      return {
+        value: Math.round(estimatedCommission * 100) / 100,
+        currency_value: 'USD',
+        role: userRole || 'PRODUCER'
+      };
+    }
+  }
+  
+  // Último recurso: usar original_offer_price completo si está disponible
   if (originalOfferPrice && originalOfferPrice.currency_value === 'USD') {
-    console.log('Usando original_offer_price como fallback (en USD):', {
+    console.log(`Usando original_offer_price completo como fallback (${userRole || 'PRODUCER'}):`, {
       value: originalOfferPrice.value,
       currency: originalOfferPrice.currency_value,
       source: 'original_offer_price_fallback',
-      warning: 'Sin datos históricos suficientes, usando precio original de oferta'
+      warning: 'Sin datos históricos suficientes, usando precio original de oferta completo',
+      role: userRole
     });
     
     return {
       value: originalOfferPrice.value,
-      currency_value: 'USD'
+      currency_value: 'USD',
+      role: userRole || 'PRODUCER'
     };
   }
   
   // Último recurso: precio completo de compra
-  console.log('No se pudo calcular comisión estimada, usando precio completo de compra:', {
+  console.log(`No se pudo calcular comisión estimada, usando precio completo de compra (${userRole || 'PRODUCER'}):`, {
     value: event.data.purchase.price.value,
     currency: event.data.purchase.price.currency_value,
     source: 'full_purchase_price_fallback',
-    warning: 'Este valor puede ser inflado comparado con la comisión real'
+    warning: 'Este valor puede ser inflado comparado con la comisión real',
+    role: userRole
   });
   
-  return event.data.purchase.price;
+  return {
+    value: event.data.purchase.price.value,
+    currency_value: event.data.purchase.price.currency_value,
+    role: userRole || 'PRODUCER'
+  };
+}
+
+/**
+ * @deprecated Usar getUserCommissionPrice en su lugar
+ * Mantenido por compatibilidad
+ */
+async function getProducerCommissionPrice(event: HotmartEvent, internalProductId: string, saleType: 'compra_hotmart' | 'compra_hotmart_orderbump'): Promise<{ value: number; currency_value: string }> {
+  const result = await getUserCommissionPrice(event, internalProductId, saleType);
+  return {
+    value: result.value,
+    currency_value: result.currency_value
+  };
 }
 
 /**
@@ -617,8 +727,19 @@ async function sendFacebookConversion(
                         !!event.data.purchase.order_bump?.parent_purchase_transaction;
     const eventType = isOrderBump ? 'compra_hotmart_orderbump' : 'compra_hotmart';
     
-    const price = await getProducerCommissionPrice(event, product.id.toString(), eventType);
+    // Get user commission (PRODUCER or COPRODUCER)
+    const userCommission = await getUserCommissionPrice(event, product.id.toString(), eventType);
+    const price = {
+      value: userCommission.value,
+      currency_value: userCommission.currency_value
+    };
     const transactionId = event.data.purchase.transaction || '';
+    
+    log('user_commission_calculated', {
+      role: userCommission.role,
+      value: price.value,
+      currency: price.currency_value
+    });
 
     log('multiple_pixels_conversion_start', { pixels_count: pixels.length });
 
@@ -796,6 +917,7 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
         parent_transaction: null,
         event_stored: false,
         producer_price: null,
+        user_role: null as 'PRODUCER' | 'COPRODUCER' | null,
     },
     notifications: {
       facebook: {
@@ -996,30 +1118,37 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
     const originalUtmData = trackingEvent.event_data?.utm_data;
     const cleanedUtmData = cleanUtms(originalUtmData);
 
-    // Calculate producer commission BEFORE inserting the event
-    const producerPrice = await getProducerCommissionPrice(event, product.id.toString(), eventType);
+    // Calculate user commission (PRODUCER or COPRODUCER) BEFORE inserting the event
+    const userCommission = await getUserCommissionPrice(event, product.id.toString(), eventType);
+    const userRole = userCommission.role || 'PRODUCER';
     
     // Create a modified copy of event data with proper commissions array
     const modifiedEventData = { ...event.data };
     
-    // If commissions array is empty or missing PRODUCER commission, reconstruct it
-    const hasProducerCommission = modifiedEventData.commissions?.find(c => c.source === 'PRODUCER');
+    // Check if we already have the commission for our role
+    const hasUserCommission = modifiedEventData.commissions?.find(c => c.source === userRole);
     
-    if (!hasProducerCommission) {
-      // Keep existing commissions (like MARKETPLACE) and add the calculated PRODUCER commission
+    if (!hasUserCommission) {
+      // Keep existing commissions (like MARKETPLACE) and add the calculated commission
       const existingCommissions = modifiedEventData.commissions || [];
-      const newProducerCommission = {
-        value: producerPrice.value,
-        source: 'PRODUCER',
-        currency_value: producerPrice.currency_value
+      const newUserCommission = {
+        value: userCommission.value,
+        source: userRole,
+        currency_value: userCommission.currency_value
       };
       
-      modifiedEventData.commissions = [...existingCommissions, newProducerCommission];
+      modifiedEventData.commissions = [...existingCommissions, newUserCommission];
       
       log('commission_reconstructed', {
         original_commissions: event.data.commissions || [],
         new_commissions: modifiedEventData.commissions,
-        added_producer_commission: newProducerCommission
+        added_commission: newUserCommission,
+        detected_role: userRole
+      });
+    } else {
+      log('commission_already_present', {
+        role: userRole,
+        existing_commission: hasUserCommission
       });
     }
     
@@ -1030,7 +1159,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       real_purchase_date: realPurchaseDate.toISOString(),
       processing_date: processingDate.toISOString(),
       delay_minutes: Math.round((processingDate.getTime() - realPurchaseDate.getTime()) / (1000 * 60)),
-      calculated_commission: producerPrice
+      calculated_commission: {
+        value: userCommission.value,
+        currency: userCommission.currency_value,
+        role: userRole
+      }
     });
     const { data: insertData, error: insertError } = await supabase
     .from('tracking_events')
@@ -1074,11 +1207,18 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       log('purchase_approved_flow_start');
       
       // Use the producer price already calculated above
-      result.purchase_info.producer_price = producerPrice;
-      log('producer_price_reused', { price: producerPrice });
+      result.purchase_info.producer_price = {
+        value: userCommission.value,
+        currency_value: userCommission.currency_value
+      };
+      result.purchase_info.user_role = userRole;
+      log('user_commission_reused', { 
+        price: { value: userCommission.value, currency: userCommission.currency_value },
+        role: userRole
+      });
       
       try {
-        log('facebook_conversion_start');
+        log('facebook_conversion_start', { user_role: userRole });
         const fbResult = await sendFacebookConversion(product, event, trackingEvent, requestId);
         result.notifications.facebook = fbResult;
         
@@ -1099,8 +1239,11 @@ export async function handleHotmartWebhook(event: HotmartEvent) {
       }
 
       try {
-        log('telegram_notification_start');
-        await notifyPurchase(product.user_id, event.data, producerPrice, requestId);
+        log('telegram_notification_start', { user_role: userRole });
+        await notifyPurchase(product.user_id, event.data, {
+          value: userCommission.value,
+          currency_value: userCommission.currency_value
+        }, requestId);
         result.notifications.telegram_sent = true;
         result.steps_completed.push('telegram_notification_sent');
         log('telegram_notification_success');
