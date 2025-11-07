@@ -78,6 +78,26 @@ interface ModalItem {
   }[];
 }
 
+interface SaleRecord {
+  id: string;
+  eventType: 'compra_hotmart' | 'compra_hotmart_orderbump';
+  timestamp: string;
+  localTime: string;
+  amount: number;
+  currency: string;
+  buyerName?: string;
+  buyerEmail?: string;
+  buyerCountry?: string;
+  offerName?: string;
+  paymentType?: string;
+  transactionId?: string;
+  hasUtm: boolean;
+  utmSource?: string;
+  utmMedium?: string;
+  utmCampaign?: string;
+  utmContent?: string;
+}
+
 interface AnalyticsData {
   total_visits: number;
   unique_visits: number;
@@ -543,7 +563,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   });
   const [showUnique, setShowUnique] = useState(false);
   // Estado para controlar la pestaña activa: "resumen" o "detalle"
-  const [activeTab, setActiveTab] = useState<'resumen' | 'detalle'>('resumen');
+  const [activeTab, setActiveTab] = useState<'resumen' | 'detalle' | 'ventas'>('resumen');
   // Estado para seleccionar la métrica del resumen
   const [selectedSummaryMetric, setSelectedSummaryMetric] = useState<'conversion' | 'persuasion'>('conversion');
   // Estado para seleccionar la categoría de UTM a analizar
@@ -559,6 +579,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
   const [selectedItem, setSelectedItem] = useState<ModalItem | null>(null);
   const [rawEvents, setRawEvents] = useState<any[]>([]);
   const [rawAdPerformance, setRawAdPerformance] = useState<any[]>([]);
+  const [salesList, setSalesList] = useState<SaleRecord[]>([]);
 
   useEffect(() => {
     localStorage.setItem(LOCAL_STORAGE_COLUMN_WIDTHS_KEY, JSON.stringify(columnWidths));
@@ -603,6 +624,17 @@ export default function AnalyticsDashboard({ productId }: Props) {
       ...prev,
       [column]: width,
     }));
+  };
+
+  const getSaleSourceLabel = (sale: SaleRecord) => {
+    if (!sale.hasUtm) return 'Sin UTM';
+    const raw =
+      sale.utmCampaign ??
+      sale.utmSource ??
+      sale.utmMedium ??
+      sale.utmContent;
+    if (!raw) return 'Sin UTM';
+    return decodeName(raw);
   };
 
   useEffect(() => {
@@ -779,6 +811,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
     try {
       setLoading(true);
       setError(null);
+      setSalesList([]);
 
       if (!user) {
         setError('Debes iniciar sesión para ver las estadísticas.');
@@ -897,6 +930,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           daily_stats: [],
           top_sources: [],
         });
+        setSalesList([]);
         setLoading(false);
         return;
       }
@@ -921,9 +955,57 @@ export default function AnalyticsDashboard({ productId }: Props) {
       let newUtmStats: any[] = [];
 
       // Arrays para rastrear las ventas y sus fechas
-      const allPurchases: Array<{eventType: string, timestamp: string, localTime: string, hasUtm: boolean, utmData?: any}> = [];
+      const allPurchases: SaleRecord[] = [];
       let totalMainPurchases = 0;
       let totalOrderBumpPurchases = 0;
+
+      const resolveSaleRecord = (event: any, type: 'compra_hotmart' | 'compra_hotmart_orderbump'): SaleRecord => {
+        const basePayload = event.event_data?.data ?? event.event_data ?? {};
+        const nestedPayload = basePayload?.data ?? {};
+        const purchaseInfo = basePayload?.purchase ?? nestedPayload?.purchase ?? {};
+        const buyerInfo = basePayload?.buyer ?? nestedPayload?.buyer ?? {};
+        const offerInfo = purchaseInfo?.offer ?? nestedPayload?.offer ?? {};
+        const priceInfo = purchaseInfo?.price ?? nestedPayload?.price ?? {};
+        const rawAmount = priceInfo?.value ?? priceInfo?.amount ?? priceInfo?.price ?? 0;
+        const amount = typeof rawAmount === 'number' ? rawAmount : parseFloat(rawAmount ?? '0') || 0;
+        const currency = priceInfo?.currency_value ?? priceInfo?.currency ?? '';
+        const utmData = event.event_data?.utm_data ?? basePayload?.utm_data ?? nestedPayload?.utm_data ?? null;
+        const buyerNameParts = [buyerInfo?.first_name, buyerInfo?.last_name].filter(
+          (part): part is string => typeof part === 'string' && part.trim().length > 0
+        );
+        const buyerNameCandidate = typeof buyerInfo?.name === 'string' && buyerInfo.name.trim().length > 0
+          ? buyerInfo.name.trim()
+          : undefined;
+        const buyerName = buyerNameCandidate ?? (buyerNameParts.length > 0 ? buyerNameParts.join(' ') : undefined);
+        const paymentType = purchaseInfo?.payment?.type ?? nestedPayload?.payment?.type;
+        const transactionId = purchaseInfo?.transaction
+          ?? nestedPayload?.transaction
+          ?? basePayload?.transaction
+          ?? event.event_data?.transaction;
+
+        return {
+          id: `${event.id}`,
+          eventType: type,
+          timestamp: event.created_at,
+          localTime: formatDateToTimezone(event.created_at, timezone),
+          amount,
+          currency,
+          buyerName,
+          buyerEmail: typeof buyerInfo?.email === 'string' ? buyerInfo.email : undefined,
+          buyerCountry: buyerInfo?.address?.country ?? buyerInfo?.country,
+          offerName: typeof offerInfo?.name === 'string' ? offerInfo.name : undefined,
+          paymentType,
+          transactionId: typeof transactionId === 'string' ? transactionId : undefined,
+          hasUtm: !!(
+            utmData &&
+            (utmData.utm_source || utmData.utm_medium || utmData.utm_campaign || utmData.utm_content)
+          ),
+          utmSource: utmData?.utm_source,
+          utmMedium: utmData?.utm_medium,
+          utmCampaign: utmData?.utm_campaign,
+          utmContent: utmData?.utm_content,
+        };
+      };
 
       events.forEach((event) => {
         // --- Procesamiento para todos los eventos (cifras totales y diarias) ---
@@ -965,13 +1047,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           dayStats.revenue += price;
           
           // Rastrear esta venta
-          allPurchases.push({
-            eventType: 'compra_hotmart',
-            timestamp: event.created_at,
-            localTime: formatDateToTimezone(event.created_at, timezone),
-            hasUtm: !!event.event_data?.utm_data,
-            utmData: event.event_data?.utm_data
-          });
+          allPurchases.push(resolveSaleRecord(event, 'compra_hotmart'));
         } else if (event.event_type === 'compra_hotmart_orderbump') {
           totalOrderBumps++;
           totalOrderBumpPurchases++; // Contador separado para order bumps
@@ -983,13 +1059,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           dayStats.revenue += price;
           
           // Rastrear esta venta
-          allPurchases.push({
-            eventType: 'compra_hotmart_orderbump',
-            timestamp: event.created_at,
-            localTime: formatDateToTimezone(event.created_at, timezone),
-            hasUtm: !!event.event_data?.utm_data,
-            utmData: event.event_data?.utm_data
-          });
+          allPurchases.push(resolveSaleRecord(event, 'compra_hotmart_orderbump'));
         }
 
         dayStats.unique_visits = dayUniqueVisitors.size;
@@ -1513,21 +1583,23 @@ export default function AnalyticsDashboard({ productId }: Props) {
       console.log(`Query range (UTC): ${startUTC} to ${endUTC}`);
       console.log(`User timezone: ${timezone}`);
       
-      if (allPurchases.length > 0) {
-        // Ordenar por fecha
-        const sortedPurchases = [...allPurchases].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      const sortedPurchasesAsc = [...allPurchases].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      if (sortedPurchasesAsc.length > 0) {
         console.log('PRIMERA VENTA:');
-        console.log(`  Timestamp UTC: ${sortedPurchases[0].timestamp}`);
-        console.log(`  Hora local: ${sortedPurchases[0].localTime}`);
-        console.log(`  Tipo: ${sortedPurchases[0].eventType}`);
-        console.log(`  Tiene UTM: ${sortedPurchases[0].hasUtm}`);
+        console.log(`  Timestamp UTC: ${sortedPurchasesAsc[0].timestamp}`);
+        console.log(`  Hora local: ${sortedPurchasesAsc[0].localTime}`);
+        console.log(`  Tipo: ${sortedPurchasesAsc[0].eventType}`);
+        console.log(`  Tiene UTM: ${sortedPurchasesAsc[0].hasUtm}`);
         
         console.log('ÚLTIMA VENTA:');
-        const lastIndex = sortedPurchases.length - 1;
-        console.log(`  Timestamp UTC: ${sortedPurchases[lastIndex].timestamp}`);
-        console.log(`  Hora local: ${sortedPurchases[lastIndex].localTime}`);
-        console.log(`  Tipo: ${sortedPurchases[lastIndex].eventType}`);
-        console.log(`  Tiene UTM: ${sortedPurchases[lastIndex].hasUtm}`);
+        const lastIndex = sortedPurchasesAsc.length - 1;
+        console.log(`  Timestamp UTC: ${sortedPurchasesAsc[lastIndex].timestamp}`);
+        console.log(`  Hora local: ${sortedPurchasesAsc[lastIndex].localTime}`);
+        console.log(`  Tipo: ${sortedPurchasesAsc[lastIndex].eventType}`);
+        console.log(`  Tiene UTM: ${sortedPurchasesAsc[lastIndex].hasUtm}`);
         
         // Contar ventas con y sin UTM
         const ventasConUtm = allPurchases.filter(p => p.hasUtm).length;
@@ -1541,6 +1613,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         console.log(`  - Principales: ${ventasPrincipales}`);
         console.log(`  - Order bumps: ${ventasOrderBump}`);
       }
+      setSalesList([...sortedPurchasesAsc].reverse());
       
       // Usar la nueva tabla UTM
       const finalUtmStats = newUtmStats;
@@ -2880,7 +2953,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
       {/* Sección de pestañas para Resumen y Detalle UTMs */}
       <div className="bg-white shadow rounded-lg overflow-hidden">
         <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
-          <div className="flex space-x-4">
+          <div className="flex flex-wrap gap-4">
             <button
               onClick={() => setActiveTab('resumen')}
               className={`px-4 py-2 text-sm font-medium ${
@@ -2896,6 +2969,14 @@ export default function AnalyticsDashboard({ productId }: Props) {
               }`}
             >
               TABLA CAMPAÑAS
+            </button>
+            <button
+              onClick={() => setActiveTab('ventas')}
+              className={`px-4 py-2 text-sm font-medium ${
+                activeTab === 'ventas' ? 'border-b-2 border-indigo-600 text-indigo-600' : 'text-gray-500'
+              }`}
+            >
+              LISTA VENTAS
             </button>
           </div>
         </div>
@@ -3163,7 +3244,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === 'detalle' ? (
           // Tabla de UTMs (detalle)
           <div className="border-t border-gray-200 p-6">
             <div className="flex items-center space-x-2 border-b border-gray-200 mb-4">
@@ -3205,6 +3286,154 @@ export default function AnalyticsDashboard({ productId }: Props) {
             {utmDetailTab === 'campaign' && <UtmDetailTable data={campaignData} title="Campaña" showUnique={showUnique} selectedItems={selectedCampaigns} onSelectionChange={handleCampaignSelection} showBudgetColumn={true} onItemClick={(item) => handleOpenModal(item, 'campaign')} />}
             {utmDetailTab === 'medium' && <UtmDetailTable data={mediumData} title="Segmentación" showUnique={showUnique} selectedItems={selectedMediums} onSelectionChange={setSelectedMediums} showBudgetColumn={true} onItemClick={(item) => handleOpenModal(item, 'adset')} />}
             {utmDetailTab === 'content' && <UtmDetailTable data={contentData} title="Anuncio" showUnique={showUnique} selectedItems={new Set()} onSelectionChange={() => {}} showBudgetColumn={false} onItemClick={(item) => handleOpenModal(item, 'ad')} />}
+          </div>
+        ) : (
+          <div className="border-t border-gray-200 p-6 bg-gray-50">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">Ventas registradas</h3>
+                <p className="text-sm text-gray-500">
+                  Revisa cada venta junto con los datos del cliente, oferta y fuente de tráfico.
+                </p>
+              </div>
+              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-indigo-100 text-indigo-700 text-sm font-semibold">
+                {salesList.length} ventas
+              </span>
+            </div>
+
+            {salesList.length === 0 ? (
+              <div className="bg-white border border-dashed border-gray-300 rounded-lg p-10 text-center text-sm text-gray-500">
+                No se encontraron ventas para el rango seleccionado.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200 text-sm">
+                  <thead className="bg-gray-100">
+                    <tr>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Fecha (hora local)
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Cliente
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Importe
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Tipo
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Fuente
+                      </th>
+                      <th scope="col" className="px-4 py-3 text-left font-semibold text-gray-600 uppercase tracking-wide text-xs">
+                        Transacción
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-100">
+                    {salesList.map((sale) => (
+                      <tr key={sale.id} className="hover:bg-indigo-50/40">
+                        <td className="px-4 py-3 whitespace-nowrap text-gray-900 font-medium">
+                          {sale.localTime}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-gray-900 font-semibold">
+                              {sale.buyerName ?? 'Sin nombre'}
+                            </span>
+                            {sale.buyerEmail && (
+                              <span className="text-xs text-gray-500">{sale.buyerEmail}</span>
+                            )}
+                            {sale.buyerCountry && (
+                              <span className="text-[11px] text-gray-400 uppercase tracking-wide">
+                                {sale.buyerCountry}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="text-emerald-600 font-semibold">
+                              {sale.currency
+                                ? `${sale.currency} ${sale.amount.toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}`
+                                : sale.amount.toLocaleString('es-ES', {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                            </span>
+                            {sale.offerName && (
+                              <span
+                                className="text-xs text-gray-500 truncate max-w-[200px]"
+                                title={sale.offerName}
+                              >
+                                {sale.offerName}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                sale.eventType === 'compra_hotmart'
+                                  ? 'bg-blue-100 text-blue-700'
+                                  : 'bg-purple-100 text-purple-700'
+                              }`}
+                            >
+                              {sale.eventType === 'compra_hotmart' ? 'Venta principal' : 'Order bump'}
+                            </span>
+                            {sale.paymentType && (
+                              <span className="text-[11px] text-gray-500 uppercase tracking-wide">
+                                {sale.paymentType.replace(/_/g, ' ')}
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1 text-xs text-gray-600">
+                            <span
+                              className={`font-semibold ${
+                                sale.hasUtm ? 'text-indigo-600' : 'text-gray-400'
+                              }`}
+                            >
+                              {getSaleSourceLabel(sale)}
+                            </span>
+                            {sale.hasUtm && (
+                              <div className="space-y-0.5">
+                                {sale.utmCampaign && (
+                                  <p className="truncate" title={decodeName(sale.utmCampaign)}>
+                                    <span className="text-gray-400">Campaña: </span>
+                                    {decodeName(sale.utmCampaign)}
+                                  </p>
+                                )}
+                                {sale.utmMedium && (
+                                  <p className="truncate" title={decodeName(sale.utmMedium)}>
+                                    <span className="text-gray-400">Medio: </span>
+                                    {decodeName(sale.utmMedium)}
+                                  </p>
+                                )}
+                                {sale.utmContent && (
+                                  <p className="truncate" title={decodeName(sale.utmContent)}>
+                                    <span className="text-gray-400">Contenido: </span>
+                                    {decodeName(sale.utmContent)}
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-gray-500">
+                          {sale.transactionId ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>
