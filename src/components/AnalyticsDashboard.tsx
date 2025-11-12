@@ -85,6 +85,7 @@ interface SaleRecord {
   localTime: string;
   amount: number;
   currency: string;
+  productName?: string;
   buyerName?: string;
   buyerEmail?: string;
   buyerCountry?: string;
@@ -1020,6 +1021,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const basePayload = event.event_data?.data ?? event.event_data ?? {};
         const nestedPayload = basePayload?.data ?? {};
         const purchaseInfo = basePayload?.purchase ?? nestedPayload?.purchase ?? {};
+        const productInfo = basePayload?.product ?? nestedPayload?.product ?? {};
         const buyerInfo = basePayload?.buyer ?? nestedPayload?.buyer ?? {};
         const offerInfo = purchaseInfo?.offer ?? nestedPayload?.offer ?? {};
         const priceInfo = purchaseInfo?.price ?? nestedPayload?.price ?? {};
@@ -1045,6 +1047,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
           localTime: formatDateToTimezone(event.created_at, timezone),
           amount,
           currency,
+          productName: typeof productInfo?.name === 'string' ? productInfo.name : undefined,
           buyerName,
           buyerEmail: typeof buyerInfo?.email === 'string' ? buyerInfo.email : undefined,
           buyerCountry: buyerInfo?.address?.country ?? buyerInfo?.country,
@@ -3419,6 +3422,11 @@ export default function AnalyticsDashboard({ productId }: Props) {
                                     maximumFractionDigits: 2,
                                   })}
                             </span>
+                            {sale.productName && (
+                              <span className="text-xs text-indigo-500 truncate max-w-[200px]" title={sale.productName}>
+                                {sale.productName}
+                              </span>
+                            )}
                             {sale.offerName && (
                               <span
                                 className="text-xs text-gray-500 truncate max-w-[200px]"
