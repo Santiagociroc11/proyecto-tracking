@@ -476,16 +476,73 @@ const CustomTooltip = ({ active, payload, label }: any) => {
     );
 };
 
-const getEventPrice = (event: any): number => {
-    const commissions = event.event_data?.data?.commissions;
-    const purchasePrice = event.event_data?.data?.purchase?.price;
-    if (!purchasePrice) return 0;
-  
-    const producerCommission = commissions?.find((c: any) => c.source === 'PRODUCER');
-    if (producerCommission) {
-      return producerCommission.value;
+const getEventCommission = (event: any): { value: number; currency: string } => {
+  const eventPayload = event?.event_data ?? {};
+  const baseData = eventPayload?.data ?? {};
+  const nestedData = baseData?.data ?? {};
+
+  const commissions = baseData?.commissions ?? nestedData?.commissions ?? [];
+  const purchaseInfo = baseData?.purchase ?? nestedData?.purchase ?? {};
+  const priceInfo = purchaseInfo?.price ?? nestedData?.price ?? {};
+
+  const normalizeValue = (rawValue: any): number => {
+    if (typeof rawValue === 'number') {
+      return rawValue;
     }
-    return purchasePrice.value;
+    if (typeof rawValue === 'string') {
+      const parsed = parseFloat(rawValue);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  const normalizeCurrency = (source: any): string | undefined =>
+    source?.currency_value || source?.currency;
+
+  const fallbackCurrency =
+    normalizeCurrency(priceInfo) ||
+    (typeof purchaseInfo?.currency_value === 'string' ? purchaseInfo.currency_value : undefined) ||
+    'USD';
+
+  const findCommissionByPriority = () => {
+    if (!Array.isArray(commissions) || commissions.length === 0) return null;
+    const prioritySources = ['COPRODUCER', 'PRODUCER'];
+
+    for (const source of prioritySources) {
+      const match = commissions.find((commission: any) => commission?.source === source);
+      if (match) {
+        return match;
+      }
+    }
+
+    const firstNonMarketplace = commissions.find(
+      (commission: any) => commission?.source && commission.source !== 'MARKETPLACE'
+    );
+    if (firstNonMarketplace) {
+      return firstNonMarketplace;
+    }
+
+    return commissions[0];
+  };
+
+  const selectedCommission = findCommissionByPriority();
+
+  if (selectedCommission) {
+    return {
+      value: normalizeValue(selectedCommission.value ?? selectedCommission.amount ?? selectedCommission.price),
+      currency: normalizeCurrency(selectedCommission) || fallbackCurrency,
+    };
+  }
+
+  return {
+    value: normalizeValue(priceInfo?.value ?? priceInfo?.amount ?? priceInfo?.price),
+    currency: fallbackCurrency,
+  };
+};
+
+const getEventPrice = (event: any): number => {
+  const { value } = getEventCommission(event);
+  return value;
 };
 
 export default function AnalyticsDashboard({ productId }: Props) {
@@ -966,9 +1023,7 @@ export default function AnalyticsDashboard({ productId }: Props) {
         const buyerInfo = basePayload?.buyer ?? nestedPayload?.buyer ?? {};
         const offerInfo = purchaseInfo?.offer ?? nestedPayload?.offer ?? {};
         const priceInfo = purchaseInfo?.price ?? nestedPayload?.price ?? {};
-        const rawAmount = priceInfo?.value ?? priceInfo?.amount ?? priceInfo?.price ?? 0;
-        const amount = typeof rawAmount === 'number' ? rawAmount : parseFloat(rawAmount ?? '0') || 0;
-        const currency = priceInfo?.currency_value ?? priceInfo?.currency ?? '';
+        const { value: amount, currency } = getEventCommission(event);
         const utmData = event.event_data?.utm_data ?? basePayload?.utm_data ?? nestedPayload?.utm_data ?? null;
         const buyerNameParts = [buyerInfo?.first_name, buyerInfo?.last_name].filter(
           (part): part is string => typeof part === 'string' && part.trim().length > 0
